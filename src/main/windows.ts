@@ -7,7 +7,7 @@ const renderer = (file: string) => path.join(app.getAppPath(), 'out', 'renderer'
 const preload = () => path.join(app.getAppPath(), 'out', 'main', 'preload.js');
 
 export const PILL_W = 600;
-export const PILL_H = 100;
+export const PILL_H = 120;
 
 export function createPill(): BrowserWindow {
   const w = new BrowserWindow({
@@ -37,7 +37,7 @@ export function createPill(): BrowserWindow {
 export function placePill(w: BrowserWindow): void {
   const d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   const a = d.workArea;
-  w.setBounds({ x: Math.round(a.x + (a.width - PILL_W) / 2), y: Math.round(a.y + a.height - PILL_H - 12), width: PILL_W, height: PILL_H });
+  w.setBounds({ x: Math.round(a.x + (a.width - PILL_W) / 2), y: Math.round(a.y + a.height - PILL_H + 12), width: PILL_W, height: PILL_H });
 }
 
 export function showPill(w: BrowserWindow): void {

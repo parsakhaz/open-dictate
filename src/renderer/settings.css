@@ -509,20 +509,23 @@ code {
 }
 .steps {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  gap: 4px;
   margin-bottom: 16px;
 }
 .step {
   display: flex;
-  gap: 12px;
+  align-items: center;
+  gap: 14px;
   background: var(--card);
   border: 1px solid var(--stroke);
   border-radius: var(--radius);
   padding: 14px;
 }
 .step .carddesc {
-  line-height: 22px;
+  line-height: 24px;
+}
+.keys {
+  white-space: nowrap;
 }
 .stepnum {
   flex: none;

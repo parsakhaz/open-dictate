@@ -18,6 +18,8 @@ export type PillState =
   | { kind: 'toast'; message: string; undo?: boolean; ms: number };
 
 const BARS = 5;
+/** Segoe Fluent Icons: check, copy, warning, microphone, info. */
+const GLYPHS: Partial<Record<PillState['kind'], string>> = { done: '', copied: '', error: '', toast: '', info: '' };
 const root = document.getElementById('root')!;
 const bars = Array.from({ length: BARS }, () => h('span.bar'));
 const meter = h('div.meter', {}, ...bars);
@@ -39,7 +41,7 @@ function render(): void {
   const s = state;
   pill.dataset.kind = s.kind;
   undo.hidden = !(s.kind === 'toast' && s.undo);
-  glyph.textContent = s.kind === 'done' ? '✓' : s.kind === 'copied' ? '⧉' : s.kind === 'error' ? '!' : s.kind === 'toast' || s.kind === 'info' ? '•' : '';
+  glyph.textContent = GLYPHS[s.kind] ?? '';
   switch (s.kind) {
     case 'listening':
       text.textContent = partial ? tail(partial) : 'Listening…';

@@ -1,7 +1,7 @@
 // The cleanup chain: each step cleans the previous step's text; a step that fails, times out or fails the
 // guard leaves the previous text in place, so the transcript is never lost. Pure apart from the injected calls.
 import { checkOutput } from './guard';
-import { chatRequest, EMBERON_SYSTEM, fillTemplate, plainText } from './templating';
+import { chatRequest, cleanupMaxTokens, EMBERON_SYSTEM, fillTemplate, plainText } from './templating';
 import { type CleanupChain, DEFAULT_GUARD, type GuardThresholds, type StepResult, type VocabTerm } from './types';
 
 export type CleanupModel = 'gemma' | 'emberon';
@@ -35,6 +35,14 @@ export function stepsFor(chain: CleanupChain, v3Template: string, vocab: VocabTe
 
 class Timeout extends Error {}
 
+/**
+ * A step's time budget: `base` (3 s) covers any short dictation; a long one also gets time to generate its
+ * output (~15 ms a token on the iGPU), so a 2-minute dictation is cleaned instead of timing out.
+ */
+export function stepTimeout(base: number, input: string): number {
+  return base + Math.max(0, cleanupMaxTokens(input) - 128) * 15;
+}
+
 export async function runChain(raw: string, steps: ChainStep[], deps: ChainDeps, opts: ChainOptions = {}): Promise<{ text: string; steps: StepResult[] }> {
   const timeoutMs = opts.timeoutMs ?? 3000;
   let text = raw.trim();
@@ -48,11 +56,12 @@ export async function runChain(raw: string, steps: ChainStep[], deps: ChainDeps,
     const t0 = performance.now();
     const ctrl = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const budget = stepTimeout(timeoutMs, text);
     const timedOut = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
         ctrl.abort();
         reject(new Timeout());
-      }, timeoutMs);
+      }, budget);
     });
     try {
       const content = await Promise.race([deps.complete(step.model, chatRequest(step.system, text), ctrl.signal), timedOut]);
@@ -67,7 +76,7 @@ export async function runChain(raw: string, steps: ChainStep[], deps: ChainDeps,
       }
     } catch (err) {
       const ms = performance.now() - t0;
-      if (err instanceof Timeout) results.push({ model: step.model, status: 'timeout', ms, reason: `over ${timeoutMs} ms` });
+      if (err instanceof Timeout) results.push({ model: step.model, status: 'timeout', ms, reason: `over ${budget} ms` });
       else results.push({ model: step.model, status: 'error', ms, reason: (err as Error).message });
     } finally {
       clearTimeout(timer);

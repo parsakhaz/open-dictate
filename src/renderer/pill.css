@@ -11,7 +11,7 @@ body {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding: 0 24px 18px;
+  padding: 0 40px 36px;
   opacity: 0;
   transform: translateY(8px) scale(0.98);
   transition: opacity 140ms var(--ease), transform 220ms var(--ease);
@@ -101,8 +101,8 @@ body {
 
 .glyph {
   display: none;
-  font-size: 15px;
-  font-weight: 600;
+  font-family: 'Segoe Fluent Icons', 'Segoe MDL2 Assets';
+  font-size: 14px;
   line-height: 1;
 }
 [data-kind='done'] .glyph,

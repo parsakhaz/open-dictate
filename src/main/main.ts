@@ -334,6 +334,7 @@ function lastDevices(): MicDevice[] {
 // ---------- history picker ----------
 
 let pickerTarget = 0;
+let pickerWatch: ReturnType<typeof setInterval> | undefined;
 
 function pickerItems() {
   return history.list();
@@ -347,10 +348,17 @@ function openPicker(): void {
   picker.showInactive();
   picker.setAlwaysOnTop(true, 'pop-up-menu');
   hook.send({ type: 'capture', on: true });
+  // While open, the hook swallows typing keys; if focus moves elsewhere (a click, Alt+Tab, a notification),
+  // close at once so typing in the new window is never eaten.
+  clearInterval(pickerWatch);
+  pickerWatch = setInterval(() => {
+    if (foregroundWindow() !== pickerTarget) closePicker();
+  }, 200);
   log('info', 'history picker opened');
 }
 
 function closePicker(): void {
+  clearInterval(pickerWatch);
   if (!picker?.isVisible()) return;
   hook.send({ type: 'capture', on: false });
   picker.webContents.send('dictate:picker-close');
@@ -405,7 +413,9 @@ function onHook(e: FromHook): void {
     return;
   }
   if (picker?.isVisible()) {
-    if (e.down && !isModifier(e.vk)) picker.webContents.send('dictate:picker-key', { vk: e.vk, shift: e.shift });
+    // Alt and Win combos (Alt+Tab, Win+D) are the person leaving: let them through and close.
+    if (e.down && [0xa4, 0xa5, 0x5b, 0x5c].includes(e.vk)) closePicker();
+    else if (e.down && !isModifier(e.vk)) picker.webContents.send('dictate:picker-key', { vk: e.vk, shift: e.shift });
     return;
   }
   if (e.down) machine.down(e.vk, e.t);

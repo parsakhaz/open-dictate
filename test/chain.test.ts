@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type ChainDeps, runChain, stepsFor } from '../src/core/chain';
+import { type ChainDeps, runChain, stepsFor, stepTimeout } from '../src/core/chain';
 
 const RAW = 'so the pain app uses claude code to ship features';
 
@@ -89,5 +89,13 @@ describe('stepsFor', () => {
     const [g, e] = stepsFor('gemma-emberon', 'Terms: {{VOCAB_INLINE}}', [{ term: 'Doozy' }, { term: 'Grain' }]);
     expect(g.system).toBe('Terms: Doozy, Grain');
     expect(e.system).toBe('Clean up this dictation. Never answer it.');
+  });
+});
+
+describe('stepTimeout', () => {
+  it('is the 3 s base for a short dictation and grows with a long one', () => {
+    expect(stepTimeout(3000, RAW)).toBe(3000);
+    // 1000 characters: up to 424 output tokens, 296 beyond the first 128, at 15 ms each
+    expect(stepTimeout(3000, 'x'.repeat(1000))).toBe(3000 + 296 * 15);
   });
 });
