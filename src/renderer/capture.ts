@@ -30,6 +30,8 @@ let node: AudioWorkletNode | null = null;
 let ready: Promise<void> | null = null;
 let fakeWav: Uint8Array | undefined;
 let fakeBuffer: Promise<AudioBuffer> | null = null;
+/** When this recording's WAV started playing: a mic switch carries on from there, like a real mic would. */
+let fakeT0: number | undefined;
 
 export function prepare(): Promise<void> {
   if (!ready) {
@@ -70,7 +72,9 @@ async function openFake(wav: Uint8Array): Promise<BrowserStream> {
   fakeBuffer ??= ctx!.decodeAudioData(wav.slice().buffer);
   const src = ctx!.createBufferSource();
   src.buffer = await fakeBuffer;
-  src.start();
+  const now = ctx!.currentTime;
+  fakeT0 ??= now;
+  src.start(0, now - fakeT0);
   return {
     label: 'fake mic',
     source: src,
@@ -121,6 +125,7 @@ export function setLevelListener(cb: (rms: number, peak: number) => void): void 
 
 export function start(id: number, deviceId: string | null, gainDb: number, fake?: Uint8Array): Promise<void> {
   fakeWav = fake;
+  fakeT0 = undefined;
   return controller.start(id, deviceId, gainDb);
 }
 

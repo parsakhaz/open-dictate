@@ -26,7 +26,10 @@ export interface TargetPort {
   foreground(): number;
   /** True for the desktop, the taskbar and dictate's own windows: nothing to paste into. */
   noTextField(hwnd: number): boolean;
-  /** True when the focused control shows a text caret: a text field that will take the paste. */
+  /**
+   * True when the focused control shows a text caret (a text field that will take the paste), or the app is one
+   * whose fields never show a Win32 caret, so its absence proves nothing.
+   */
   hasCaret(hwnd: number): boolean;
 }
 

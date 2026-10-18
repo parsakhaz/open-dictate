@@ -61,7 +61,7 @@ dictate reuses voice-lab's models and llama.cpp build; it downloads nothing.
 - **Transcribing**, then **Cleaning…**
 - **Pasted**, after which it fades out.
 
-If there is no text field to paste into (the desktop, the taskbar), the text stays on the clipboard and the pill says **Copied — press Ctrl+V**. If the app shows no text caret (a web page with no field selected), dictate still pastes, but leaves the text on the clipboard too: **Pasted — also on the clipboard**. If the mic hears nothing for 2 s, the pill says so. Every dictation is saved to history before it is pasted.
+If there is no text field to paste into (the desktop, the taskbar), the text stays on the clipboard and the pill says **Copied — press Ctrl+V**. In a classic Windows app that shows no text caret (a list, a toolbar), dictate still pastes, but leaves the text on the clipboard too: **Pasted — also on the clipboard**. Browsers, Electron apps and terminals never show a Windows caret, even in a text field, so there dictate always pastes and restores your clipboard; if nothing was focused, the words are in the history (Right Ctrl + V). If the mic hears nothing for 2 s, the pill says so. Every dictation is saved to history before it is pasted.
 
 **History picker** (Right Ctrl + V):
 
@@ -125,7 +125,7 @@ Settings, history and the log live in `%APPDATA%\dictate\` (`settings.json`, `hi
   3. Write the text and send Ctrl+V with `SendInput`.
   4. After 350 ms, restore the clipboard, unless something else changed it in the meantime.
 
-  If the clipboard cannot be read (so it could not be put back) or written, dictate never overwrites it: the text is typed as Unicode key events instead. If the focused control shows no caret, the paste may have landed nowhere, so the text stays on the clipboard rather than being restored over.
+  If the clipboard cannot be read (so it could not be put back) or written, dictate never overwrites it: the text is typed as Unicode key events instead. If the focused control shows no caret, the paste may have landed nowhere, so the text stays on the clipboard rather than being restored over. That rule applies only where a caret means something: Chromium and Electron windows, Firefox and terminals never show one (desktop QA found an Edge textarea and a page body look the same), so there the paste is trusted and the clipboard restored.
 - **Robustness:**
   - single instance
   - llama-servers restart after a crash (1 s, 2 s, 4 s … backoff), and so do the recognizer and the hook
@@ -144,7 +144,7 @@ Measured on the target laptop (Ryzen AI Max+ PRO 395, Radeon 8060S iGPU, 128 GB)
 | Recognizer flush after release | ~90 ms |
 | Cleanup chain, warm, 1-sentence dictation | 280 ms (Gemma 230 ms + Emberon 47 ms) |
 | Fixture (14 s, 2 sentences) → STT flush → Gemma → Emberon → sink | 1085 ms |
-| Release-to-paste, median of 5 real dictations | not measured yet: desktop QA is deferred (see [Desktop QA](#desktop-qa)); the median is shown in **Settings → History** once you have dictated |
+| Release-to-paste, median of 5 dictations into Notepad (desktop QA, 5 s fixture) | **718 ms** to the clipboard being restored; the text appears about 350 ms earlier, since the restore waits 350 ms for the app to read the paste |
 | Idle CPU, whole process tree, 60 s | 0.6 % of one core (375 ms CPU per minute) |
 | Memory, whole process tree | 4.7 GB working set (Gemma's mlocked weights are 3.2 GB) |
 
@@ -198,7 +198,9 @@ For QA without a microphone, use `DICTATE_FAKE_MIC=path\to\file.wav`. It plays t
 
 ### Desktop QA
 
-`qa/qa.js` drives the real app on an unlocked desktop. It injects key presses and opens and types into Notepad, an Edge window and a terminal, so don't use the machine while it runs. It has not been run yet: the machine was locked throughout development.
+`qa/qa.js` drives the real app on an unlocked desktop. It injects key presses and opens and types into Notepad, an Edge window and a terminal, so don't use the machine while it runs (about 3 minutes). It saves your clipboard first and puts it back at the end, works in its own Notepad tab and closes only the windows and tabs it opened.
+
+Last run (2026-10-18, AC): **49/49 passed**, release-to-paste median 718 ms.
 
 ```powershell
 pnpm build
@@ -206,7 +208,7 @@ node qa/qa.js                 # every scenario
 node qa/qa.js ptt picker      # some: ptt toggle esc tap picker browser body terminal crash mic
 ```
 
-It covers hold-to-talk five times (with release-to-paste timing and the clipboard restored), double-tap toggle, Esc, a lone tap and Right Ctrl shortcuts, the history picker, an Edge text field, an Edge page with no field, a terminal, a Gemma crash, and a simulated mic unplug. It also records which targets show a text caret. Results go to `tmp/qa/out/summary.json` with screenshots, and its app data goes to `tmp/qa-data`, not your settings.
+It covers hold-to-talk five times (with release-to-paste timing and the clipboard restored), double-tap toggle, Esc, a lone tap and Right Ctrl shortcuts, the history picker, an Edge text field, an Edge page with no field, a terminal, a Gemma crash, and a simulated mic unplug. It also logs which targets show a Win32 caret (Notepad does; Edge and Windows Terminal don't). Results go to `tmp/qa/out/summary.json` with screenshots, and its app data goes to `tmp/qa-data`, not your settings.
 
 ## Licence
 

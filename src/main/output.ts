@@ -1,6 +1,6 @@
 // Wires the paste rules (paste.ts) to the real clipboard, SendInput and the foreground window.
 import { ClipboardItem, clipboard } from 'electron';
-import { caretRect, foregroundWindow, looksLikeNoTextTarget, sendCtrlV, typeText, windowPid } from '../native/win32';
+import { caretRect, foregroundWindow, looksLikeNoTextTarget, sendCtrlV, typeText, windowClass, windowPid } from '../native/win32';
 import { type ClipboardPort, PasteSink } from './paste';
 
 /** Clipboard calls that take longer than this are treated as failed: another app has it locked. */
@@ -45,6 +45,14 @@ const electronClipboard: ClipboardPort = {
   readText: () => within(clipboard.readText()),
 };
 
+/**
+ * Apps whose text fields never show a Win32 caret, so a missing caret says nothing about them: Chromium and
+ * Electron (desktop QA: an Edge textarea shows none, just like a page body), Firefox, and terminals. There the
+ * paste is trusted and the clipboard restored; the no-caret rule only applies where a caret is a real signal.
+ */
+const NO_WIN32_CARET = /^(Chrome_WidgetWin_\d+|MozillaWindowClass|CASCADIA_HOSTING_WINDOW_CLASS|ConsoleWindowClass)$/;
+const hidesCaret = (hwnd: number) => NO_WIN32_CARET.test(windowClass(hwnd));
+
 export function realPasteSink(opts: { modifiersDown: () => boolean; ownPid: number; log: (level: 'info' | 'warn' | 'error', msg: string) => void }): PasteSink {
   return new PasteSink({
     clipboard: electronClipboard,
@@ -52,7 +60,7 @@ export function realPasteSink(opts: { modifiersDown: () => boolean; ownPid: numb
     target: {
       foreground: foregroundWindow,
       noTextField: (hwnd) => looksLikeNoTextTarget(hwnd) || windowPid(hwnd) === opts.ownPid,
-      hasCaret: (hwnd) => hwnd === foregroundWindow() && caretRect() !== null,
+      hasCaret: (hwnd) => (hwnd === foregroundWindow() && caretRect() !== null) || hidesCaret(hwnd),
     },
     modifiersDown: opts.modifiersDown,
     log: opts.log,

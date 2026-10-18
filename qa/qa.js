@@ -11,14 +11,29 @@ const q = require('./run');
 const only = process.argv.slice(2);
 const want = (n) => !only.length || only.includes(n);
 const WAV = path.join(q.FIX, 's1.wav');
-const NOTE = path.join(q.ROOT, 'tmp', 'qa', 'target-notepad.txt');
+// A new file each run: rewriting a file Notepad still has open makes it ask about the conflict.
+const NOTE = path.join(q.ROOT, 'tmp', 'qa', `target-notepad-${Date.now()}.txt`);
 fs.mkdirSync(path.dirname(NOTE), { recursive: true });
 const HOLD = 5400;
 const latencies = [];
+let notepadWasRunning = true;
 
 function msFrom(log) {
   const m = [...log.matchAll(/dictation (\d+) ms release-to-output · (.*)/g)];
   return m.length ? { ms: Number(m[m.length - 1][1]), detail: m[m.length - 1][2] } : null;
+}
+
+async function closeNotepadTab(wasRunning) {
+  if (q.hwndOf('target-notepad') && (await q.focus('target-notepad'))) {
+    q.key(0x11, false);
+    await q.tap(0x53); // Ctrl+S: our scratch file, so closing it never prompts
+    q.key(0x11, true);
+    await q.sleep(400);
+    await q.closeTab('target-notepad');
+  }
+  if (q.hwndOf('target-notepad')) console.log('Notepad tab target-notepad left open');
+  else if (!wasRunning) q.ps('Get-Process notepad -ErrorAction SilentlyContinue | ForEach-Object { $_.CloseMainWindow() | Out-Null }');
+  fs.rmSync(NOTE, { force: true });
 }
 
 async function dictateHold(holdMs = HOLD) {
@@ -35,14 +50,16 @@ async function dictateHold(holdMs = HOLD) {
   fs.mkdirSync(q.DATA, { recursive: true });
   const settingsFile = path.join(q.DATA, 'settings.json');
   const s = fs.existsSync(settingsFile) ? JSON.parse(fs.readFileSync(settingsFile, 'utf8')) : {};
-  Object.assign(s, { onboarded: true, micOrder: [], output: 'paste', cleanup: 'gemma-emberon', toggle: null });
+  const devFile = path.join(q.DATA, 'qa-devices.json');
+  const AMD = { deviceId: 'amd', groupId: 'g-amd', label: 'Microphone Array (AMD Audio Device)' };
+  const BOYA = { deviceId: 'boya', groupId: 'g-boya', label: 'Microphone (BOYA mini 2) (2e8a:00f2)' };
+  // The preferred mic (BOYA) starts unplugged, so plugging it in switches to it.
+  const micOrder = want('mic') ? [{ label: BOYA.label }, { label: AMD.label }] : [];
+  Object.assign(s, { onboarded: true, micOrder, output: 'paste', cleanup: 'gemma-emberon', toggle: null });
   fs.writeFileSync(settingsFile, JSON.stringify(s, null, 2));
   fs.rmSync(path.join(q.DATA, 'history.json'), { force: true });
   fs.writeFileSync(NOTE, '');
-
-  const devFile = path.join(q.DATA, 'qa-devices.json');
-  const AMD = { deviceId: 'amd', label: 'Microphone Array (AMD Audio Device)' };
-  const BOYA = { deviceId: 'boya', label: 'Microphone (BOYA mini 2) (2e8a:00f2)' };
+  q.saveClipboard();
   fs.writeFileSync(devFile, JSON.stringify({ list: [AMD], defaultLabel: AMD.label }));
 
   const mark0 = q.logMark();
@@ -51,7 +68,10 @@ async function dictateHold(holdMs = HOLD) {
   await q.waitLog(/speech model loaded/, 10000, mark0);
   q.check('app starts and loads models', loaded);
 
-  const notepad = spawn('notepad.exe', [NOTE], { detached: true, stdio: 'ignore' });
+  // Windows 11 Notepad reopens the person's previous tabs in the window it starts. The QA works in its own tab and
+  // closes only that tab (saved first, so no prompt), and closes the window only if Notepad was not already open.
+  notepadWasRunning = q.ps('(Get-Process notepad -ErrorAction SilentlyContinue | Measure-Object).Count') !== '0';
+  spawn('notepad.exe', [NOTE], { detached: true, stdio: 'ignore' });
   await q.sleep(1500);
   const title = 'target-notepad';
   let base = '';
@@ -175,18 +195,16 @@ async function dictateHold(holdMs = HOLD) {
     spawn('cmd', ['/c', 'start', '', 'msedge', '--new-window', html], { stdio: 'ignore' });
     await q.sleep(3500);
     q.check('browser: textarea window focused', await q.focus('dictate-qa-browser'));
-    q.check('caret probe: Edge textarea shows a caret', q.caretInfo().hwndCaret !== 0, JSON.stringify(q.caretInfo()));
+    console.log(`info caret probe, Edge textarea: ${JSON.stringify(q.caretInfo())}`);
     q.setClipboard('SENTINEL-browser');
     const r = await dictateHold();
     const text = q.readText('dictate-qa-browser');
     q.check('browser: text pasted into a textarea', text.trim().length > 10, JSON.stringify(text).slice(0, 120));
     q.check('browser: clipboard restored', q.getClipboard() === 'SENTINEL-browser');
+    q.check('browser: delivery confirmed', /· pasted$/m.test(r.log), (msFrom(r.log) ?? {}).detail);
     q.shot('browser');
-    await q.tap(0x11, 10); // release any stuck ctrl
-    q.key(0x11, false);
-    await q.tap(0x57); // Ctrl+W closes our tab only
-    q.key(0x11, true);
-    void r;
+    await q.focus('dictate-qa-browser');
+    await q.closeTab('dictate-qa-browser');
   }
 
   if (want('body')) {
@@ -194,23 +212,23 @@ async function dictateHold(holdMs = HOLD) {
     spawn('cmd', ['/c', 'start', '', 'msedge', '--new-window', html], { stdio: 'ignore' });
     await q.sleep(3500);
     q.check('body: page window focused', await q.focus('dictate-qa-body'));
-    q.check('caret probe: Edge page body shows no caret', q.caretInfo().hwndCaret === 0, JSON.stringify(q.caretInfo()));
+    console.log(`info caret probe, Edge page body: ${JSON.stringify(q.caretInfo())}`);
     q.setClipboard('SENTINEL-body');
     const r = await dictateHold();
     q.shot('body');
-    const clip = q.getClipboard();
-    q.check('body: text kept on the clipboard (not restored over)', clip !== 'SENTINEL-body' && clip.length > 10, JSON.stringify(clip).slice(0, 100));
-    q.check('body: delivery logged as unconfirmed', /kept on the clipboard/.test(r.log), (msFrom(r.log) ?? {}).detail);
-    q.key(0x11, false);
-    await q.tap(0x57);
-    q.key(0x11, true);
+    // Chromium shows no Win32 caret even in a textarea, so a page body cannot be told apart: dictate pastes,
+    // restores the clipboard, and the words are in the history (Right Ctrl+V).
+    q.check('body: clipboard restored', q.getClipboard() === 'SENTINEL-body', q.getClipboard().slice(0, 60));
+    q.check('body: the dictation is in the history', fs.readFileSync(path.join(q.DATA, 'history.json'), 'utf8').includes('Kubernetes'), (msFrom(r.log) ?? {}).detail);
+    await q.focus('dictate-qa-body');
+    await q.closeTab('dictate-qa-body');
   }
 
   if (want('terminal')) {
     const term = spawn('cmd.exe', ['/c', 'start', '"dictate-qa-term"', 'cmd.exe', '/k', 'title dictate-qa-term'], { stdio: 'ignore' });
     await q.sleep(2000);
     q.check('terminal: focused', await q.focus('dictate-qa-term'));
-    q.check('caret probe: terminal shows a caret', q.caretInfo().hwndCaret !== 0, JSON.stringify(q.caretInfo()));
+    console.log(`info caret probe, terminal: ${JSON.stringify(q.caretInfo())}`);
     q.setClipboard('SENTINEL-term');
     await dictateHold();
     await q.sleep(500);
@@ -218,9 +236,14 @@ async function dictateHold(holdMs = HOLD) {
     const t = q.readText('dictate-qa-term');
     q.check('terminal: text pasted at the prompt', /\w{3,}.*\w{3,}/.test(t.split('\n').filter((l) => l.includes('>')).pop() ?? ''), JSON.stringify(t.split('\n').filter((l) => l.includes('>')).pop() ?? '').slice(0, 140));
     q.check('terminal: clipboard restored', q.getClipboard() === 'SENTINEL-term');
-    try {
-      execFileSync('powershell', ['-NoProfile', '-Command', "Get-Process cmd | Where-Object { $_.MainWindowTitle -like '*dictate-qa-term*' } | Stop-Process -Force"]);
-    } catch {}
+    // The tab may live in the person's own Windows Terminal: never kill a process, type exit into our tab.
+    if ((await q.focus('dictate-qa-term')) && q.fgTitle().includes('dictate-qa-term')) {
+      await q.tap(0x1b);
+      for (const c of 'EXIT') await q.tap(c.charCodeAt(0), 20);
+      await q.tap(0x0d);
+      await q.sleep(800);
+    }
+    if (q.hwndOf('dictate-qa-term')) console.log('terminal tab dictate-qa-term left open');
     void term;
   }
 
@@ -228,9 +251,12 @@ async function dictateHold(holdMs = HOLD) {
     await q.focus(title);
     const before = q.readText(title);
     const mark = q.logMark();
-    execFileSync('powershell', ['-NoProfile', '-Command', "Get-CimInstance Win32_Process -Filter \"Name='llama-server.exe'\" | Where-Object { $_.CommandLine -like '*gemma-4*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"]);
-    await q.sleep(300);
+    // Gemma dies near the end of the hold, so it is still restarting when the cleanup runs.
+    const kill = setTimeout(() => {
+      execFileSync('powershell', ['-NoProfile', '-Command', "Get-CimInstance Win32_Process -Filter \"Name='llama-server.exe'\" | Where-Object { $_.CommandLine -like '*gemma-4*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"]);
+    }, HOLD - 600);
     const r = await dictateHold();
+    clearTimeout(kill);
     const added = q.readText(title).slice(before.length).trim();
     q.check('Gemma crash: dictation still pasted', added.length > 10, JSON.stringify(added).slice(0, 120));
     q.check('Gemma crash: fallback logged', /gemma (skipped|error|timeout)/.test(r.log), (msFrom(r.log) ?? {}).detail);
@@ -238,16 +264,15 @@ async function dictateHold(holdMs = HOLD) {
   }
 
   if (want('mic')) {
-    s.micOrder = [BOYA.label, AMD.label];
-    // set the preference through the device file: plug BOYA in (with the preference already saved)
+    // plug the preferred BOYA in
     const mark = q.logMark();
-    fs.writeFileSync(settingsFile, JSON.stringify(s, null, 2));
     fs.writeFileSync(devFile, JSON.stringify({ list: [AMD, BOYA], defaultLabel: AMD.label }));
-    await q.sleep(900);
+    q.check('mic: reconnect logged as a switch', await q.waitLog(/switched to Microphone \(BOYA/, 3000, mark));
+    await q.sleep(300);
     q.shot('mic-switched');
-    q.check('mic: reconnect logged as a switch', /switched to Microphone \(BOYA/.test(q.logSince(mark)) || true);
     fs.writeFileSync(devFile, JSON.stringify({ list: [AMD], defaultLabel: AMD.label }));
-    await q.sleep(900);
+    await q.waitLog(/disconnected — using/, 3000, mark);
+    await q.sleep(300);
     q.shot('mic-disconnected');
     q.check('mic: disconnect toast logged', /disconnected — using/.test(q.logSince(mark)), q.logSince(mark).split('\n').filter((l) => /mic|switch|disconnect/i.test(l)).join(' | ').slice(0, 300));
     // mid-recording unplug keeps the words
@@ -268,16 +293,16 @@ async function dictateHold(holdMs = HOLD) {
   }
 
   q.stopApp();
-  try {
-    process.kill(notepad.pid);
-  } catch {}
-  execFileSync('powershell', ['-NoProfile', '-Command', `Get-Process notepad -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -like '*target-notepad*' } | Stop-Process -Force`]);
+  q.restoreClipboard();
+  await closeNotepadTab(notepadWasRunning);
   const sorted = [...latencies].sort((a, b) => a - b);
   const summary = { results: q.results, latencies, median: sorted.length ? sorted[Math.floor(sorted.length / 2)] : null };
   fs.writeFileSync(path.join(q.OUT, 'summary.json'), JSON.stringify(summary, null, 2));
   console.log(`\n${q.results.filter((r) => r.ok).length}/${q.results.length} passed; release-to-paste ms: ${latencies.join(', ')} (median ${summary.median})`);
-})().catch((e) => {
+})().catch(async (e) => {
   console.error(e);
   q.stopApp();
+  q.restoreClipboard();
+  await closeNotepadTab(notepadWasRunning);
   process.exit(1);
 });

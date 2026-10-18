@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { resolveModelsDir, DEFAULT_MODELS_DIR, STT_MODEL } from '../src/core/settings';
-import { Stt } from '../src/engine/stt';
+import { DEFAULT_MODELS_DIR, resolveModelsDir, STT_MODEL } from '../src/core/settings';
 import type { SherpaModule } from '../src/engine/sherpaTypes';
+import { Stt } from '../src/engine/stt';
 import { readWav } from '../src/engine/wav';
 
 const modelDir = path.join(resolveModelsDir(process.env.DICTATE_MODELS_DIR || DEFAULT_MODELS_DIR, fs.existsSync), STT_MODEL);

@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { type ChainDeps, runChain, stepsFor } from '../src/core/chain';
-import { chatRequest } from '../src/core/templating';
 import { DEFAULT_LLAMA_SERVER, DEFAULT_MODELS_DIR, EMBERON_GGUF, GEMMA_GGUF, resolveModelsDir } from '../src/core/settings';
+import { chatRequest } from '../src/core/templating';
 import { parseVocabularyFile } from '../src/core/vocabulary';
 import { LlamaServer } from '../src/engine/llama';
 

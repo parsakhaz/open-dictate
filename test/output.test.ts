@@ -7,6 +7,8 @@ const board = vi.hoisted(() => ({
   writes: [] as string[],
   typed: [] as string[],
   cleared: 0,
+  caret: true,
+  cls: 'Notepad',
 }));
 
 vi.mock('electron', () => {
@@ -48,7 +50,8 @@ vi.mock('electron', () => {
 });
 
 vi.mock('../src/native/win32', () => ({
-  caretRect: () => ({ x: 0, y: 0, width: 1, height: 10 }),
+  caretRect: () => (board.caret ? { x: 0, y: 0, width: 1, height: 10 } : null),
+  windowClass: () => board.cls,
   foregroundWindow: () => 42,
   looksLikeNoTextTarget: () => false,
   windowPid: () => 1,
@@ -71,6 +74,8 @@ beforeEach(() => {
   board.writes = [];
   board.typed = [];
   board.cleared = 0;
+  board.caret = true;
+  board.cls = 'Notepad';
 });
 
 describe('realPasteSink', () => {
@@ -89,6 +94,26 @@ describe('realPasteSink', () => {
     expect(board.cleared).toBe(0);
     expect(board.text).toBe('OLD');
   });
+});
+
+describe('realPasteSink and the caret', () => {
+  it('keeps the text on the clipboard when a Win32 app shows no caret', async () => {
+    board.caret = false;
+    const d = await sink().deliver('hello', 'paste');
+    expect(d).toMatchObject({ pasted: true, copied: true, confirmed: false });
+    expect(board.text).toBe('hello');
+  });
+
+  it.each(['Chrome_WidgetWin_1', 'MozillaWindowClass', 'CASCADIA_HOSTING_WINDOW_CLASS', 'ConsoleWindowClass'])(
+    'restores the clipboard in %s, whose text fields never show a Win32 caret (desktop QA: an Edge textarea)',
+    async (cls) => {
+      board.caret = false;
+      board.cls = cls;
+      const d = await sink().deliver('hello', 'paste');
+      expect(d).toMatchObject({ pasted: true, confirmed: true });
+      expect(board.text).toBe('OLD');
+    },
+  );
 });
 
 describe('realPasteSink with an empty clipboard', () => {

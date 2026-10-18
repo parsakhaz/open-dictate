@@ -2,10 +2,10 @@
 // locally, cleaned by local LLMs and typed into the focused app.
 import fs from 'node:fs';
 import path from 'node:path';
-import { app, clipboard, ipcMain, MessageChannelMain, Menu, powerMonitor, screen, shell, Tray, type UtilityProcess, utilityProcess } from 'electron';
+import { app, clipboard, ipcMain, Menu, MessageChannelMain, powerMonitor, screen, shell, Tray, type UtilityProcess, utilityProcess } from 'electron';
 import { defaultGainDb } from '../core/audio';
 import { HistoryStore } from '../core/history';
-import { type Bindings, bindingFromKeys, bindingLabel, HotkeyMachine, type HotkeyAction, isModifier, type RecordMode } from '../core/hotkeys';
+import { type Bindings, bindingFromKeys, bindingLabel, type HotkeyAction, HotkeyMachine, isModifier, type RecordMode } from '../core/hotkeys';
 import { type MicDevice, type MicEvent, MicSelector, micKey, micName } from '../core/mics';
 import { applyEnv, defaultSettings, parseSettings, resolveModelsDir, STT_MODEL } from '../core/settings';
 import type { Binding, Settings } from '../core/types';
@@ -23,6 +23,7 @@ import { type PickRequest, pickFromHistory } from './pick';
 import { PickerController, type PickerWindow } from './picker';
 import { finishDictation } from './pipeline';
 import { debouncedWriter, readJson, writeJson } from './store';
+import { SttLink } from './sttlink';
 import { createPicker, createPill, createSettings, placePicker, showPill } from './windows';
 
 if (process.env.DICTATE_DATA_DIR) app.setPath('userData', process.env.DICTATE_DATA_DIR);
@@ -254,6 +255,7 @@ function startStt(): void {
   child.on('exit', (code) => {
     if (stt !== child) return;
     stt = undefined;
+    sttLink.setWorker(undefined);
     sttReady = false;
     if (quitting) return;
     log('error', `speech recognizer exited (${code}); restarting`);
@@ -261,11 +263,15 @@ function startStt(): void {
     setTimeout(startStt, 1000);
   });
   child.postMessage({ type: 'init', modelDir: dir, threads: settings.sttThreads });
-  // The capture renderer talks to the recognizer directly, in order, without a main-process hop.
+  sttLink.setWorker(child);
+}
+
+// The capture renderer talks to the recognizer directly, in order, without a main-process hop.
+const sttLink = new SttLink<UtilityProcess>((child) => {
   const { port1, port2 } = new MessageChannelMain();
   child.postMessage({ type: 'attach' }, [port1]);
   pill.webContents.postMessage('dictate:stt-port', null, [port2]);
-}
+});
 
 // ---------- microphones ----------
 
@@ -611,7 +617,10 @@ function registerIpc(): void {
     return state();
   });
 
-  ipcMain.on('dictate:pill-ready', () => log('info', 'pill ready'));
+  ipcMain.on('dictate:pill-ready', () => {
+    log('info', 'pill ready');
+    sttLink.pillReady();
+  });
   ipcMain.on('dictate:pill-hidden', () => {
     if (!rec?.shown) pill.hide();
   });
@@ -717,6 +726,7 @@ async function main(): Promise<void> {
   pill.webContents.on('render-process-gone', (_e, d) => {
     log('error', `pill renderer gone: ${d.reason}`);
     if (!quitting) {
+      sttLink.pillGone();
       pill = createPill();
       const old = stt;
       stt = undefined;
