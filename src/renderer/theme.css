@@ -1,0 +1,77 @@
+/* Windows 11 dark: Mica/acrylic-like surfaces, Segoe UI Variable, 8 px corners, thin scrollbars. */
+:root {
+  color-scheme: dark;
+  --font: 'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-display: 'Segoe UI Variable Display', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  --surface: rgba(32, 32, 32, 0.94);
+  --surface-solid: #202020;
+  --layer: rgba(58, 58, 58, 0.3);
+  --card: rgba(255, 255, 255, 0.0605);
+  --card-hover: rgba(255, 255, 255, 0.0837);
+  --card-press: rgba(255, 255, 255, 0.0326);
+  --stroke: rgba(255, 255, 255, 0.0698);
+  --stroke-strong: rgba(255, 255, 255, 0.093);
+  --divider: rgba(255, 255, 255, 0.0837);
+  --text: #ffffff;
+  --text-2: rgba(255, 255, 255, 0.786);
+  --text-3: rgba(255, 255, 255, 0.544);
+  --text-4: rgba(255, 255, 255, 0.3628);
+  --accent: #60cdff;
+  --accent-text: #000000;
+  --accent-hover: #5ab8e6;
+  --red: #ff5c5c;
+  --amber: #fce100;
+  --green: #6ccb5f;
+  --shadow: 0 8px 16px rgba(0, 0, 0, 0.26), 0 0 1px rgba(0, 0, 0, 0.5);
+  --shadow-flyout: 0 14px 28px rgba(0, 0, 0, 0.32), 0 0 1px rgba(0, 0, 0, 0.6);
+  --radius: 8px;
+  --radius-sm: 4px;
+  --ease: cubic-bezier(0.1, 0.9, 0.2, 1);
+  --fast: 167ms;
+  --normal: 250ms;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.36);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}
