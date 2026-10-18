@@ -5,7 +5,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { termHits, wer } from '../../../voice-lab/voice-lab/src/core/scoring';
 import { dbfs } from '../src/core/audio';
 import { type ChainDeps, runChain, stepsFor } from '../src/core/chain';
 import { DEFAULT_SEGMENTER, LiveCleanup, Segmenter } from '../src/core/live';
@@ -82,6 +81,8 @@ describe.skipIf(!on)('live cleanup benchmark', () => {
   }
 
   it('accuracy: per-sentence cleanup with context against whole-dictation cleanup', async () => {
+    // voice-lab's scoring, read-only; loaded here so CI (which has no voice-lab checkout) can skip this file.
+    const { termHits, wer } = await import('../../../voice-lab/voice-lab/src/core/scoring');
     const bank = (JSON.parse(fs.readFileSync(path.join(VL, 'defaults', 'reference-sentences.json'), 'utf8')) as { sentences: { id: string; text: string }[] }).sentences;
     // Three-sentence dictations from the long and the vocabulary sentences (s09-s30).
     const pool = bank.filter((s) => Number(s.id.slice(1)) >= 9);
