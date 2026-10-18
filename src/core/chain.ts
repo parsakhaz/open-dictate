@@ -18,9 +18,20 @@ export interface ChainDeps {
   complete: (model: CleanupModel, body: Record<string, unknown>, signal: AbortSignal) => Promise<string>;
 }
 
+/** One step's work on one piece of a dictation: what went in and what came out (its input, if it failed). */
+export interface Turn {
+  model: CleanupModel;
+  input: string;
+  output: string;
+}
+
 export interface ChainOptions {
   timeoutMs?: number;
   guard?: GuardThresholds;
+  /** Earlier pieces of the same dictation (live cleanup): each step sees its own earlier turns as chat history. */
+  context?: Turn[];
+  /** Aborts the whole chain (Esc). */
+  signal?: AbortSignal;
 }
 
 /** Gemma with prompt v3 goes first: run the other way round, Emberon mangles names such as "Doozy". */
@@ -47,18 +58,27 @@ export function stepTimeout(base: number, input: string): number {
   return Math.min(MAX_STEP_MS, base + Math.max(0, cleanupMaxTokens(input) - 128) * 15);
 }
 
-export async function runChain(raw: string, steps: ChainStep[], deps: ChainDeps, opts: ChainOptions = {}): Promise<{ text: string; steps: StepResult[] }> {
+export async function runChain(raw: string, steps: ChainStep[], deps: ChainDeps, opts: ChainOptions = {}): Promise<{ text: string; steps: StepResult[]; turns: Turn[] }> {
   const timeoutMs = opts.timeoutMs ?? 3000;
   let text = raw.trim();
   const results: StepResult[] = [];
-  if (!text) return { text, steps: results };
+  const turns: Turn[] = [];
+  if (!text) return { text, steps: results, turns };
   for (const step of steps) {
+    if (opts.signal?.aborted) {
+      results.push({ model: step.model, status: 'skipped', ms: 0, reason: 'cancelled' });
+      continue;
+    }
     if (!(await deps.ready(step.model))) {
       results.push({ model: step.model, status: 'skipped', ms: 0, reason: 'not running' });
       continue;
     }
     const t0 = performance.now();
     const ctrl = new AbortController();
+    const onAbort = () => ctrl.abort();
+    opts.signal?.addEventListener('abort', onAbort);
+    const input = text;
+    const history = (opts.context ?? []).filter((t) => t.model === step.model).map((t) => ({ user: t.input, assistant: t.output }));
     let timer: ReturnType<typeof setTimeout> | undefined;
     const budget = stepTimeout(timeoutMs, text);
     const timedOut = new Promise<never>((_, reject) => {
@@ -68,7 +88,7 @@ export async function runChain(raw: string, steps: ChainStep[], deps: ChainDeps,
       }, budget);
     });
     try {
-      const content = await Promise.race([deps.complete(step.model, chatRequest(step.system, text), ctrl.signal), timedOut]);
+      const content = await Promise.race([deps.complete(step.model, chatRequest(step.system, text, history), ctrl.signal), timedOut]);
       const out = plainText(content);
       const ms = performance.now() - t0;
       const guard = out ? checkOutput(text, out, opts.guard ?? DEFAULT_GUARD) : { ok: false, reason: 'empty reply' };
@@ -84,7 +104,9 @@ export async function runChain(raw: string, steps: ChainStep[], deps: ChainDeps,
       else results.push({ model: step.model, status: 'error', ms, reason: (err as Error).message });
     } finally {
       clearTimeout(timer);
+      opts.signal?.removeEventListener('abort', onAbort);
     }
+    turns.push({ model: step.model, input, output: text });
   }
-  return { text, steps: results };
+  return { text, steps: results, turns };
 }

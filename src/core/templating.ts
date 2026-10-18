@@ -31,12 +31,18 @@ export function cleanupMaxTokens(input: string): number {
 
 /**
  * llama-server /v1/chat/completions body. The system prompt is byte-identical on every call, so with
- * cache_prompt the server reuses its KV cache and only processes the new transcript.
+ * cache_prompt the server reuses its KV cache and only processes the new transcript. `history` is the earlier
+ * sentences of the same dictation, cleaned while the person spoke, as prior turns: each request then extends the
+ * previous one, so the cache covers them too, and the model keeps names and terms consistent.
  */
-export function chatRequest(system: string, user: string): Record<string, unknown> {
+export function chatRequest(system: string, user: string, history: { user: string; assistant: string }[] = []): Record<string, unknown> {
   return {
     messages: [
       { role: 'system', content: system },
+      ...history.flatMap((t) => [
+        { role: 'user', content: t.user },
+        { role: 'assistant', content: t.assistant },
+      ]),
       { role: 'user', content: user },
     ],
     temperature: 0,

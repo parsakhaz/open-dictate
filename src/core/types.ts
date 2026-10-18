@@ -60,6 +60,10 @@ export interface Settings {
   sounds: boolean;
   /** How long the mic stays open after a dictation, so a follow-up starts instantly. */
   micWarm: 'off' | '30s' | 'always';
+  /** Clean finished sentences while the person is still speaking. */
+  liveCleanup: boolean;
+  /** Live cleanup's fallback sentence split: a pause at least this long. */
+  livePauseMs: number;
   historyLimit: number;
   modelsDir: string;
   llamaServer: string;

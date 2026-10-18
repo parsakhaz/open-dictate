@@ -3,10 +3,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { app, clipboard, ipcMain, Menu, MessageChannelMain, powerMonitor, screen, shell, Tray, type UtilityProcess, utilityProcess } from 'electron';
-import { defaultGainDb } from '../core/audio';
+import { dbfs, defaultGainDb } from '../core/audio';
 import { CaptureController, type CaptureEvents } from '../core/capture';
+import { runChain } from '../core/chain';
 import { HistoryStore } from '../core/history';
 import { type Bindings, bindingFromKeys, bindingLabel, type HotkeyAction, HotkeyMachine, isModifier, menuMaskKeys, type RecordMode } from '../core/hotkeys';
+import { DEFAULT_SEGMENTER, LiveCleanup, Segmenter } from '../core/live';
 import { type MicDevice, type MicEvent, MicSelector, micKey, micName } from '../core/mics';
 import { applyEnv, defaultSettings, parseSettings, resolveModelsDir, STT_MODEL } from '../core/settings';
 import type { Binding, Settings } from '../core/types';
@@ -87,6 +89,9 @@ interface Session {
   partial: string;
   /** Audio is arriving: the pill's meter is live and the start cue has played (or will, once shown). */
   live: boolean;
+  /** Live cleanup ("Clean up as I speak"): sentences split off the streaming transcript and cleaned early. */
+  segmenter?: Segmenter;
+  cleaner?: LiveCleanup;
   final?: (text: string) => void;
 }
 
@@ -147,6 +152,7 @@ function onHotkey(a: HotkeyAction): void {
       // Capture starts at key down so the first word is not lost; the pill waits until this is a hold or a double-tap.
       keyDownAt = performance.timeOrigin + performance.now();
       router.start(rec.id, micDevice()?.deviceId ?? null, gainFor(micDevice()));
+      startLiveCleanup(rec);
       pillSend('dictate:enumerate');
       hook.send({ type: 'recording', on: true });
       return;
@@ -179,6 +185,7 @@ function onHotkey(a: HotkeyAction): void {
       hook.send({ type: 'recording', on: false });
       if (!s) return;
       router.cancel(s.id);
+      stopLiveCleanup(s, true);
       if (a.reason === 'escape' && s.shown) {
         sound('cancel');
         pillSend('dictate:pill', { kind: 'info', message: 'Cancelled' });
@@ -211,6 +218,7 @@ async function stopRecording(): Promise<void> {
   });
   router.stop(s.id);
   const raw = await final;
+  stopLiveCleanup(s, false);
   finishing.delete(s.id);
   applyPendingMicSwitch();
   const sttMs = performance.now() - s.releasedAt;
@@ -220,7 +228,20 @@ async function stopRecording(): Promise<void> {
     return idleTray();
   }
   pillSend('dictate:partial', raw);
-  const result = await finishDictation(raw, cleanup.steps(), settings.output, s.releasedAt, { chain: cleanup.deps(), sink, history, saveHistory: () => saveHistory.now(), log }, (phase) => {
+  const live = s.cleaner;
+  const clean = live
+    ? async (heard: string) => {
+        try {
+          const r = await live.finish(heard);
+          log('info', `live cleanup ${s.id}: ${r.early} sentence${r.early === 1 ? '' : 's'} cleaned while speaking, ${r.redone} redone after a revision`);
+          return r;
+        } catch (err) {
+          log('warn', `live cleanup ${s.id} failed (${(err as Error).message}); cleaning the whole dictation`);
+          return runChain(heard, cleanup.steps(), cleanup.deps());
+        }
+      }
+    : undefined;
+  const result = await finishDictation(raw, cleanup.steps(), settings.output, s.releasedAt, { chain: cleanup.deps(), sink, history, saveHistory: () => saveHistory.now(), log, clean }, (phase) => {
     if (phase === 'cleaning') pillSend('dictate:pill', { kind: 'cleaning' });
   });
   log('info', `dictation ${s.id}: final after ${sttMs.toFixed(0)} ms`);
@@ -265,6 +286,11 @@ function startStt(): void {
       const s = rec?.id === m.id ? rec : finishing.get(m.id);
       if (!s) return;
       s.partial = m.text;
+      if (s.segmenter && s.cleaner) {
+        const committed = s.segmenter.update(m.text, performance.now());
+        s.cleaner.revised(s.segmenter.takeRevised());
+        s.cleaner.committed(committed);
+      }
       pillSend('dictate:partial', m.text);
     } else if (m.type === 'final') {
       const s = finishing.get(m.id);
@@ -298,6 +324,42 @@ const sttLink = new SttLink<UtilityProcess>((child) => {
   child.postMessage({ type: 'attach' }, [port1]);
   pill.webContents.postMessage('dictate:stt-port', null, [port2]);
 });
+
+// ---------- live cleanup ----------
+
+/** Below this (after gain) the speaker is pausing, for live cleanup's fallback sentence split. */
+const PAUSE_DBFS = -45;
+let liveTimer: ReturnType<typeof setInterval> | undefined;
+let silentSince: number | null = null;
+
+function startLiveCleanup(s: Session): void {
+  const steps = cleanup.steps();
+  if (!settings.liveCleanup || !steps.length) return;
+  s.segmenter = new Segmenter({ ...DEFAULT_SEGMENTER, pauseMs: settings.livePauseMs });
+  s.cleaner = new LiveCleanup((raw, context, signal) => runChain(raw, steps, cleanup.deps(), { context, signal }));
+  silentSince = null;
+  clearInterval(liveTimer);
+  liveTimer = setInterval(() => {
+    if (rec !== s || !s.segmenter || !s.cleaner) return;
+    s.cleaner.committed(s.segmenter.tick(performance.now()));
+  }, 100);
+}
+
+/** Native capture's levels: where the speaker pauses (the browser path keeps its levels in the pill). */
+function liveLevel(rms: number): void {
+  const seg = rec?.segmenter;
+  if (!seg) return;
+  if (dbfs(rms) < PAUSE_DBFS) silentSince ??= performance.now();
+  else silentSince = null;
+  seg.silence(silentSince);
+}
+
+/** Recording over: no more pause splits; on Esc everything stops, including requests in flight. */
+function stopLiveCleanup(s: Session, cancelled: boolean): void {
+  clearInterval(liveTimer);
+  liveTimer = undefined;
+  if (cancelled) s.cleaner?.cancel();
+}
 
 // ---------- capture: native WASAPI, or the pill's browser capture ----------
 
@@ -381,7 +443,10 @@ function startCapture(): void {
     lost: micLost,
     failed: captureFailed,
     silent: silentState,
-    level: (rms) => pillSend('dictate:level', rms),
+    level: (rms) => {
+      pillSend('dictate:level', rms);
+      liveLevel(rms);
+    },
   };
   nativeCapture = new CaptureController(nm, events);
   warm = new WarmMic({

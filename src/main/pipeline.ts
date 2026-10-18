@@ -30,6 +30,8 @@ export interface PipelineDeps {
   log: (level: 'info' | 'warn' | 'error', msg: string) => void;
   /** Per-step timeout; 3 s by default. */
   stepTimeoutMs?: number;
+  /** Replaces the whole-dictation chain: live cleanup, which cleaned most sentences while the person spoke. */
+  clean?: (heard: string) => Promise<{ text: string; steps: StepResult[] }>;
 }
 
 export interface DictationResult {
@@ -66,7 +68,7 @@ export async function finishDictation(raw: string, steps: ChainStep[], mode: Out
   const heard = raw.trim();
   if (!heard) return { steps: [] };
   if (steps.length) onPhase('cleaning');
-  const cleaned = await runChain(heard, steps, deps.chain, { timeoutMs: deps.stepTimeoutMs ?? 3000 });
+  const cleaned = deps.clean ? await deps.clean(heard) : await runChain(heard, steps, deps.chain, { timeoutMs: deps.stepTimeoutMs ?? 3000 });
   for (const s of cleaned.steps) if (s.status !== 'ok') deps.log('warn', `cleanup ${s.model} ${s.status}${s.reason ? `: ${s.reason}` : ''}`);
   onPhase('delivering');
   // Into history, on disk, before delivery: if delivery hangs or the app quits mid-paste, the words are kept.

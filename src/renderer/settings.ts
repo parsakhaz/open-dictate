@@ -363,6 +363,11 @@ function cleanupPage(): Node[] {
         ['off', 'Off', 'Type exactly what the recognizer heard.'],
       ], (v) => set({ cleanup: v })),
     ),
+    card(
+      'Clean up as I speak',
+      'Finished sentences are cleaned while you are still talking, so a long dictation is ready sooner after you let go. The text is still pasted once, at the end.',
+      toggle(s.liveCleanup, (v) => set({ liveCleanup: v })),
+    ),
     h('h2', {}, 'On battery'),
     card('Unload models when idle', `Free the GPU after this long without dictating on battery. They reload on the next key press (about 5 s).${st.onBattery ? ' On battery now.' : ''}`, select(String(s.batteryUnloadMinutes), [['0', 'Never'], ['5', '5 minutes'], ['15', '15 minutes'], ['30', '30 minutes'], ['60', '1 hour']], (v) => set({ batteryUnloadMinutes: Number(v) }))),
     card('Emberon only on battery', 'Skip Gemma while unplugged, for less GPU work.', toggle(s.batteryEmberonOnly, (v) => set({ batteryEmberonOnly: v }))),
