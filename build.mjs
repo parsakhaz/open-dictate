@@ -8,7 +8,7 @@ const node = { ...common, platform: 'node', format: 'cjs', external: ['electron'
 mkdirSync('out/renderer', { recursive: true });
 await Promise.all([
   build({ ...node, entryPoints: { 'main/main': 'src/main/main.ts', 'main/preload': 'src/main/preload.ts' }, outdir: 'out' }),
-  build({ ...node, entryPoints: { 'engine/stt-worker': 'src/engine/stt-worker.ts', 'native/keyhook': 'src/native/keyhook-worker.ts' }, outdir: 'out' }),
+  build({ ...node, entryPoints: { 'engine/stt-worker': 'src/engine/stt-worker.ts', 'native/keyhook': 'src/native/keyhook-worker.ts', 'native/mic': 'src/native/mic-worker.ts' }, outdir: 'out' }),
   build({
     ...common,
     platform: 'browser',

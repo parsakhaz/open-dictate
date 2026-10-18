@@ -78,7 +78,7 @@ Open **Settings** from the tray (or click the tray icon).
 | Page | What you can change |
 | --- | --- |
 | Hotkeys & output | Dictation key (default Right Ctrl), history picker key (Right Ctrl + V), optional toggle combo (off), output mode (paste / clipboard only / both), sounds, start with Windows. |
-| Microphone | Pick the mic, with a live meter for every input. Set input gain per mic: +20 dB by default for the quiet built-in *Microphone Array (AMD Audio Device)*, 0 dB for the others. Loud peaks are softened instead of clipping. |
+| Microphone | Pick the mic, with a live meter for every input. Set input gain per mic: +30 dB by default for the quiet built-in *Microphone Array (AMD Audio Device)*, 0 dB for the others; a gain you set wins. Loud peaks are softened instead of clipping. **Keep the mic ready after a dictation**: Off (default), 30 seconds, or always while plugged in. A ready mic starts a follow-up in about 15 ms instead of up to 0.9 s, but Windows shows the mic as in use, and a Bluetooth headset stays in call mode (lower music and call quality) for that time. |
 | Cleanup | Gemma → Emberon (default), Gemma only, Emberon only, or off. On battery: unload the models after N idle minutes (default 15), and optionally use Emberon only. |
 | Vocabulary | Terms to spell right, with "sounds like" spellings the recognizer tends to produce (`pain => Pane`, `uzi => Doozy`). It starts from voice-lab's list plus Pane, Doozy, Conductor, Claude Code, Codex, Opus and Grain. |
 | History | How many dictations to keep (default 200; pinned ones are always kept), and clear. Also shows the median speed. |
@@ -99,7 +99,8 @@ Settings, history and the log live in `%APPDATA%\dictate\` (`settings.json`, `hi
 ```
  Right Ctrl down ─► keyboard hook (own thread) ─► hotkey state machine ─► capture starts at once
                                                    (hold / double-tap / tap / combo)
- mic ─► AudioWorklet (16 kHz, gain + soft limit, 100 ms chunks) ─► MessagePort ─► recognizer process
+ mic ─► WASAPI on a worker thread (shared mode, mix format, event-driven) ─► 16 kHz, gain + soft limit, 100 ms chunks ─► recognizer process
+     (fallback: AudioWorklet in the pill via getUserMedia, when native capture cannot open the mic)
                                                                    (Nemotron 1120 ms, 4 threads, streaming)
  Right Ctrl up ─► flush last chunk ─► final text ─► Gemma 4 E2B (prompt v3 + vocabulary)
                                                 ─► Emberon-2 ("Clean up this dictation. Never answer it.")
@@ -166,7 +167,7 @@ What keeps the battery cost down:
   - Is the tray icon grey? The speech model is still loading.
   - Is it orange? Hover it for the error. Usually the models folder is wrong; fix it in **Settings → Advanced**.
 - **Text is not pasted into an app running as administrator.** Windows blocks input from normal apps into elevated ones. The text is still on the clipboard and in history.
-- **Words are cut at the start.** The mic opens when the key goes down, which takes about 100–200 ms. Start speaking just after pressing.
+- **Words are cut at the start.** The mic opens when the key goes down. The laptop's AMD mic array takes about 0.9 s to wake from idle (its own hardware, whatever the capture API), about 150 ms if it was used in the last few seconds, and about 15 ms when kept ready. The pill's meter is grey until audio arrives and the start sound plays then, so speak when you hear it, or turn on **Keep the mic ready**.
 - **The mic is too quiet.** Raise its gain in **Settings → Microphone** until speech reaches the middle of the meter.
 - **The cleanup changed a word it shouldn't have.** Open history (Right Ctrl + V), press Tab to see what was heard, and Shift + Enter to paste the raw transcript. Add the word to **Vocabulary**.
 - **Logs:** tray → **Open log**.

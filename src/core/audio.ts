@@ -1,10 +1,10 @@
 // Input gain with a clipping guard, levels, and the near-silence check. Pure; browser-safe.
 
-/** The laptop's built-in array measures about -37 dBFS speech even close up, so it starts with +20 dB. */
+/** The laptop's built-in array measures about -37 dBFS speech even close up, so it starts with +30 dB. */
 export const QUIET_MIC = /Microphone Array \(AMD Audio Device\)/i;
 
 export function defaultGainDb(label: string | undefined): number {
-  return label && QUIET_MIC.test(label) ? 20 : 0;
+  return label && QUIET_MIC.test(label) ? 30 : 0;
 }
 
 /** Above this the signal is compressed smoothly towards 1 instead of clipping hard. */

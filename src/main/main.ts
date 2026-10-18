@@ -4,19 +4,23 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { app, clipboard, ipcMain, Menu, MessageChannelMain, powerMonitor, screen, shell, Tray, type UtilityProcess, utilityProcess } from 'electron';
 import { defaultGainDb } from '../core/audio';
+import { CaptureController, type CaptureEvents } from '../core/capture';
 import { HistoryStore } from '../core/history';
 import { type Bindings, bindingFromKeys, bindingLabel, type HotkeyAction, HotkeyMachine, isModifier, menuMaskKeys, type RecordMode } from '../core/hotkeys';
 import { type MicDevice, type MicEvent, MicSelector, micKey, micName } from '../core/mics';
 import { applyEnv, defaultSettings, parseSettings, resolveModelsDir, STT_MODEL } from '../core/settings';
 import type { Binding, Settings } from '../core/types';
 import { parseVocabularyFile } from '../core/vocabulary';
+import { WarmMic } from '../core/warm';
 import type { SttToMain } from '../engine/stt-worker';
 import type { FromHook } from '../native/keyhook-worker';
-import { caretRect, foregroundWindow, isWindow, killWithUs, setForeground } from '../native/win32';
+import { batterySaverOn, caretRect, foregroundWindow, isWindow, killWithUs, setForeground } from '../native/win32';
+import { type CapturePath, CaptureRouter } from './capture';
 import { Cleanup } from './cleanup';
 import { type TrayState, trayIcon } from './icons';
 import { KeyHook } from './keyhook';
 import { fileLogger } from './log';
+import { NativeMic } from './nativemic';
 import { realPasteSink } from './output';
 import type { PasteSink } from './paste';
 import { type PickRequest, pickFromHistory } from './pick';
@@ -60,6 +64,18 @@ let quitting = false;
 let defaultMicLabel = '';
 let devicesSeen = false;
 let fakeWav: Uint8Array | undefined;
+/** Native (WASAPI) capture, when it started; recordings fall back to the pill's browser capture otherwise. */
+let nativeMic: NativeMic | undefined;
+let nativeCapture: CaptureController | undefined;
+let nativeOk = false;
+let router: CaptureRouter;
+let warm: WarmMic;
+/** Main's own audio port to the recognizer, for native capture. */
+let mainSttPort: Electron.MessagePortMain | undefined;
+/** Key-down time (timeOrigin-based) of the recording being started, for key-down-to-first-audio timing. */
+let keyDownAt = 0;
+/** The open native mic is a Bluetooth headset: holding it open keeps the headset in its call profile. */
+let micBluetooth = false;
 
 // ---------- dictation session ----------
 
@@ -69,6 +85,8 @@ interface Session {
   shown: boolean;
   releasedAt: number;
   partial: string;
+  /** Audio is arriving: the pill's meter is live and the start cue has played (or will, once shown). */
+  live: boolean;
   final?: (text: string) => void;
 }
 
@@ -121,13 +139,14 @@ function onHotkey(a: HotkeyAction): void {
       if (rec) return;
       if (!sttReady) {
         // Show why nothing happens, but only for a real press (mode), not a tap.
-        rec = { id: nextId++, mode: null, shown: false, releasedAt: 0, partial: '' };
+        rec = { id: nextId++, mode: null, shown: false, releasedAt: 0, partial: '', live: false };
         return;
       }
-      rec = { id: nextId++, mode: null, shown: false, releasedAt: 0, partial: '' };
+      rec = { id: nextId++, mode: null, shown: false, releasedAt: 0, partial: '', live: false };
       cleanup.touch();
       // Capture starts at key down so the first word is not lost; the pill waits until this is a hold or a double-tap.
-      pillSend('dictate:capture-start', { id: rec.id, deviceId: micDevice()?.deviceId ?? null, gainDb: gainFor(micDevice()), fakeWav });
+      keyDownAt = performance.timeOrigin + performance.now();
+      router.start(rec.id, micDevice()?.deviceId ?? null, gainFor(micDevice()));
       pillSend('dictate:enumerate');
       hook.send({ type: 'recording', on: true });
       return;
@@ -144,10 +163,11 @@ function onHotkey(a: HotkeyAction): void {
         hook.send({ type: 'recording', on: false });
         return;
       }
-      pillSend('dictate:pill', { kind: cleanup.warming() ? 'warming' : 'listening', mode: a.mode, hotkey: bindingLabel(settings.hotkey) });
+      // Until the mic delivers audio the meter is grey and flat, and the start cue waits for it.
+      pillSend('dictate:pill', { kind: cleanup.warming() ? 'warming' : 'listening', mode: a.mode, hotkey: bindingLabel(settings.hotkey), starting: !rec.live });
       showPill(pill);
       rec.shown = true;
-      if (first) sound('start');
+      if (first && rec.live) sound('start');
       setTray('recording');
       return;
     }
@@ -158,7 +178,7 @@ function onHotkey(a: HotkeyAction): void {
       rec = null;
       hook.send({ type: 'recording', on: false });
       if (!s) return;
-      pillSend('dictate:capture-cancel', { id: s.id });
+      router.cancel(s.id);
       if (a.reason === 'escape' && s.shown) {
         sound('cancel');
         pillSend('dictate:pill', { kind: 'info', message: 'Cancelled' });
@@ -189,7 +209,7 @@ async function stopRecording(): Promise<void> {
     // A recognizer that never answers must not hang the session: use the last partial.
     setTimeout(() => resolve(s.partial), 6000);
   });
-  pillSend('dictate:capture-stop', { id: s.id });
+  router.stop(s.id);
   const raw = await final;
   finishing.delete(s.id);
   applyPendingMicSwitch();
@@ -264,6 +284,12 @@ function startStt(): void {
   });
   child.postMessage({ type: 'init', modelDir: dir, threads: settings.sttThreads });
   sttLink.setWorker(child);
+  // Native capture sends its audio from main.
+  const { port1, port2 } = new MessageChannelMain();
+  child.postMessage({ type: 'attach' }, [port1]);
+  mainSttPort?.close();
+  mainSttPort = port2;
+  port2.start();
 }
 
 // The capture renderer talks to the recognizer directly, in order, without a main-process hop.
@@ -272,6 +298,115 @@ const sttLink = new SttLink<UtilityProcess>((child) => {
   child.postMessage({ type: 'attach' }, [port1]);
   pill.webContents.postMessage('dictate:stt-port', null, [port2]);
 });
+
+// ---------- capture: native WASAPI, or the pill's browser capture ----------
+
+/** Audio is arriving for recording `id`: the meter goes live and the start cue plays (never before). */
+function markLive(id: number): void {
+  const s = rec?.id === id ? rec : undefined;
+  if (!s || s.live) return;
+  s.live = true;
+  if (s.shown) {
+    pillSend('dictate:live');
+    sound('start');
+  }
+}
+
+function captureError(id: number, message: string): void {
+  log('error', `capture ${id}: ${message}`);
+  if (rec?.id === id && rec.shown) {
+    sound('error');
+    pillSend('dictate:pill', { kind: 'error', message: `Microphone error: ${message}` });
+  }
+}
+
+function micLost(id: number, label: string): void {
+  // Capture has already moved to the default mic; the device list will say whether something better is left.
+  log('warn', `capture ${id}: mic "${label}" ended; continuing on the default mic`);
+  if (rec?.id === id && rec.shown) pillSend('dictate:notice', `${micName(label || 'Microphone')} stopped — using the default mic`);
+  pillSend('dictate:enumerate');
+}
+
+function captureFailed(id: number, message: string): void {
+  log('error', `capture ${id}: no mic could be reopened (${message}); finishing with what was heard`);
+  if (rec?.id !== id) return;
+  machine.reset();
+  if (rec.shown) pillSend('dictate:notice', 'Microphone lost — keeping what you said');
+  void stopRecording();
+}
+
+function silentState(id: number, silent: boolean): void {
+  if (rec?.id === id) pillSend('dictate:silent-state', silent);
+}
+
+const browserCapture: CapturePath = {
+  start: (id, deviceId, gainDb) => pillSend('dictate:capture-start', { id, deviceId, gainDb, fakeWav }),
+  stop: (id) => pillSend('dictate:capture-stop', { id }),
+  cancel: (id) => pillSend('dictate:capture-cancel', { id }),
+  switchDevice: (id, deviceId, gainDb) => pillSend('dictate:capture-switch', { id, deviceId, gainDb }),
+};
+
+function startCapture(): void {
+  router = new CaptureRouter(() => (nativeOk && nativeCapture ? nativePath : null), browserCapture, log);
+  if (process.env.DICTATE_CAPTURE === 'browser') {
+    log('warn', 'native capture off (DICTATE_CAPTURE=browser)');
+    return;
+  }
+  const nm = new NativeMic(
+    path.join(appRoot(), 'out', 'native', 'mic.js'),
+    {
+      labelFor: (id) => (id === null ? null : (devicesCache.find((d) => d.deviceId === id)?.label ?? null)),
+      stt: (m) => mainSttPort?.postMessage(m),
+      onAudio: (m) => nativeCapture?.onWorklet(m),
+      onFirst: (sid, ms, warmStream) => {
+        log('info', `capture ${sid}: first audio ${ms} ms after key down (${warmStream ? 'warm' : 'cold'} mic)`);
+        markLive(sid);
+      },
+      onOpened: (_label, bluetooth) => {
+        if (bluetooth === micBluetooth) return;
+        micBluetooth = bluetooth;
+        pushState();
+      },
+      log,
+      keyDownAt: () => keyDownAt,
+    },
+    process.env.DICTATE_FAKE_MIC,
+  );
+  nativeMic = nm;
+  const events: CaptureEvents = {
+    started: (id, label, openMs) => log('info', `capture ${id} on "${label}" (native), mic open in ${openMs} ms`),
+    error: (id, message) => {
+      if (!router.nativeFailed(id, message)) captureError(id, message);
+    },
+    lost: micLost,
+    failed: captureFailed,
+    silent: silentState,
+    level: (rms) => pillSend('dictate:level', rms),
+  };
+  nativeCapture = new CaptureController(nm, events);
+  warm = new WarmMic({
+    close: (why) => {
+      if (why !== 'off') log('info', `mic closed (${why})`);
+      nm.closeWarm();
+    },
+    // Battery saver closes the mic at once, like Off.
+    setting: () => (batterySaverOn() ? 'off' : settings.micWarm),
+    onAC: () => !powerMonitor.isOnBatteryPower(),
+    timers: { set: (fn, ms) => setTimeout(fn, ms), clear: (h) => clearTimeout(h as ReturnType<typeof setTimeout>) },
+  });
+  nm.warm = warm;
+  void nm.ready.then((ok) => {
+    nativeOk = ok;
+    log('info', ok ? 'native mic capture ready' : 'native mic capture unavailable; using the browser path');
+  });
+}
+
+const nativePath: CapturePath = {
+  start: (id, deviceId, gainDb) => void nativeCapture!.start(id, deviceId, gainDb),
+  stop: (id) => void nativeCapture!.stop(id),
+  cancel: (id) => void nativeCapture!.cancel(id),
+  switchDevice: (id, deviceId, gainDb) => void nativeCapture!.switchDevice(id, deviceId, gainDb),
+};
 
 // ---------- microphones ----------
 
@@ -289,8 +424,10 @@ function onDevices(d: { list: MicDevice[]; defaultLabel: string }): void {
   }
   if (!first && u.event) micToast(u.event);
   if (u.event?.kind === 'disconnected' && rec) {
-    pillSend('dictate:capture-switch', { id: rec.id, deviceId: u.active?.deviceId ?? null, gainDb: gainFor(u.active) });
+    router.switchDevice(rec.id, u.active?.deviceId ?? null, gainFor(u.active));
   }
+  // A warm stream is on the old mic: close it rather than reuse it.
+  if (u.event) warm?.interrupt('device');
   pushState();
   rebuildTrayMenu();
 }
@@ -334,6 +471,7 @@ function showToast(message: string, undo: boolean, ms: number): void {
 function pickMic(deviceId: string | null): void {
   const dev = deviceId ? (lastDevices().find((m) => m.deviceId === deviceId) ?? null) : null;
   mics.pick(dev);
+  warm?.interrupt('device');
   settings.micOrder = [...mics.order];
   saveSettings.save();
   log('info', `microphone: ${dev?.label ?? 'system default'}`);
@@ -543,6 +681,7 @@ function state() {
     mic: mics.current,
     defaultMicLabel,
     gain: gainFor(mics.current),
+    micBluetooth,
     stt: sttReady ? 'ready' : sttError ? 'error' : 'loading',
     sttError,
     servers: cleanup.states(),
@@ -565,6 +704,7 @@ function updateSettings(patch: Partial<Settings>): void {
   saveSettings.save();
   if (patch.hotkey !== undefined || patch.toggle !== undefined || patch.picker !== undefined || patch.tapMs !== undefined || patch.doubleTapMs !== undefined) applyBindings();
   if (patch.historyLimit !== undefined) history.setLimit(settings.historyLimit);
+  if (patch.micWarm !== undefined) warm?.settingChanged();
   if (patch.startWithWindows !== undefined) applyLoginItem();
   if (['cleanup', 'llamaServer', 'modelsDir', 'vocabulary', 'batteryEmberonOnly', 'batteryUnloadMinutes'].some((k) => k in patch)) cleanup.update(settings);
   if ((patch.modelsDir && patch.modelsDir !== before.modelsDir) || (patch.sttThreads && patch.sttThreads !== before.sttThreads)) {
@@ -631,30 +771,14 @@ function registerIpc(): void {
     devicesCache = d.list;
     onDevices(d);
   });
-  ipcMain.on('dictate:capture-started', (_e, a: { id: number; label: string; openMs: number }) => log('info', `capture ${a.id} on "${a.label}", mic open in ${a.openMs} ms`));
-  ipcMain.on('dictate:capture-error', (_e, a: { id: number; message: string }) => {
-    log('error', `capture ${a.id}: ${a.message}`);
-    if (rec?.id === a.id && rec.shown) {
-      sound('error');
-      pillSend('dictate:pill', { kind: 'error', message: `Microphone error: ${a.message}` });
-    }
+  ipcMain.on('dictate:capture-started', (_e, a: { id: number; label: string; openMs: number }) => {
+    log('info', `capture ${a.id} on "${a.label}" (browser), mic open in ${a.openMs} ms after key down`);
+    markLive(a.id);
   });
-  ipcMain.on('dictate:mic-lost', (_e, a: { id: number; label: string }) => {
-    // Capture has already moved to the default mic; the device list will say whether something better is left.
-    log('warn', `capture ${a.id}: mic "${a.label}" ended; continuing on the default mic`);
-    if (rec?.id === a.id && rec.shown) pillSend('dictate:notice', `${micName(a.label || 'Microphone')} stopped — using the default mic`);
-    pillSend('dictate:enumerate');
-  });
-  ipcMain.on('dictate:capture-failed', (_e, a: { id: number; message: string }) => {
-    log('error', `capture ${a.id}: no mic could be reopened (${a.message}); finishing with what was heard`);
-    if (rec?.id !== a.id) return;
-    machine.reset();
-    if (rec.shown) pillSend('dictate:notice', 'Microphone lost — keeping what you said');
-    void stopRecording();
-  });
-  ipcMain.on('dictate:silent', (_e, a: { id: number; silent: boolean }) => {
-    if (rec?.id === a.id) pillSend('dictate:silent-state', a.silent);
-  });
+  ipcMain.on('dictate:capture-error', (_e, a: { id: number; message: string }) => captureError(a.id, a.message));
+  ipcMain.on('dictate:mic-lost', (_e, a: { id: number; label: string }) => micLost(a.id, a.label));
+  ipcMain.on('dictate:capture-failed', (_e, a: { id: number; message: string }) => captureFailed(a.id, a.message));
+  ipcMain.on('dictate:silent', (_e, a: { id: number; silent: boolean }) => silentState(a.id, a.silent));
   ipcMain.on('dictate:undo-mic', () => {
     const d = mics.undo();
     log('info', `undo mic switch: back to ${d?.label ?? 'system default'}`);
@@ -709,13 +833,32 @@ async function main(): Promise<void> {
   });
   cleanup.onChange = () => pushState();
   cleanup.onBattery = powerMonitor.isOnBatteryPower();
-  powerMonitor.on('on-battery', () => cleanup.setBattery(true));
-  powerMonitor.on('on-ac', () => cleanup.setBattery(false));
+  powerMonitor.on('on-battery', () => {
+    cleanup.setBattery(true);
+    warm?.powerChanged();
+  });
+  powerMonitor.on('on-ac', () => {
+    cleanup.setBattery(false);
+    warm?.powerChanged();
+  });
+  // A warm mic closes at once when the PC locks or sleeps.
+  powerMonitor.on('lock-screen', () => warm?.interrupt('lock'));
+  powerMonitor.on('suspend', () => warm?.interrupt('sleep'));
   // Keys pressed while the session was locked never send their key-up to us.
   powerMonitor.on('unlock-screen', () => machine.clearKeys());
   powerMonitor.on('resume', () => machine.clearKeys());
 
   sink = realPasteSink({ modifiersDown: () => machine.modifiersDown(), ownPid: process.pid, log });
+  if (process.env.DICTATE_QA_SINK === 'none') {
+    // QA without a desktop: nothing is pasted or put on the clipboard; the text is only logged.
+    log('warn', 'QA: output goes to the log only');
+    sink = {
+      deliver: async (text: string) => {
+        log('info', `QA delivered ${text.length} chars: ${JSON.stringify(text)}`);
+        return { pasted: true, copied: false, confirmed: true };
+      },
+    } as unknown as PasteSink;
+  }
   machine = new HotkeyMachine(bindings(), onHotkey, { tapMs: settings.tapMs, doubleTapMs: settings.doubleTapMs });
 
   tray = new Tray(trayIcon('loading'));
@@ -724,6 +867,7 @@ async function main(): Promise<void> {
   rebuildTrayMenu();
 
   registerIpc();
+  startCapture();
   pill = createPill();
   pill.webContents.on('render-process-gone', (_e, d) => {
     log('error', `pill renderer gone: ${d.reason}`);
@@ -756,6 +900,25 @@ async function main(): Promise<void> {
 
   if (!settings.onboarded) openSettings();
 
+  // QA: drive the hotkey without the keyboard. Each line appended to this file is `down` or `up` (the dictation
+  // key), handled as if the hook had seen it.
+  const qaControl = process.env.DICTATE_QA_CONTROL;
+  if (qaControl) {
+    log('warn', `QA hotkey control from ${qaControl}`);
+    let seen = 0;
+    fs.writeFileSync(qaControl, '');
+    fs.watchFile(qaControl, { interval: 20 }, () => {
+      const lines = fs.readFileSync(qaControl, 'utf8').split('\n').filter(Boolean);
+      const key = typeof settings.hotkey?.keys[0] === 'number' ? settings.hotkey.keys[0] : 0xa3;
+      for (const line of lines.slice(seen)) {
+        const t = performance.now();
+        if (line === 'down') machine.down(key, t);
+        else if (line === 'up') machine.up(key, t);
+      }
+      seen = lines.length;
+    });
+  }
+
   // QA: simulate plugging and unplugging mics by rewriting this JSON file ({ list, defaultLabel }).
   const qaDevices = process.env.DICTATE_QA_DEVICES;
   if (qaDevices) {
@@ -780,6 +943,7 @@ app.on('before-quit', () => {
   saveSettings?.flush();
   saveHistory?.flush();
   hook?.stop();
+  nativeMic?.stop();
   cleanup?.stopAll();
   stt?.kill();
   log('info', 'quit');

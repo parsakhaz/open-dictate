@@ -132,6 +132,15 @@ export function caretRect(): { x: number; y: number; width: number; height: numb
   return { x: p.x, y: p.y, width: Math.max(1, r.right - r.left), height: Math.max(1, r.bottom - r.top) };
 }
 
+const SYSTEM_POWER_STATUS = koffi.struct('SYSTEM_POWER_STATUS', { ACLineStatus: 'uint8', BatteryFlag: 'uint8', BatteryLifePercent: 'uint8', SystemStatusFlag: 'uint8', BatteryLifeTime: 'uint32', BatteryFullLifeTime: 'uint32' });
+const GetSystemPowerStatus = kernel32.func('__stdcall', 'GetSystemPowerStatus', 'bool', [koffi.out(koffi.pointer(SYSTEM_POWER_STATUS))]);
+
+/** Windows' battery saver is on. */
+export function batterySaverOn(): boolean {
+  const st = { ACLineStatus: 0, BatteryFlag: 0, BatteryLifePercent: 0, SystemStatusFlag: 0, BatteryLifeTime: 0, BatteryFullLifeTime: 0 };
+  return GetSystemPowerStatus(st) && (st.SystemStatusFlag & 1) === 1;
+}
+
 export function postThreadMessage(tid: number, msg: number): boolean {
   return PostThreadMessageW(tid, msg, 0, 0);
 }

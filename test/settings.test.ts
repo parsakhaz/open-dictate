@@ -16,6 +16,7 @@ describe('parseSettings', () => {
     expect(d.cleanup).toBe('gemma-emberon');
     expect(d.output).toBe('paste');
     expect(d.sttThreads).toBe(4);
+    expect(d.micWarm).toBe('off');
   });
 
   it('accepts a binding written as a plain key list, as people write it by hand', () => {

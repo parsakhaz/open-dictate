@@ -7,7 +7,8 @@ import { type Cue, play } from './sounds';
 
 export type PillState =
   | { kind: 'hidden' }
-  | { kind: 'listening'; mode: 'push-to-talk' | 'toggle'; hotkey: string }
+  /** `starting`: the mic is still opening; the meter is grey and flat until its first audio. */
+  | { kind: 'listening'; mode: 'push-to-talk' | 'toggle'; hotkey: string; starting?: boolean }
   | { kind: 'warming' }
   | { kind: 'transcribing' }
   | { kind: 'cleaning' }
@@ -43,6 +44,7 @@ let noticeTimer: ReturnType<typeof setTimeout> | undefined;
 function render(): void {
   const s = state;
   pill.dataset.kind = s.kind;
+  pill.dataset.starting = String(s.kind === 'listening' && !!s.starting);
   undo.hidden = !(s.kind === 'toast' && s.undo);
   glyph.textContent = GLYPHS[s.kind] ?? '';
   switch (s.kind) {
@@ -146,14 +148,25 @@ dictate.on('dictate:sound', (cue: Cue) => play(cue));
 
 // ---------- capture ----------
 
-capture.setLevelListener((rms) => {
+dictate.on('dictate:live', () => {
+  if (state.kind === 'listening' && state.starting) {
+    state = { ...state, starting: false };
+    render();
+  }
+});
+
+function showLevel(rms: number): void {
   // -60 dBFS .. -12 dBFS onto 0..1, each bar with its own sensitivity so the meter has shape.
   const v = Math.max(0, Math.min(1, (dbfs(rms) + 60) / 48));
   for (let i = 0; i < BARS; i++) {
     const shape = [0.55, 0.85, 1, 0.8, 0.6][i];
     bars[i].style.transform = `scaleY(${Math.max(0.18, Math.min(1, v * shape * 1.25))})`;
   }
-});
+}
+
+// Levels come from the capture here (browser path) or from main (native capture).
+capture.setLevelListener(showLevel);
+dictate.on('dictate:level', showLevel);
 
 dictate.on('dictate:silent-state', (s: boolean) => {
   silent = s;

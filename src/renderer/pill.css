@@ -197,3 +197,12 @@ body {
 .undo[hidden] {
   display: none;
 }
+
+/* The mic is still opening: a grey, flat meter, like a muted one, until the first audio arrives. */
+.pill[data-starting='true'] .bar {
+  transform: scaleY(0.18) !important;
+  background: var(--text-4);
+}
+.pill[data-starting='true'] .icon {
+  background: var(--card);
+}

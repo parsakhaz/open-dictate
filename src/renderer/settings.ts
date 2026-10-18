@@ -13,6 +13,7 @@ interface State {
   mic: MicDevice | null;
   defaultMicLabel: string;
   gain: number;
+  micBluetooth: boolean;
   stt: 'ready' | 'error' | 'loading';
   sttError: string;
   servers: { gemma: string; emberon: string };
@@ -328,6 +329,20 @@ function microphone(): Node[] {
     ...rows,
     card('Preferred order', 'Picking a mic puts it at the top.', null, order),
     h('p.muted.small', {}, 'Input gain boosts quiet mics; loud peaks are softened instead of clipping. The built-in Microphone Array starts at +20 dB because it is very quiet.'),
+    card(
+      'Keep the mic ready after a dictation',
+      h(
+        'span',
+        {},
+        'A follow-up dictation then starts with no delay, and Windows shows the mic as in use for that time. A Bluetooth headset stays in call mode while its mic is open, which lowers music and call quality: leave this Off if you use one.',
+        st.settings.micWarm !== 'off' && st.micBluetooth ? h('div.warnline', {}, 'Your mic is a Bluetooth headset: it stays in call mode while the mic is kept ready.') : null,
+      ),
+      select<Settings['micWarm']>(st.settings.micWarm, [
+        ['off', 'Off'],
+        ['30s', 'For 30 seconds'],
+        ['always', 'Always, while plugged in'],
+      ], (v) => void set({ micWarm: v })),
+    ),
   ];
 }
 

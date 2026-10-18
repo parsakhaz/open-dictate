@@ -58,6 +58,8 @@ export interface Settings {
   cleanup: CleanupChain;
   output: OutputMode;
   sounds: boolean;
+  /** How long the mic stays open after a dictation, so a follow-up starts instantly. */
+  micWarm: 'off' | '30s' | 'always';
   historyLimit: number;
   modelsDir: string;
   llamaServer: string;

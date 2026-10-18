@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { applyGain, dbfs, defaultGainDb, SilenceWatch } from '../src/core/audio';
 
 describe('defaultGainDb', () => {
-  it('boosts the quiet built-in array by 20 dB and leaves other mics alone', () => {
-    expect(defaultGainDb('Microphone Array (AMD Audio Device)')).toBe(20);
+  it('boosts the quiet built-in array by 30 dB and leaves other mics alone', () => {
+    expect(defaultGainDb('Microphone Array (AMD Audio Device)')).toBe(30);
     expect(defaultGainDb('Microphone (BOYA mini 2)')).toBe(0);
     expect(defaultGainDb(undefined)).toBe(0);
   });
@@ -42,5 +42,14 @@ describe('levels', () => {
     for (let i = 0; i < 19; i++) expect(w.push(0.0001, 100)).toBe(false);
     expect(w.push(0.0001, 100)).toBe(true);
     expect(w.push(0.05, 100)).toBe(false);
+  });
+});
+
+describe('applyGain at +30 dB', () => {
+  it('never clips loud speech: everything stays inside ±1 and is counted as limited', () => {
+    const s = Float32Array.from({ length: 480 }, (_, i) => 0.3 * Math.sin(i / 5));
+    const r = applyGain(s, 30);
+    expect(Math.max(...s.map(Math.abs))).toBeLessThanOrEqual(1);
+    expect(r.limited).toBeGreaterThan(0);
   });
 });
