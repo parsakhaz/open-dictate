@@ -22,6 +22,8 @@ export interface PickerDeps {
   foreground(): number;
   caret(): { x: number; y: number; width: number; height: number } | null;
   items(): unknown[];
+  /** The dictation key's name, for the empty-history hint. */
+  hotkey?(): string;
   log(level: 'info' | 'warn' | 'error', msg: string): void;
   readyTimeoutMs?: number;
   /** How often to check that the target app still has focus while the picker is open. */
@@ -114,7 +116,7 @@ export class PickerController {
     if (token !== this.token || !inst || inst.gone) return;
     this.target = target;
     inst.win.place(caret);
-    inst.win.send('dictate:picker-open', { items: this.deps.items(), now: Date.now() });
+    inst.win.send('dictate:picker-open', { items: this.deps.items(), now: Date.now(), hotkey: this.deps.hotkey?.() ?? 'the dictation key' });
     inst.win.showInactive();
     this.open_ = true;
     // Keys go to the picker only once it is on screen and listening.

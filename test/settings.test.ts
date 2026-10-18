@@ -18,6 +18,12 @@ describe('parseSettings', () => {
     expect(d.sttThreads).toBe(4);
   });
 
+  it('accepts a binding written as a plain key list, as people write it by hand', () => {
+    const s = parseSettings({ hotkey: [165], picker: [165, 86] }, d);
+    expect(s.hotkey).toEqual({ keys: [165] });
+    expect(s.picker).toEqual({ keys: [165, 86] });
+  });
+
   it('replaces malformed fields with defaults and keeps good ones', () => {
     const s = parseSettings({ cleanup: 'bogus', output: 'both', hotkey: { keys: ['hyper'] }, toggle: { keys: ['ctrl', 0x20] }, sttThreads: 99, gainDb: { a: 6, b: 'x' } }, d);
     expect(s.cleanup).toBe('gemma-emberon');

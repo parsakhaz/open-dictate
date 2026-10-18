@@ -48,9 +48,10 @@ function isKeySpec(x: unknown): x is KeySpec {
   return (typeof x === 'number' && Number.isInteger(x) && x > 0) || (typeof x === 'string' && GENERIC.includes(x));
 }
 
+/** `{ "keys": [165] }`, or the shorthand `[165]` people write by hand. */
 function binding(x: unknown, fallback: Binding | null): Binding | null {
   if (x === null) return null;
-  const keys = (x as { keys?: unknown })?.keys;
+  const keys = Array.isArray(x) ? x : (x as { keys?: unknown })?.keys;
   return Array.isArray(keys) && keys.length > 0 && keys.every(isKeySpec) ? { keys } : fallback;
 }
 

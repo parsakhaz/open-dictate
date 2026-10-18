@@ -2,10 +2,41 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+/** File text without the UTF-8 BOM that Notepad and PowerShell write, which JSON.parse rejects. */
+function readText(file: string): string {
+  return fs.readFileSync(file, 'utf8').replace(/^﻿/, '');
+}
+
 export function readJson(file: string): unknown {
   try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
+    return JSON.parse(readText(file));
   } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Like readJson, for files the person may edit (settings, history). One that exists but cannot be parsed is
+ * logged and copied to `<file>.bad` (never over an older copy), since the next save replaces it.
+ */
+export function loadJson(file: string, log: (level: 'warn', msg: string) => void): unknown {
+  let text: string;
+  try {
+    text = readText(file);
+  } catch {
+    return undefined;
+  }
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    let bad = `${file}.bad`;
+    if (fs.existsSync(bad)) bad = `${file}.bad-${Date.now()}`;
+    try {
+      fs.copyFileSync(file, bad);
+    } catch {
+      bad = '(could not copy it)';
+    }
+    log('warn', `${file} is not valid JSON (${(err as Error).message}); using defaults, the file is kept as ${bad}`);
     return undefined;
   }
 }

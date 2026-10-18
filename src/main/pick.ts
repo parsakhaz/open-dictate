@@ -1,7 +1,7 @@
 // Choosing an entry in the history picker: paste it (cleaned or raw) through the same sink as dictation, or
 // copy it only. No Electron imports, so the integration test drives it with a fake sink.
 import type { HistoryStore } from '../core/history';
-import type { Delivery, OutputSink } from './pipeline';
+import { type Delivery, type OutputSink, withTrailingSpace } from './pipeline';
 
 export interface PickRequest {
   id: string;
@@ -15,5 +15,6 @@ export async function pickFromHistory(history: HistoryStore, req: PickRequest, s
   const e = history.get(req.id);
   if (!e) return undefined;
   const text = req.raw ? e.raw : e.text;
-  return sink.deliver(text, req.copyOnly ? 'clipboard' : 'paste');
+  // Pasted like a dictation, with its trailing space; a copy is the exact text.
+  return req.copyOnly ? sink.deliver(text, 'clipboard') : sink.deliver(withTrailingSpace(text), 'paste');
 }

@@ -1,4 +1,4 @@
-// The history picker (Right Ctrl+V): like Windows clipboard history, for dictations. The window never takes
+// The history picker (Right Ctrl+V by default): like Windows clipboard history, for dictations. The window never takes
 // focus; main forwards the keys it swallows while the picker is open.
 import { type HistoryEntry, HistoryStore, relativeTime } from '../core/history';
 import { dictate, h } from './bridge';
@@ -16,6 +16,7 @@ const panel = h('div.panel', {}, h('div.header', {}, h('div.title', {}, 'Dictati
 root.append(panel);
 
 let items: HistoryEntry[] = [];
+let hotkey = 'the dictation key';
 let shown: HistoryEntry[] = [];
 let selected = 0;
 let q = '';
@@ -101,7 +102,7 @@ function render(): void {
   list.replaceChildren(
     ...(shown.length
       ? shown.map(card)
-      : [h('div.empty', {}, h('div.emptyicon', {}, ICON.mic), items.length ? `Nothing matches “${q}”` : 'No dictations yet', items.length ? null : h('div.emptyhint', {}, 'Hold Right Ctrl and speak; what you say appears here.'))]),
+      : [h('div.empty', {}, h('div.emptyicon', {}, ICON.mic), items.length ? `Nothing matches “${q}”` : 'No dictations yet', items.length ? null : h('div.emptyhint', {}, `Hold ${hotkey} and speak; what you say appears here.`))]),
   );
   mark();
 }
@@ -161,8 +162,9 @@ dictate.on('dictate:picker-key', (k: { vk: number; shift: boolean }) => {
   }
 });
 
-dictate.on('dictate:picker-open', (a: { items: HistoryEntry[]; now: number }) => {
+dictate.on('dictate:picker-open', (a: { items: HistoryEntry[]; now: number; hotkey: string }) => {
   items = a.items;
+  hotkey = a.hotkey;
   now = a.now;
   q = '';
   selected = 0;

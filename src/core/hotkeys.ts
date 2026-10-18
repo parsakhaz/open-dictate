@@ -289,6 +289,54 @@ export class HotkeyMachine {
   }
 }
 
+/**
+ * Keys that need a "menu mask" when they go down: a lone Alt release activates the app's menu bar (Notepad,
+ * Explorer, Office), and a lone Win release opens Start. Dictating with Right Alt, or the picker swallowing the V
+ * of Right Alt+V, would leave exactly that lone press, so the hook injects an unassigned key while it is down.
+ * Only exact-side keys are masked: an either-side Alt in a combo would otherwise stop Alt opening menus at all.
+ */
+export function menuMaskKeys(b: Bindings): number[] {
+  const masked = new Set([VK.LAlt, VK.RAlt, VK.LWin, VK.RWin] as number[]);
+  const out = new Set<number>();
+  for (const x of [b.hotkey, b.toggle, b.picker]) for (const k of x?.keys ?? []) if (typeof k === 'number' && masked.has(k)) out.add(k);
+  return [...out];
+}
+
+/** The scan code Windows gives the fake Left Ctrl that AltGr layouts send along with Right Alt. */
+const ALTGR_LCTRL_SCAN = 0x21d;
+
+/**
+ * On layouts where Right Alt is AltGr, Windows sends a fake Left Ctrl down just before Right Alt (and its up
+ * with it). Left in, Right Alt alone would look like Ctrl+Alt: never the dictation key. The fake is spotted by
+ * its scan code, or by sharing Right Alt's timestamp, in which case its down is taken back.
+ */
+export class AltGrFilter {
+  private fake = false;
+  private lctrlDownAt: number | null = null;
+
+  feed(e: { vk: number; down: boolean; t: number; scan: number }): { vk: number; down: boolean }[] {
+    const out = { vk: e.vk, down: e.down };
+    if (e.vk === VK.LCtrl) {
+      if (e.down && (e.scan === ALTGR_LCTRL_SCAN || this.fake)) {
+        this.fake = true;
+        return [];
+      }
+      if (!e.down && this.fake) {
+        this.fake = false;
+        return [];
+      }
+      this.lctrlDownAt = e.down ? e.t : null;
+      return [out];
+    }
+    if (e.vk === VK.RAlt && e.down && this.lctrlDownAt === e.t) {
+      this.lctrlDownAt = null;
+      this.fake = true;
+      return [{ vk: VK.LCtrl, down: false }, out];
+    }
+    return [out];
+  }
+}
+
 const NAMES: Record<number, string> = {
   [VK.LCtrl]: 'Left Ctrl',
   [VK.RCtrl]: 'Right Ctrl',

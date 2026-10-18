@@ -51,6 +51,16 @@ export function newId(now = Date.now()): string {
   return `${now.toString(36)}-${(++seq).toString(36)}`;
 }
 
+/**
+ * Every dictation ends with a space, so the next one does not run into it ("logs.Deploy"). Not when the text
+ * already ends in whitespace, or in an opening bracket or curly quote that the next words belong to (a straight
+ * quote could be closing one, as in "the users'", so it gets the space). The character
+ * after the cursor in the target app cannot be read, so a space before typed punctuation is the trade-off.
+ */
+export function withTrailingSpace(text: string): string {
+  return !text || /[\s([{“‘]$/.test(text) ? text : `${text} `;
+}
+
 /** Cleans `raw` and delivers it. `releasedAt` (performance.now() at key release) times the whole trip. */
 export async function finishDictation(raw: string, steps: ChainStep[], mode: OutputMode, releasedAt: number, deps: PipelineDeps, onPhase: (p: Phase) => void = () => undefined): Promise<DictationResult> {
   const heard = raw.trim();
@@ -65,7 +75,7 @@ export async function finishDictation(raw: string, steps: ChainStep[], mode: Out
   persist(deps);
   let delivery: Delivery;
   try {
-    delivery = await deps.sink.deliver(cleaned.text, mode);
+    delivery = await deps.sink.deliver(withTrailingSpace(cleaned.text), mode);
   } catch (err) {
     delivery = { pasted: false, copied: false, reason: (err as Error).message };
     deps.log('error', `delivery failed: ${(err as Error).message}`);

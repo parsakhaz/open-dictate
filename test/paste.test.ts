@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { HistoryStore } from '../src/core/history';
 import { type ClipboardPort, PasteSink } from '../src/main/paste';
-import { finishDictation, type OutputSink } from '../src/main/pipeline';
+import { finishDictation, type OutputSink, withTrailingSpace } from '../src/main/pipeline';
 
 function setup(opts: { snapshotFails?: boolean; writeFails?: boolean; caret?: boolean; noTextField?: boolean; sent?: number } = {}) {
   let board = 'OLD';
@@ -95,7 +95,44 @@ describe('PasteSink', () => {
   });
 });
 
+describe('withTrailingSpace', () => {
+  it('ends every dictation with one space, so the next one does not run into it', () => {
+    expect(withTrailingSpace('Deploy it.')).toBe('Deploy it. ');
+    expect(withTrailingSpace('hello')).toBe('hello ');
+  });
+
+  it('adds nothing when the text already ends in whitespace or a line break', () => {
+    expect(withTrailingSpace('Deploy it. ')).toBe('Deploy it. ');
+    expect(withTrailingSpace('a list:\n')).toBe('a list:\n');
+  });
+
+  it('adds nothing after an opening bracket or quote, or to empty text', () => {
+    expect(withTrailingSpace('see (')).toBe('see (');
+    expect(withTrailingSpace('he said “')).toBe('he said “');
+    expect(withTrailingSpace('')).toBe('');
+  });
+});
+
 describe('finishDictation', () => {
+  it('delivers the text with a trailing space but keeps it out of the history', async () => {
+    const delivered: string[] = [];
+    const history = new HistoryStore();
+    await finishDictation('hello there.', [], 'paste', performance.now(), {
+      chain: { ready: async () => true, complete: async () => '' },
+      sink: {
+        deliver: async (t) => {
+          delivered.push(t);
+          return { pasted: true, copied: false };
+        },
+      },
+      history,
+      saveHistory: () => undefined,
+      log: () => undefined,
+    });
+    expect(delivered).toEqual(['hello there. ']);
+    expect(history.list()[0].text).toBe('hello there.');
+  });
+
   it('saves the entry to disk before delivering it (M5)', async () => {
     const order: string[] = [];
     const history = new HistoryStore();
@@ -112,7 +149,7 @@ describe('finishDictation', () => {
       saveHistory: () => order.push(`save:${history.list().length}`),
       log: () => undefined,
     });
-    expect(order).toEqual(['save:1', 'deliver:hello there', 'save:1']);
+    expect(order).toEqual(['save:1', 'deliver:hello there ', 'save:1']);
   });
 
   it('still delivers when history cannot be saved', async () => {

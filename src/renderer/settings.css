@@ -360,6 +360,29 @@ kbd {
   min-width: 180px;
   text-align: right;
 }
+.presets {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 12px;
+}
+.chip {
+  font: inherit;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--stroke-strong);
+  border-radius: 12px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.chip:hover {
+  background: var(--card-hover);
+}
+.chip[data-active='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
 .recording {
   color: var(--accent);
   font-size: 13px;

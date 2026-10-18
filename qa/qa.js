@@ -1,14 +1,19 @@
 // Desktop QA for dictate, on an unlocked Windows desktop. It drives the real app with injected keys (it types
 // into Notepad, an Edge window and a terminal it opens) and plays a WAV through the capture path instead of the mic.
 // Run from dictate/ after `pnpm build`:   node qa/qa.js            (all scenarios)
-//                                         node qa/qa.js ptt picker  (some: ptt toggle esc tap picker browser body terminal crash mic)
+//                                         node qa/qa.js ptt picker  (some: ptt toggle esc tap picker altgr browser body terminal crash mic)
+//                                         node qa/qa.js --key=ralt  (Right Alt as the dictation key)
 // Results: tmp/qa/out/summary.json and screenshots in tmp/qa/out/. App data goes to tmp/qa-data (not your real settings).
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn, execFileSync } = require('node:child_process');
 const q = require('./run');
 
-const only = process.argv.slice(2);
+// --key=ralt runs everything with Right Alt as the dictation key (Right Alt+V for the picker), as on keyboards
+// without Right Ctrl. The key used is the one in the QA profile's settings.
+const keyArg = (process.argv.find((a) => a.startsWith('--key=')) ?? '--key=rctrl').slice(6);
+const HK = keyArg === 'ralt' ? 0xa5 : q.RCTRL;
+const only = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const want = (n) => !only.length || only.includes(n);
 const WAV = path.join(q.FIX, 's1.wav');
 // A new file each run: rewriting a file Notepad still has open makes it ask about the conflict.
@@ -38,9 +43,9 @@ async function closeNotepadTab(wasRunning) {
 
 async function dictateHold(holdMs = HOLD) {
   const mark = q.logMark();
-  q.key(q.RCTRL, false);
+  q.key(HK, false);
   await q.sleep(holdMs);
-  q.key(q.RCTRL, true);
+  q.key(HK, true);
   const ok = await q.waitLog(/release-to-output|nothing heard/, 15000, mark);
   await q.sleep(500);
   return { ok, log: q.logSince(mark) };
@@ -55,7 +60,7 @@ async function dictateHold(holdMs = HOLD) {
   const BOYA = { deviceId: 'boya', groupId: 'g-boya', label: 'Microphone (BOYA mini 2) (2e8a:00f2)' };
   // The preferred mic (BOYA) starts unplugged, so plugging it in switches to it.
   const micOrder = want('mic') ? [{ label: BOYA.label }, { label: AMD.label }] : [];
-  Object.assign(s, { onboarded: true, micOrder, output: 'paste', cleanup: 'gemma-emberon', toggle: null });
+  Object.assign(s, { onboarded: true, micOrder, output: 'paste', cleanup: 'gemma-emberon', toggle: null, hotkey: { keys: [HK] }, picker: { keys: [HK, 0x56] } });
   fs.writeFileSync(settingsFile, JSON.stringify(s, null, 2));
   fs.rmSync(path.join(q.DATA, 'history.json'), { force: true });
   fs.writeFileSync(NOTE, '');
@@ -93,6 +98,7 @@ async function dictateHold(holdMs = HOLD) {
       q.check(`ptt ${i}: release-to-paste`, !!m && m.ms < 2500, m ? `${m.ms} ms · ${m.detail}` : 'no timing');
       await q.sleep(300);
       q.check(`ptt ${i}: clipboard restored`, q.getClipboard() === `SENTINEL-${i}`, q.getClipboard().slice(0, 60));
+      q.check(`ptt ${i}: focus still in the text (no menu bar)`, q.focusInText(), q.focusedControl());
       // a space between dictations, like a person would type
       await q.tap(0x20);
     }
@@ -103,29 +109,30 @@ async function dictateHold(holdMs = HOLD) {
     await q.focus(title);
     const before = q.readText(title);
     const mark = q.logMark();
-    await q.tap(q.RCTRL, 70);
+    await q.tap(HK, 70);
     await q.sleep(120);
-    await q.tap(q.RCTRL, 70);
+    await q.tap(HK, 70);
     await q.sleep(2500);
     q.shot('toggle-listening');
     await q.sleep(HOLD - 2500);
-    await q.tap(q.RCTRL, 70);
+    await q.tap(HK, 70);
     await q.waitLog(/release-to-output|nothing heard/, 15000, mark);
     await q.sleep(500);
     const added = q.readText(title).slice(before.length).trim();
     q.check('double-tap toggle: dictation pasted after the stopping tap', added.length > 10, JSON.stringify(added).slice(0, 120));
     q.check('double-tap toggle: mode logged', /dictation \d+ ms/.test(q.logSince(mark)));
+    q.check('double-tap toggle: focus still in the text (no menu bar)', q.focusInText(), q.focusedControl());
   }
 
   if (want('esc')) {
     await q.focus(title);
     const before = q.readText(title);
     const mark = q.logMark();
-    q.key(q.RCTRL, false);
+    q.key(HK, false);
     await q.sleep(1500);
     await q.tap(0x1b);
     await q.sleep(200);
-    q.key(q.RCTRL, true);
+    q.key(HK, true);
     await q.sleep(2500);
     q.check('Esc cancels: nothing typed', q.readText(title) === before);
     q.check('Esc cancels: no dictation delivered', !/release-to-output/.test(q.logSince(mark)));
@@ -135,19 +142,20 @@ async function dictateHold(holdMs = HOLD) {
     await q.focus(title);
     const before = q.readText(title);
     const mark = q.logMark();
-    await q.tap(q.RCTRL, 80);
+    await q.tap(HK, 80);
     await q.sleep(150);
     q.shot('lone-tap');
     await q.sleep(1500);
     q.check('lone tap: nothing typed', q.readText(title) === before);
     q.check('lone tap: no dictation', !/release-to-output|stt final/.test(q.logSince(mark)));
+    q.check('lone tap: focus still in the text (no menu bar)', q.focusInText(), q.focusedControl());
     // Right Ctrl + End: a real shortcut, must reach Notepad and not dictate
     await q.focus(title);
-    q.key(q.RCTRL, false);
+    q.key(HK, false);
     await q.sleep(100);
     await q.tap(0x24); // Home: Ctrl+Home goes to the start of the document
     await q.sleep(60);
-    q.key(q.RCTRL, true);
+    q.key(HK, true);
     await q.sleep(1500);
     q.check('Right Ctrl + key: no dictation', !/release-to-output|stt final/.test(q.logSince(mark)));
   }
@@ -155,17 +163,17 @@ async function dictateHold(holdMs = HOLD) {
   if (want('picker')) {
     await q.focus(title);
     // put the caret at the end again
-    q.key(q.RCTRL, false);
+    q.key(HK, false);
     await q.tap(0x23);
-    q.key(q.RCTRL, true);
+    q.key(HK, true);
     await q.sleep(500);
     const before = q.readText(title);
     const fgBefore = q.hwndOf(title);
-    q.key(q.RCTRL, false);
+    q.key(HK, false);
     await q.sleep(80);
     await q.tap(0x56);
     await q.sleep(60);
-    q.key(q.RCTRL, true);
+    q.key(HK, true);
     await q.sleep(600);
     q.shot('picker-open');
     q.check('Right Ctrl+V: V did not reach Notepad', q.readText(title) === before);
@@ -176,10 +184,11 @@ async function dictateHold(holdMs = HOLD) {
     const added = q.readText(title).slice(before.length).trim();
     q.check('picker: Enter pastes the chosen entry into Notepad', added.length > 10, JSON.stringify(added).slice(0, 120));
     q.check('picker: Notepad kept focus', q.hwndOf(title) === fgBefore);
+    q.check('picker: focus still in the text (no menu bar)', q.focusInText(), q.focusedControl());
     // filter + Esc
-    q.key(q.RCTRL, false);
+    q.key(HK, false);
     await q.tap(0x56);
-    q.key(q.RCTRL, true);
+    q.key(HK, true);
     await q.sleep(500);
     for (const c of 'zzz') await q.tap(c.toUpperCase().charCodeAt(0));
     await q.sleep(300);
@@ -188,6 +197,23 @@ async function dictateHold(holdMs = HOLD) {
     await q.sleep(400);
     const after2 = q.readText(title);
     q.check('picker: typed filter and Esc never reach Notepad', after2 === before + (after2.slice(before.length)) && !/zzz/.test(after2));
+  }
+
+  if (want('altgr')) {
+    // On AltGr layouts Windows sends a fake Left Ctrl (scan code 0x21D) with Right Alt.
+    await q.focus(title);
+    const before = q.readText(title);
+    const mark = q.logMark();
+    q.keyScan(0xa2, 0x21d, false);
+    q.key(HK, false);
+    await q.sleep(HOLD);
+    q.keyScan(0xa2, 0x21d, true);
+    q.key(HK, true);
+    await q.waitLog(/release-to-output|nothing heard/, 15000, mark);
+    await q.sleep(500);
+    const added = q.readText(title).slice(before.length).trim();
+    q.check('AltGr: a hold with the fake Left Ctrl still dictates', added.length > 10, JSON.stringify(added).slice(0, 120));
+    q.check('AltGr: focus still in the text', q.focusInText(), q.focusedControl());
   }
 
   if (want('browser')) {
@@ -202,6 +228,10 @@ async function dictateHold(holdMs = HOLD) {
     q.check('browser: text pasted into a textarea', text.trim().length > 10, JSON.stringify(text).slice(0, 120));
     q.check('browser: clipboard restored', q.getClipboard() === 'SENTINEL-browser');
     q.check('browser: delivery confirmed', /· pasted$/m.test(r.log), (msFrom(r.log) ?? {}).detail);
+    q.check('browser: focus still in the textarea (no menu)', q.focusInText(), q.focusedControl());
+    // a second dictation lands too: the first did not move focus to the browser's menu
+    await dictateHold(2500);
+    q.check('browser: a second dictation follows the first', (q.readText('dictate-qa-browser').match(/Kubernetes/g) ?? []).length >= 2);
     q.shot('browser');
     await q.focus('dictate-qa-browser');
     await q.closeTab('dictate-qa-browser');
@@ -281,11 +311,11 @@ async function dictateHold(holdMs = HOLD) {
     await q.focus(title);
     const before = q.readText(title);
     const m2 = q.logMark();
-    q.key(q.RCTRL, false);
+    q.key(HK, false);
     await q.sleep(2000);
     fs.writeFileSync(devFile, JSON.stringify({ list: [AMD], defaultLabel: AMD.label }));
     await q.sleep(HOLD - 2000);
-    q.key(q.RCTRL, true);
+    q.key(HK, true);
     await q.waitLog(/release-to-output|nothing heard/, 15000, m2);
     await q.sleep(500);
     const added = q.readText(title).slice(before.length).trim();

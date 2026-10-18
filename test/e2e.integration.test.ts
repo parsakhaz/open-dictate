@@ -83,7 +83,8 @@ describe.skipIf(!fs.existsSync(sttDir))('WAV fixture -> STT -> cleanup -> output
     expect(sink.pasted[0].text).toMatch(/ClickHouse/);
     expect(result.steps.every((s) => s.status === 'ok')).toBe(true);
     expect(history.latest()?.raw).toBe(raw);
-    expect(history.latest()?.text).toBe(sink.pasted[0].text);
+    // Delivered with a trailing space, so the next dictation does not run into it; history keeps the text.
+    expect(`${history.latest()?.text} `).toBe(sink.pasted[0].text);
     expect(ms).toBeLessThan(2500);
 
     // The picker: choose the entry, then its raw transcript, then copy only.
@@ -93,8 +94,8 @@ describe.skipIf(!fs.existsSync(sttDir))('WAV fixture -> STT -> cleanup -> output
     await pickFromHistory(history, { id, raw: false, copyOnly: true }, sink);
     expect(sink.pasted.slice(1)).toEqual([
       { text: sink.pasted[0].text, mode: 'paste' },
-      { text: raw, mode: 'paste' },
-      { text: sink.pasted[0].text, mode: 'clipboard' },
+      { text: `${raw} `, mode: 'paste' },
+      { text: history.latest()!.text, mode: 'clipboard' },
     ]);
   }, 120_000);
 });

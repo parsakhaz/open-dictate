@@ -22,6 +22,8 @@ const SetForegroundWindow = u.func('__stdcall', 'SetForegroundWindow', 'bool', [
 const GetForegroundWindow = u.func('__stdcall', 'GetForegroundWindow', 'intptr', []);
 const ext = new Set([0xa3, 0xa5, 0x25, 0x26, 0x27, 0x28, 0x2e, 0x24, 0x23]);
 const key = (vk, up) => SendInput(1, [{ type: 1, u: { ki: { wVk: vk, wScan: 0, dwFlags: (up ? 2 : 0) | (ext.has(vk) ? 1 : 0), time: 0, dwExtraInfo: 0 } } }], k.sizeof(INPUT));
+/** A key event with an explicit scan code (AltGr's fake Left Ctrl is scan code 0x21D). */
+const keyScan = (vk, scan, up) => SendInput(1, [{ type: 1, u: { ki: { wVk: vk, wScan: scan, dwFlags: up ? 2 : 0, time: 0, dwExtraInfo: 0 } } }], k.sizeof(INPUT));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const RCTRL = 0xa3;
 async function tap(vk, hold = 60) {
@@ -76,6 +78,15 @@ function restoreClipboard() {
   if (!fs.existsSync(CLIP)) return;
   clipPs(`$d = New-Object System.Windows.Forms.DataObject; foreach ($f in 'UnicodeText','HTML Format') { $p = Join-Path '${CLIP}' (($f -replace ' ','') + '.txt'); if (Test-Path $p) { $d.SetData($f, [IO.File]::ReadAllText($p, [Text.Encoding]::UTF8)) } }; [System.Windows.Forms.Clipboard]::SetDataObject($d, $true)`);
   fs.rmSync(CLIP, { recursive: true, force: true });
+}
+
+/** The UI Automation control type of the focused element, e.g. ControlType.Document, ControlType.MenuItem. */
+function focusedControl() {
+  return ps(`${UIA}\n$f = $A::FocusedElement; if ($f) { $f.Current.ControlType.ProgrammaticName + ' ' + $f.Current.Name } else { 'none' }`);
+}
+/** Focus is in a text control: an Alt release did not move it to a menu bar or key tips. */
+function focusInText() {
+  return /^ControlType\.(Document|Edit)/.test(focusedControl());
 }
 
 function hwndOf(title) {
@@ -151,7 +162,7 @@ async function closeTab(prefix) {
   return true;
 }
 
-module.exports = { releaseModifiers, closeTab, saveClipboard, restoreClipboard, key, tap, sleep, RCTRL, ps, setClipboard, getClipboard, readText, focus, shot, logMark, logSince, startApp, stopApp, waitLog, check, results, FIX, DATA, OUT, ROOT, hwndOf };
+module.exports = { keyScan, focusedControl, focusInText, releaseModifiers, closeTab, saveClipboard, restoreClipboard, key, tap, sleep, RCTRL, ps, setClipboard, getClipboard, readText, focus, shot, logMark, logSince, startApp, stopApp, waitLog, check, results, FIX, DATA, OUT, ROOT, hwndOf };
 
 // ---------- caret probe (S3): does the focused control expose a Win32 caret? ----------
 const RECT = k.struct('QRECT', { left: 'int32', top: 'int32', right: 'int32', bottom: 'int32' });

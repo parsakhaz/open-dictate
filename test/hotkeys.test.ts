@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type Bindings, bindingFromKeys, bindingLabel, type HotkeyAction, HotkeyMachine, type Timers, VK } from '../src/core/hotkeys';
+import { AltGrFilter, type Bindings, bindingFromKeys, bindingLabel, type HotkeyAction, HotkeyMachine, menuMaskKeys, type Timers, VK } from '../src/core/hotkeys';
 
 const C = 0x43;
 
@@ -287,3 +287,62 @@ describe('labels and recording bindings', () => {
     expect(bindingFromKeys([])).toBeNull();
   });
 });
+
+describe('menuMaskKeys', () => {
+  it('masks Right Alt when it is the dictation key or part of the picker combo', () => {
+    expect(menuMaskKeys({ hotkey: { keys: [VK.RAlt] }, toggle: null, picker: { keys: [VK.RAlt, VK.V] } })).toEqual([VK.RAlt]);
+  });
+
+  it('masks the Win keys too (a lone Win release opens Start), and nothing for Ctrl', () => {
+    expect(menuMaskKeys({ hotkey: { keys: [VK.RCtrl] }, toggle: { keys: [VK.LWin, 0x20] }, picker: { keys: [VK.RCtrl, VK.V] } })).toEqual([VK.LWin]);
+    expect(menuMaskKeys({ hotkey: { keys: [VK.RCtrl] }, toggle: null, picker: null })).toEqual([]);
+  });
+
+  it('leaves either-side Alt alone, so Alt still opens menus', () => {
+    expect(menuMaskKeys({ hotkey: { keys: [VK.RCtrl] }, toggle: { keys: ['alt', 0x20] }, picker: null })).toEqual([]);
+  });
+});
+
+describe('AltGrFilter', () => {
+  const ev = (vk: number, down: boolean, t: number, scan = 0) => ({ vk, down, t, scan });
+
+  it('drops the fake Left Ctrl that AltGr layouts send with Right Alt (scan code 0x21D)', () => {
+    const f = new AltGrFilter();
+    expect(f.feed(ev(VK.LCtrl, true, 10, 0x21d))).toEqual([]);
+    expect(f.feed(ev(VK.RAlt, true, 10, 0x38))).toEqual([{ vk: VK.RAlt, down: true }]);
+    expect(f.feed(ev(VK.LCtrl, false, 90, 0x21d))).toEqual([]);
+    expect(f.feed(ev(VK.RAlt, false, 90, 0x38))).toEqual([{ vk: VK.RAlt, down: false }]);
+  });
+
+  it('also spots it by timing: a Left Ctrl down with the same timestamp as Right Alt is taken back', () => {
+    const f = new AltGrFilter();
+    expect(f.feed(ev(VK.LCtrl, true, 10, 0x1d))).toEqual([{ vk: VK.LCtrl, down: true }]);
+    expect(f.feed(ev(VK.RAlt, true, 10, 0x38))).toEqual([{ vk: VK.LCtrl, down: false }, { vk: VK.RAlt, down: true }]);
+    expect(f.feed(ev(VK.LCtrl, false, 90, 0x1d))).toEqual([]);
+  });
+
+  it('passes a real Left Ctrl through, even with Right Alt', () => {
+    const f = new AltGrFilter();
+    expect(f.feed(ev(VK.LCtrl, true, 10, 0x1d))).toEqual([{ vk: VK.LCtrl, down: true }]);
+    expect(f.feed(ev(VK.RAlt, true, 200, 0x38))).toEqual([{ vk: VK.RAlt, down: true }]);
+    expect(f.feed(ev(VK.LCtrl, false, 300, 0x1d))).toEqual([{ vk: VK.LCtrl, down: false }]);
+  });
+
+  it('with the filter, an AltGr press is a plain Right Alt hold to the machine', () => {
+    const clock = fakeClock();
+    const out: string[] = [];
+    const m = new HotkeyMachine({ hotkey: { keys: [VK.RAlt] }, toggle: null, picker: { keys: [VK.RAlt, VK.V] } }, (a) => out.push(a.type === 'mode' ? a.mode : a.type), undefined, clock.timers);
+    const f = new AltGrFilter();
+    const feed = (vk: number, down: boolean, t: number, scan = 0) => {
+      clock.advance(t);
+      for (const e of f.feed({ vk, down, t, scan })) e.down ? m.down(e.vk, t) : m.up(e.vk, t);
+    };
+    feed(VK.LCtrl, true, 0, 0x21d);
+    feed(VK.RAlt, true, 0, 0x38);
+    feed(VK.LCtrl, true, 300, 0x21d); // auto-repeat of the fake Ctrl
+    feed(VK.LCtrl, false, 2000, 0x21d);
+    feed(VK.RAlt, false, 2000, 0x38);
+    expect(out).toEqual(['start', 'push-to-talk', 'stop']);
+  });
+});
+

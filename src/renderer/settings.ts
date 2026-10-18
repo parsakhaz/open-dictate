@@ -101,6 +101,41 @@ function bindingControl(which: 'hotkey' | 'toggle' | 'picker', canClear: boolean
   return h('div.bindingrow', {}, box, change, clear);
 }
 
+const R_CTRL = 0xa3;
+const R_ALT = 0xa5;
+const V = 0x56;
+const same = (a: Binding | null, b: Binding) => !!a && a.keys.length === b.keys.length && a.keys.every((k, i) => k === b.keys[i]);
+
+/**
+ * One key for dictation: Right Ctrl or Right Alt (for keyboards without Right Ctrl). The picker moves along with
+ * it while it is still that key + V.
+ */
+function useKey(key: number): Promise<void> {
+  const other = key === R_ALT ? R_CTRL : R_ALT;
+  const picker = st.settings.picker;
+  const follow = !picker || same(picker, { keys: [other, V] });
+  return set({ hotkey: { keys: [key] }, ...(follow ? { picker: { keys: [key, V] } } : {}) });
+}
+
+function presets(which: 'hotkey' | 'picker'): HTMLElement {
+  const options: [string, Binding][] =
+    which === 'hotkey'
+      ? [['Right Ctrl', { keys: [R_CTRL] }], ['Right Alt', { keys: [R_ALT] }]]
+      : [['Right Ctrl + V', { keys: [R_CTRL, V] }], ['Right Alt + V', { keys: [R_ALT, V] }]];
+  return h(
+    'div.presets',
+    {},
+    h('span.muted', {}, 'Quick pick:'),
+    ...options.map(([label, b]) =>
+      h(
+        'button.chip',
+        { 'data-active': String(same(st.settings[which], b)), onclick: () => (which === 'hotkey' ? useKey(b.keys[0] as number) : set({ picker: b })) },
+        label,
+      ),
+    ),
+  );
+}
+
 // ---------- level meters ----------
 
 interface Meter {
@@ -190,6 +225,12 @@ function welcome(): Node[] {
       h('div.step', {}, h('div.stepnum', {}, '2'), h('div', {}, h('div.cardtitle', {}, 'Double-tap for hands-free'), h('div.carddesc', {}, 'Double-tap ', keycap(st.labels.hotkey), ' to keep listening; tap it again to finish. ', keycap('Esc'), ' cancels.'))),
       h('div.step', {}, h('div.stepnum', {}, '3'), h('div', {}, h('div.cardtitle', {}, 'Find anything you said'), h('div.carddesc', {}, keycap(st.labels.picker), ' opens your dictation history, like ', keycap('Win + V'), '.'))),
     ),
+    card(
+      'Your dictation key',
+      st.settings.hotkey && same(st.settings.hotkey, { keys: [R_ALT] }) ? 'Right Alt it is. You can change it any time in Hotkeys & output.' : 'No Right Ctrl on your keyboard? Use Right Alt.',
+      h('div.bindingrow', {}, keycap(st.labels.hotkey)),
+      presets('hotkey'),
+    ),
     card('Microphone', 'Say something: the bar should move into the middle.', micSelect(), meter),
     card('Start with Windows', 'dictate waits quietly in the tray, using no CPU until you press the key.', toggle(startWin.on, (v) => (startWin.on = v))),
     h(
@@ -220,8 +261,8 @@ function general(): Node[] {
   return [
     h('h1', {}, 'Hotkeys & output'),
     h('h2', {}, 'Hotkeys'),
-    card('Dictation key', 'Hold to talk, release to finish. Double-tap to keep listening hands-free; tap again to finish.', bindingControl('hotkey', false)),
-    card('History picker', 'Opens your dictation history at the cursor.', bindingControl('picker', true)),
+    card('Dictation key', 'Hold to talk, release to finish. Double-tap to keep listening hands-free; tap again to finish. No Right Ctrl on your keyboard? Use Right Alt.', bindingControl('hotkey', false), presets('hotkey')),
+    card('History picker', 'Opens your dictation history at the cursor.', bindingControl('picker', true), presets('picker')),
     card('Toggle combo', 'Optional: a separate shortcut that starts and stops hands-free dictation.', bindingControl('toggle', true)),
     h('h2', {}, 'Output'),
     card(
@@ -415,7 +456,7 @@ function advanced(): Node[] {
 function render(): void {
   stopMeters();
   const pages = st.settings.onboarded ? PAGES.filter((p) => p.id !== 'welcome') : PAGES;
-  if (!st.settings.onboarded) page = 'welcome';
+  if (!pages.some((p) => p.id === page)) page = 'general';
   nav.replaceChildren(
     ...pages.map((p) =>
       h(

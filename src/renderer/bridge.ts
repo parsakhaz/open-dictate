@@ -7,6 +7,11 @@ export interface Bridge {
 
 export const dictate = (window as unknown as { dictate: Bridge }).dictate;
 
+// Errors in any dictate page go to dictate.log: a page that silently stops working is otherwise invisible.
+const page = location.pathname.split('/').pop() ?? '';
+window.addEventListener('error', (e) => dictate.send('dictate:renderer-error', page, `${e.message} (${e.filename?.split('/').pop()}:${e.lineno})`));
+window.addEventListener('unhandledrejection', (e) => dictate.send('dictate:renderer-error', page, `unhandled rejection: ${(e.reason as Error)?.stack ?? String(e.reason)}`));
+
 /** Tiny element helper: h('div.card', { onclick }, child, 'text'). */
 export function h<K extends keyof HTMLElementTagNameMap>(
   spec: K | `${K}.${string}`,

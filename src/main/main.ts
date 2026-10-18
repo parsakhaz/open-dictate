@@ -5,7 +5,7 @@ import path from 'node:path';
 import { app, clipboard, ipcMain, Menu, MessageChannelMain, powerMonitor, screen, shell, Tray, type UtilityProcess, utilityProcess } from 'electron';
 import { defaultGainDb } from '../core/audio';
 import { HistoryStore } from '../core/history';
-import { type Bindings, bindingFromKeys, bindingLabel, type HotkeyAction, HotkeyMachine, isModifier, type RecordMode } from '../core/hotkeys';
+import { type Bindings, bindingFromKeys, bindingLabel, type HotkeyAction, HotkeyMachine, isModifier, menuMaskKeys, type RecordMode } from '../core/hotkeys';
 import { type MicDevice, type MicEvent, MicSelector, micKey, micName } from '../core/mics';
 import { applyEnv, defaultSettings, parseSettings, resolveModelsDir, STT_MODEL } from '../core/settings';
 import type { Binding, Settings } from '../core/types';
@@ -22,7 +22,7 @@ import type { PasteSink } from './paste';
 import { type PickRequest, pickFromHistory } from './pick';
 import { PickerController, type PickerWindow } from './picker';
 import { finishDictation } from './pipeline';
-import { debouncedWriter, readJson, writeJson } from './store';
+import { debouncedWriter, loadJson, readJson, writeJson } from './store';
 import { SttLink } from './sttlink';
 import { createPicker, createPill, createSettings, placePicker, showPill } from './windows';
 
@@ -208,7 +208,7 @@ async function stopRecording(): Promise<void> {
   if (d?.pasted && d.confirmed === false) pillSend('dictate:pill', { kind: 'copied', message: 'Pasted — also on the clipboard' });
   else if (d?.pasted) pillSend('dictate:pill', { kind: 'done', message: settings.output === 'both' ? 'Pasted and copied' : 'Pasted' });
   else if (d?.copied) pillSend('dictate:pill', { kind: 'copied', message: settings.output === 'clipboard' ? 'Copied' : 'Copied — press Ctrl+V' });
-  else pillSend('dictate:pill', { kind: 'error', message: 'Could not paste — it’s in History (Right Ctrl+V)' });
+  else pillSend('dictate:pill', { kind: 'error', message: `Could not paste — it’s in History (${bindingLabel(settings.picker)})` });
   pushState();
   rebuildTrayMenu();
   idleTray();
@@ -464,8 +464,9 @@ function bindings(): Bindings {
 
 function applyBindings(): void {
   machine.configure(bindings(), { tapMs: settings.tapMs, doubleTapMs: settings.doubleTapMs });
-  // Swallow the last key of each combo so the app never sees it: Right Ctrl+V must not paste.
-  hook.send({ type: 'config', swallow: [settings.picker, settings.toggle].filter((b): b is Binding => !!b) });
+  // Swallow the last key of each combo so the app never sees it: Right Ctrl+V must not paste. Mask lone Alt/Win
+  // presses of the bindings, so dictating with Right Alt never opens a menu bar.
+  hook.send({ type: 'config', swallow: [settings.picker, settings.toggle].filter((b): b is Binding => !!b), mask: menuMaskKeys(bindings()) });
 }
 
 // ---------- tray ----------
@@ -621,6 +622,7 @@ function registerIpc(): void {
     log('info', 'pill ready');
     sttLink.pillReady();
   });
+  ipcMain.on('dictate:renderer-error', (_e, page: string, message: string) => log('error', `renderer ${page}: ${String(message).slice(0, 2000)}`));
   ipcMain.on('dictate:pill-hidden', () => {
     if (!rec?.shown) pill.hide();
   });
@@ -683,7 +685,7 @@ function registerIpc(): void {
 
 function loadSettings(): Settings {
   const vocab = parseVocabularyFile(fs.readFileSync(path.join(appRoot(), 'defaults', 'vocabulary.json'), 'utf8')).terms;
-  const s = parseSettings(readJson(path.join(userData(), 'settings.json')), defaultSettings(vocab));
+  const s = parseSettings(loadJson(path.join(userData(), 'settings.json'), log), defaultSettings(vocab));
   return applyEnv(s, process.env);
 }
 
@@ -692,7 +694,7 @@ async function main(): Promise<void> {
   settings = loadSettings();
   saveSettings = debouncedWriter(path.join(userData(), 'settings.json'), () => settings);
   if (!fs.existsSync(path.join(userData(), 'settings.json'))) writeJson(path.join(userData(), 'settings.json'), settings);
-  const hist = readJson(path.join(userData(), 'history.json'));
+  const hist = loadJson(path.join(userData(), 'history.json'), log);
   history = new HistoryStore(Array.isArray(hist) ? hist : [], settings.historyLimit);
   saveHistory = debouncedWriter(path.join(userData(), 'history.json'), () => history.toJSON());
   mics = new MicSelector(settings.micOrder);
@@ -742,6 +744,7 @@ async function main(): Promise<void> {
     foreground: foregroundWindow,
     caret: caretRect,
     items: pickerItems,
+    hotkey: () => bindingLabel(settings.hotkey),
     log,
   });
   void picker.ensure();
