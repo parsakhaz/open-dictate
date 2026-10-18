@@ -1,0 +1,28 @@
+{
+  "name": "dictate",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.10.0",
+  "description": "Local Windows dictation: hold a hotkey, speak, and cleaned text is typed into the focused app. Nemotron streaming STT + local llama.cpp cleanup.",
+  "license": "AGPL-3.0",
+  "main": "out/main/main.js",
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "node build.mjs && electron .",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "biome lint src test"
+  },
+  "dependencies": {
+    "koffi": "3.3.3",
+    "sherpa-onnx-node": "1.13.8"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@types/node": "24.19.2",
+    "electron": "44.7.2",
+    "esbuild": "0.28.2",
+    "typescript": "6.0.3",
+    "vitest": "5.0.5"
+  }
+}

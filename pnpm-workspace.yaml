@@ -1,0 +1,6 @@
+allowBuilds:
+  electron: true
+  esbuild: true
+  koffi: true
+overrides:
+  sherpa-onnx-win-x64: 1.13.8
