@@ -77,8 +77,7 @@ function saveClipboard() {
   } catch (err) {
     // An empty snapshot must never be "restored" over the person's clipboard later.
     fs.rmSync(CLIP, { recursive: true, force: true });
-    throw new Error(`cannot read the clipboard (is the screen locked?): ${err.message.split(/?
-/)[0]}`);
+    throw new Error(`cannot read the clipboard (is the screen locked?): ${String(err.message).trim().split(String.fromCharCode(10))[0]}`);
   }
 }
 function restoreClipboard() {
