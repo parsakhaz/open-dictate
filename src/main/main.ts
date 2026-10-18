@@ -20,6 +20,7 @@ import { fileLogger } from './log';
 import { realPasteSink } from './output';
 import type { PasteSink } from './paste';
 import { type PickRequest, pickFromHistory } from './pick';
+import { PickerController, type PickerWindow } from './picker';
 import { finishDictation } from './pipeline';
 import { debouncedWriter, readJson, writeJson } from './store';
 import { createPicker, createPill, createSettings, placePicker, showPill } from './windows';
@@ -50,7 +51,6 @@ let hook: KeyHook;
 let mics: MicSelector;
 let tray: Tray | undefined;
 let pill: Electron.BrowserWindow;
-let picker: Electron.BrowserWindow | undefined;
 let settingsWin: Electron.BrowserWindow | undefined;
 let stt: UtilityProcess | undefined;
 let sttReady = false;
@@ -167,7 +167,7 @@ function onHotkey(a: HotkeyAction): void {
       return;
     }
     case 'picker':
-      void openPicker();
+      void picker.open();
       return;
   }
 }
@@ -276,6 +276,11 @@ function onDevices(d: { list: MicDevice[]; defaultLabel: string }): void {
   const first = !devicesSeen;
   devicesSeen = true;
   const u = mics.update(d.list, !!rec);
+  if (mics.prefsChanged) {
+    mics.prefsChanged = false;
+    settings.micOrder = [...mics.order];
+    saveSettings.save();
+  }
   if (!first && u.event) micToast(u.event);
   if (u.event?.kind === 'disconnected' && rec) {
     pillSend('dictate:capture-switch', { id: rec.id, deviceId: u.active?.deviceId ?? null, gainDb: gainFor(u.active) });
@@ -337,78 +342,64 @@ function lastDevices(): MicDevice[] {
 
 // ---------- history picker ----------
 
-let pickerTarget = 0;
-let pickerWatch: ReturnType<typeof setInterval> | undefined;
-
 function pickerItems() {
   return history.list();
 }
 
-let pickerReady: Promise<boolean> = Promise.resolve(false);
-/** Bumped by every open and close, so an open still waiting for the renderer is dropped if closed meanwhile. */
-let pickerToken = 0;
+/** The live picker BrowserWindow, for click-outside checks. */
+let pickerWin: Electron.BrowserWindow | undefined;
 
-/** Creates the picker window and resolves once its page has registered its listeners. */
-function ensurePicker(): Promise<boolean> {
-  if (picker && !picker.isDestroyed()) return pickerReady;
+function makePickerWindow(): PickerWindow {
   const w = createPicker();
-  picker = w;
-  pickerReady = new Promise<boolean>((resolve) => {
-    const ok = (e: Electron.IpcMainEvent) => {
-      if (e.sender !== w.webContents) return;
-      ipcMain.removeListener('dictate:picker-ready', ok);
-      resolve(true);
-    };
-    ipcMain.on('dictate:picker-ready', ok);
-    w.webContents.once('render-process-gone', () => resolve(false));
-    setTimeout(() => resolve(false), 5000);
-  });
-  w.webContents.on('render-process-gone', () => {
-    if (picker === w) picker = undefined;
-  });
-  return pickerReady;
+  pickerWin = w;
+  const gone: (() => void)[] = [];
+  const fireGone = () => {
+    if (pickerWin === w) pickerWin = undefined;
+    for (const cb of gone.splice(0)) cb();
+  };
+  w.webContents.on('render-process-gone', fireGone);
+  w.on('closed', fireGone);
+  return {
+    send: (ch, ...args) => {
+      if (!w.isDestroyed()) w.webContents.send(ch, ...args);
+    },
+    showInactive: () => {
+      w.showInactive();
+      w.setAlwaysOnTop(true, 'pop-up-menu');
+    },
+    hide: () => {
+      if (!w.isDestroyed()) w.hide();
+    },
+    isVisible: () => !w.isDestroyed() && w.isVisible(),
+    destroy: () => {
+      if (!w.isDestroyed()) w.destroy();
+    },
+    place: (caret) => placePicker(w, caret),
+    onReady: (cb) => {
+      const ok = (e: Electron.IpcMainEvent) => {
+        if (e.sender !== w.webContents) return;
+        ipcMain.removeListener('dictate:picker-ready', ok);
+        cb();
+      };
+      ipcMain.on('dictate:picker-ready', ok);
+      gone.push(() => ipcMain.removeListener('dictate:picker-ready', ok));
+    },
+    onGone: (cb) => gone.push(cb),
+  };
 }
 
-async function openPicker(): Promise<void> {
-  const token = ++pickerToken;
-  const target = foregroundWindow();
-  const caret = caretRect();
-  if (!(await ensurePicker())) {
-    log('error', 'history picker did not load');
-    return;
-  }
-  // Closed (or reopened) while the page was loading: do nothing.
-  if (token !== pickerToken || !picker) return;
-  pickerTarget = target;
-  placePicker(picker, caret);
-  picker.webContents.send('dictate:picker-open', { items: pickerItems(), now: Date.now() });
-  picker.showInactive();
-  picker.setAlwaysOnTop(true, 'pop-up-menu');
-  // Keys go to the picker only once it is on screen and listening.
-  hook.send({ type: 'capture', on: true });
-  // While open, the hook swallows typing keys; if focus moves elsewhere (a click, Alt+Tab, a notification),
-  // close at once so typing in the new window is never eaten.
-  clearInterval(pickerWatch);
-  pickerWatch = setInterval(() => {
-    if (foregroundWindow() !== pickerTarget) closePicker();
-  }, 200);
-  log('info', 'history picker opened');
-}
+let picker: PickerController;
 
 function closePicker(): void {
-  pickerToken++;
-  clearInterval(pickerWatch);
-  if (!picker?.isVisible()) return;
-  hook.send({ type: 'capture', on: false });
-  picker.webContents.send('dictate:picker-close');
-  picker.hide();
+  picker.close();
   machine.clearKeys();
 }
 
 async function choose(req: PickRequest): Promise<void> {
   closePicker();
   // The picker never took focus, but put the target back in front if something else did.
-  if (!req.copyOnly && isWindow(pickerTarget) && foregroundWindow() !== pickerTarget) setForeground(pickerTarget);
+  const target = picker.target;
+  if (!req.copyOnly && isWindow(target) && foregroundWindow() !== target) setForeground(target);
   const d = await pickFromHistory(history, req, sink);
   if (d && !req.copyOnly && !d.pasted) showToast(d.copied ? 'Copied — press Ctrl+V' : 'Could not paste or copy', false, 3500);
 }
@@ -423,8 +414,8 @@ function onHook(e: FromHook): void {
     return;
   }
   if (e.type === 'click') {
-    if (picker?.isVisible()) {
-      const b = picker.getBounds();
+    if (picker.isOpen && pickerWin && !pickerWin.isDestroyed()) {
+      const b = pickerWin.getBounds();
       const p = screen.screenToDipPoint({ x: e.x, y: e.y });
       // 12 px of the window is transparent shadow margin.
       if (p.x < b.x + 12 || p.x > b.x + b.width - 12 || p.y < b.y + 12 || p.y > b.y + b.height - 12) closePicker();
@@ -451,10 +442,10 @@ function onHook(e: FromHook): void {
     }
     return;
   }
-  if (picker?.isVisible()) {
+  if (picker.isOpen) {
     // Alt and Win combos (Alt+Tab, Win+D) are the person leaving: let them through and close.
     if (e.down && [0xa4, 0xa5, 0x5b, 0x5c].includes(e.vk)) closePicker();
-    else if (e.down && !isModifier(e.vk)) picker.webContents.send('dictate:picker-key', { vk: e.vk, shift: e.shift });
+    else if (e.down && !isModifier(e.vk)) picker.send('dictate:picker-key', { vk: e.vk, shift: e.shift });
     return;
   }
   if (e.down) machine.down(e.vk, e.t);
@@ -489,7 +480,7 @@ function rebuildTrayMenu(): void {
       { label: `Hold ${bindingLabel(settings.hotkey)} to dictate · double-tap to toggle`, enabled: false },
       { type: 'separator' },
       { label: 'Copy last dictation', enabled: !!last, click: () => last && void clipboard.writeText(last.text).catch(() => undefined) },
-      { label: `History…   ${bindingLabel(settings.picker)}`, enabled: !!last, click: () => void openPicker() },
+      { label: `History…   ${bindingLabel(settings.picker)}`, enabled: !!last, click: () => void picker.open() },
       { type: 'separator' },
       { label: 'Microphone', submenu: micItems },
       { label: 'Cleanup', submenu: [chain('gemma-emberon', 'Gemma → Emberon (best)'), chain('gemma', 'Gemma only'), chain('emberon', 'Emberon only (fastest)'), chain('off', 'Off (raw transcript)')] },
@@ -668,12 +659,12 @@ function registerIpc(): void {
   ipcMain.on('dictate:picker-pin', (_e, a: { id: string; pinned: boolean }) => {
     history.setPinned(a.id, a.pinned);
     saveHistory.save();
-    picker?.webContents.send('dictate:picker-items', pickerItems());
+    picker.send('dictate:picker-items', pickerItems());
   });
   ipcMain.on('dictate:picker-delete', (_e, a: { id: string }) => {
     history.remove(a.id);
     saveHistory.save();
-    picker?.webContents.send('dictate:picker-items', pickerItems());
+    picker.send('dictate:picker-items', pickerItems());
     rebuildTrayMenu();
   });
   ipcMain.handle('dictate:history', () => history.list());
@@ -735,7 +726,15 @@ async function main(): Promise<void> {
   });
   startStt();
   cleanup.sync();
-  void ensurePicker();
+  picker = new PickerController({
+    create: makePickerWindow,
+    capture: (on) => hook.send({ type: 'capture', on }),
+    foreground: foregroundWindow,
+    caret: caretRect,
+    items: pickerItems,
+    log,
+  });
+  void picker.ensure();
 
   hook = new KeyHook(path.join(appRoot(), 'out', 'native', 'keyhook.js'), onHook, log);
   hook.start();

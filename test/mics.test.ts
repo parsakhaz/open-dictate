@@ -131,6 +131,23 @@ describe('MicSelector', () => {
     expect(s.update([A, B]).active?.groupId).toBe('g2');
   });
 
+  it('keeps a saved mic after a restart, when Chromium has issued it a new groupId (R2)', () => {
+    // run 1: pick BOYA; its groupId is saved
+    const run1 = new MicSelector([]);
+    run1.update([ARRAY, { ...BOYA, groupId: 'old' }]);
+    run1.pick({ ...BOYA, groupId: 'old' });
+    const saved = JSON.parse(JSON.stringify(run1.order));
+    // run 2: same devices, new groupIds
+    const run2 = new MicSelector(saved);
+    const u = run2.update([{ ...ARRAY, groupId: 'x' }, { ...BOYA, deviceId: 'b9', groupId: 'new' }]);
+    expect(u.active?.deviceId).toBe('b9');
+    // the saved preference adopts the new groupId, so it is exact again from now on
+    expect(run2.prefsChanged).toBe(true);
+    expect(run2.order).toEqual([{ label: BOYA.label, groupId: 'new' }]);
+    // and unplugging it is still noticed
+    expect(run2.update([{ ...ARRAY, groupId: 'x' }]).event?.kind).toBe('disconnected');
+  });
+
   it('reads old label-only preferences and upgrades them when picked', () => {
     expect(parseMicPrefs(['Microphone (X)', { label: 'Y', groupId: 'g' }, 3, null])).toEqual([{ label: 'Microphone (X)' }, { label: 'Y', groupId: 'g' }]);
     const s = new MicSelector([{ label: BOYA.label }]);

@@ -25,6 +25,8 @@ export interface LlamaOptions {
   warmup?: () => Record<string, unknown>;
   log: Log;
   spawn?: typeof spawn;
+  /** Test seam: the port finder. */
+  freePort?: () => Promise<number>;
   /** Called with each new server's pid (main ties it to dictate's lifetime). */
   adopt?: (pid: number) => void;
 }
@@ -117,11 +119,13 @@ export class LlamaServer {
 
   private async launch(gen: number): Promise<void> {
     this.set('starting');
-    this.port = await freePort();
+    // The port stays local to this launch until it is ready and still current: a stale launch finishing late
+    // must never repoint the server at its port.
+    const port = await (this.opts.freePort ?? freePort)();
     const current = () => this.wanted && gen === this.gen;
     if (!current()) throw new Error('stopped');
     const t0 = performance.now();
-    const args = llamaArgs(this.opts.gguf, this.port, this.opts.ctx ?? 4096);
+    const args = llamaArgs(this.opts.gguf, port, this.opts.ctx ?? 4096);
     const proc = (this.opts.spawn ?? spawn)(this.opts.exe, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
     this.proc = proc;
     if (proc.pid) this.opts.adopt?.(proc.pid);
@@ -148,7 +152,7 @@ export class LlamaServer {
         if (spawnError) throw new Error(`llama-server could not start (${this.opts.exe}): ${spawnError.message}`);
         if (proc.exitCode !== null) throw new Error(`llama-server exited (${proc.exitCode}) during start-up: ${tail.slice(-500)}`);
         try {
-          const r = await fetch(`http://127.0.0.1:${this.port}/health`, { signal: AbortSignal.timeout(2000) });
+          const r = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(2000) });
           if (r.ok) break;
         } catch {
           // not listening yet
@@ -159,7 +163,7 @@ export class LlamaServer {
       const loadMs = performance.now() - t0;
       if (this.opts.warmup) {
         const w0 = performance.now();
-        await this.post(this.opts.warmup(), AbortSignal.timeout(60_000));
+        await this.post(port, this.opts.warmup(), AbortSignal.timeout(60_000));
         this.opts.log('info', `${this.name} ready in ${(loadMs / 1000).toFixed(2)} s, warm-up ${(performance.now() - w0).toFixed(0)} ms`);
       } else {
         this.opts.log('info', `${this.name} ready in ${(loadMs / 1000).toFixed(2)} s`);
@@ -171,12 +175,13 @@ export class LlamaServer {
       proc.kill();
       throw err;
     }
+    this.port = port;
     this.restarts = 0;
     this.set('ready');
   }
 
-  private async post(body: Record<string, unknown>, signal?: AbortSignal): Promise<{ choices?: { message?: { content?: string } }[]; timings?: Record<string, number> }> {
-    const r = await fetch(`http://127.0.0.1:${this.port}/v1/chat/completions`, {
+  private async post(port: number, body: Record<string, unknown>, signal?: AbortSignal): Promise<{ choices?: { message?: { content?: string } }[]; timings?: Record<string, number> }> {
+    const r = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
@@ -189,7 +194,7 @@ export class LlamaServer {
   /** One chat completion; returns the reply's content. */
   async complete(body: Record<string, unknown>, signal?: AbortSignal): Promise<string> {
     if (this.state !== 'ready') throw new Error(`${this.name} is ${this.state}`);
-    const j = await this.post(body, signal);
+    const j = await this.post(this.port, body, signal);
     return j.choices?.[0]?.message?.content ?? '';
   }
 

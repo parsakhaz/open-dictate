@@ -14,7 +14,11 @@ function within<T>(p: Promise<T>, ms = CLIPBOARD_MS): Promise<T> {
 type Snapshot = Record<string, unknown>[];
 
 const electronClipboard: ClipboardPort = {
-  /** Every entry and format on the clipboard, read out in full so it survives our own write. */
+  /**
+   * Every entry and format on the clipboard, read out in full so it survives our own write. If any advertised
+   * format cannot be read, the snapshot fails as a whole: a partial copy would lose that data on restore, so the
+   * sink types the text instead and leaves the clipboard alone.
+   */
   async snapshot(): Promise<Snapshot> {
     const items = await within(clipboard.read());
     const out: Snapshot = [];
@@ -23,11 +27,12 @@ const electronClipboard: ClipboardPort = {
       for (const t of it.types) {
         try {
           rec[t] = await within(it.getType(t));
-        } catch {
-          // a format that cannot be read back is skipped
+        } catch (err) {
+          throw new Error(`cannot read clipboard format ${t}: ${(err as Error).message}`);
         }
       }
-      if (Object.keys(rec).length) out.push(rec);
+      // An empty clipboard reads as one entry with no formats; there is nothing in it to keep.
+      if (it.types.length) out.push(rec);
     }
     return out;
   },

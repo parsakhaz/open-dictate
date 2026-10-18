@@ -60,18 +60,26 @@ function sameLabel(a: string, b: string): boolean {
 }
 
 /**
- * The connected device a preference refers to. With a groupId only that exact device matches, so of two
- * identical USB mics the chosen one is used, and unplugging it is noticed; a label-only (old) preference
- * matches the first device with that label.
+ * The connected device a preference refers to.
+ *
+ * A groupId is only meaningful in the browsing session that issued it (Chromium re-issues it per document), so:
+ * - a groupId seen in this session matches only that exact device: of two identical USB mics the chosen one is
+ *   used, and unplugging it is noticed even though its twin remains;
+ * - a groupId from an earlier run (never seen now) falls back to the label, which on Windows carries the
+ *   endpoint name and the USB vendor:product id; with two identical mics that is the first one;
+ * - a label-only preference (older settings) matches by label.
  */
-function deviceFor(p: MicPref, available: MicDevice[]): MicDevice | undefined {
+function deviceFor(p: MicPref, available: MicDevice[], seen: ReadonlySet<string>): MicDevice | undefined {
   const same = available.filter((d) => sameLabel(d.label, p.label));
-  return p.groupId ? same.find((d) => d.groupId === p.groupId) : same[0];
+  if (!p.groupId) return same[0];
+  const exact = same.find((d) => d.groupId === p.groupId);
+  if (exact || seen.has(p.groupId)) return exact;
+  return same[0];
 }
 
 /** The same physical device in a fresh list: by deviceId, else label and groupId. */
-function stillThere(d: MicDevice, available: MicDevice[]): MicDevice | undefined {
-  return available.find((m) => m.deviceId === d.deviceId) ?? deviceFor({ label: d.label, groupId: d.groupId }, available);
+function stillThere(d: MicDevice, available: MicDevice[], seen: ReadonlySet<string>): MicDevice | undefined {
+  return available.find((m) => m.deviceId === d.deviceId) ?? deviceFor({ label: d.label, groupId: d.groupId }, available, seen);
 }
 
 const identity = (d: MicDevice) => `${micKey(d.label)}|${d.groupId ?? ''}`;
@@ -93,6 +101,8 @@ export class MicSelector {
   private readonly declined = new Set<string>();
   private undoTo: MicDevice | null | undefined;
   private pendingSwitch = false;
+  /** groupIds issued in this session; see deviceFor(). */
+  private readonly seen = new Set<string>();
 
   /** `order`: preferred mics, most preferred first. Mutated by pick(); persist it after. */
   constructor(readonly order: MicPref[]) {}
@@ -103,7 +113,7 @@ export class MicSelector {
 
   private best(): MicDevice | null {
     for (const p of this.order) {
-      const d = deviceFor(p, this.available);
+      const d = deviceFor(p, this.available, this.seen);
       if (d && !this.declined.has(identity(d))) return d;
     }
     return null;
@@ -111,7 +121,7 @@ export class MicSelector {
 
   private rank(d: MicDevice | null): number {
     if (!d) return Number.POSITIVE_INFINITY;
-    const i = this.order.findIndex((p) => deviceFor(p, [d]) !== undefined);
+    const i = this.order.findIndex((p) => deviceFor(p, [d], this.seen) !== undefined);
     return i < 0 ? Number.POSITIVE_INFINITY : i;
   }
 
@@ -121,10 +131,12 @@ export class MicSelector {
    */
   update(available: MicDevice[], recording = false): MicUpdate {
     this.available = available;
+    this.refreshPrefs(available);
+    for (const d of available) if (d.groupId) this.seen.add(d.groupId);
     const present = new Set(available.map(identity));
     for (const k of [...this.declined]) if (!present.has(k)) this.declined.delete(k);
     const prev = this.active;
-    const now = prev ? stillThere(prev, available) : undefined;
+    const now = prev ? stillThere(prev, available, this.seen) : undefined;
     const best = this.best();
     if (prev && !now) {
       this.active = best;
@@ -142,6 +154,24 @@ export class MicSelector {
     }
     return { active: this.active };
   }
+
+  /**
+   * Preferences saved in an earlier run carry that run's groupIds. When such a preference now resolves by label
+   * to exactly one device, it adopts that device's current groupId, so the saved list stays exact; prefsChanged
+   * tells main to persist it.
+   */
+  private refreshPrefs(available: MicDevice[]): void {
+    for (const p of this.order) {
+      if (!p.groupId || this.seen.has(p.groupId)) continue;
+      const same = available.filter((d) => sameLabel(d.label, p.label));
+      if (same.length !== 1 || !same[0].groupId || same[0].groupId === p.groupId) continue;
+      p.groupId = same[0].groupId;
+      this.prefsChanged = true;
+    }
+  }
+
+  /** Set when refreshPrefs() updated a saved groupId; main saves the list and clears it. */
+  prefsChanged = false;
 
   /** Applies an upgrade that arrived mid-recording. */
   recordingEnded(): MicUpdate {
