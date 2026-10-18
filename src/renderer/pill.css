@@ -9,12 +9,14 @@ body {
   position: fixed;
   inset: 0;
   display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  padding: 0 40px 36px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 24px 32px;
   opacity: 0;
-  transform: translateY(8px) scale(0.98);
-  transition: opacity 140ms var(--ease), transform 220ms var(--ease);
+  transform: translateY(6px);
+  transition: opacity 150ms var(--ease), transform 220ms var(--ease);
   pointer-events: none;
 }
 #root.visible {
@@ -22,76 +24,91 @@ body {
   transform: none;
 }
 
+/* ---------- the pill: one height for every state; its width follows the content (set from pill.ts) ---------- */
+
 .pill {
   pointer-events: auto;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 240px;
+  box-sizing: border-box;
+  height: 40px;
   max-width: 100%;
-  height: 56px;
-  padding: 0 18px 0 12px;
-  border-radius: 28px;
-  background: rgba(36, 36, 36, 0.96);
-  border: 1px solid var(--stroke-strong);
-  box-shadow: var(--shadow-flyout);
-  transition: background var(--fast) linear;
-}
-.pill.compact {
-  height: 44px;
-  border-radius: 22px;
+  overflow: hidden;
+  border-radius: 20px;
+  background: rgba(32, 32, 32, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.32),
+    0 0 1px rgba(0, 0, 0, 0.6);
+  transition: width 200ms var(--ease);
 }
 
-.icon {
+.content {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 100%;
+  padding: 0 16px;
+  white-space: nowrap;
+}
+
+/* The leading slot: a small recording dot, a spinner while working, or a glyph for the outcome. */
+.lead {
   position: relative;
   flex: none;
-  width: 32px;
-  height: 32px;
-  border-radius: 16px;
+  width: 14px;
+  height: 14px;
   display: grid;
   place-items: center;
-  background: rgba(255, 255, 255, 0.06);
 }
-.pill.compact .icon {
-  width: 26px;
-  height: 26px;
+.lead > * {
+  grid-area: 1 / 1;
+  opacity: 0;
+  transition: opacity 150ms linear;
 }
-
-.meter {
-  display: none;
-  align-items: center;
-  gap: 2px;
-  height: 16px;
-}
-.bar {
-  width: 3px;
-  height: 16px;
-  border-radius: 2px;
-  background: var(--red);
-  transform: scaleY(0.18);
-  transition: transform 70ms linear;
-}
-[data-kind='listening'] .meter,
-[data-kind='warming'] .meter {
-  display: flex;
-}
-[data-kind='listening'] .icon,
-[data-kind='warming'] .icon {
-  background: rgba(255, 92, 92, 0.14);
-}
-
-.spinner {
-  display: none;
-  width: 18px;
-  height: 18px;
+.dot {
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  border: 2px solid rgba(96, 205, 255, 0.25);
-  border-top-color: var(--accent);
-  animation: spin 0.8s linear infinite;
+  background: #ff5c5c;
+  box-shadow: 0 0 0 3px rgba(255, 92, 92, 0.16);
 }
+.spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.16);
+  border-top-color: var(--text-2);
+  animation: spin 0.9s linear infinite;
+}
+.glyph {
+  font-family: 'Segoe Fluent Icons', 'Segoe MDL2 Assets';
+  font-size: 13px;
+  line-height: 1;
+}
+[data-kind='listening'] .dot,
+[data-kind='warming'] .dot,
 [data-kind='transcribing'] .spinner,
-[data-kind='cleaning'] .spinner {
-  display: block;
+[data-kind='cleaning'] .spinner,
+[data-kind='done'] .glyph,
+[data-kind='copied'] .glyph,
+[data-kind='error'] .glyph,
+[data-kind='info'] .glyph,
+[data-kind='toast'] .glyph {
+  opacity: 1;
+}
+[data-starting='true'] .dot {
+  background: var(--text-4);
+  box-shadow: none;
+}
+[data-kind='done'] .glyph {
+  color: var(--green);
+}
+[data-kind='copied'] .glyph,
+[data-kind='info'] .glyph,
+[data-kind='toast'] .glyph {
+  color: var(--accent);
+}
+[data-kind='error'] .glyph {
+  color: #ffb54c;
 }
 @keyframes spin {
   to {
@@ -99,75 +116,120 @@ body {
   }
 }
 
-.glyph {
+/* ---------- the waveform: nine thin bars driven by the live level ---------- */
+
+.wave {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 18px;
+  transition: opacity 150ms linear;
+}
+.bar {
+  width: 2px;
+  height: 18px;
+  border-radius: 1px;
+  background: var(--text);
+  transform: scaleY(0.15);
+  transition: transform 80ms linear;
+}
+[data-starting='true'] .bar {
+  background: var(--text-4);
+  transform: scaleY(0.15) !important;
+}
+[data-silent='true'] .bar {
+  background: var(--text-3);
+}
+/* Working: the bars settle into a soft travelling pulse. */
+[data-kind='transcribing'] .bar,
+[data-kind='cleaning'] .bar {
+  background: var(--text-3);
+  animation: pulse 1.1s ease-in-out infinite;
+}
+.bar:nth-child(2) {
+  animation-delay: 0.08s;
+}
+.bar:nth-child(3) {
+  animation-delay: 0.16s;
+}
+.bar:nth-child(4) {
+  animation-delay: 0.24s;
+}
+.bar:nth-child(5) {
+  animation-delay: 0.32s;
+}
+.bar:nth-child(6) {
+  animation-delay: 0.4s;
+}
+.bar:nth-child(7) {
+  animation-delay: 0.48s;
+}
+.bar:nth-child(8) {
+  animation-delay: 0.56s;
+}
+.bar:nth-child(9) {
+  animation-delay: 0.64s;
+}
+@keyframes pulse {
+  0%,
+  100% {
+    transform: scaleY(0.15);
+  }
+  50% {
+    transform: scaleY(0.5);
+  }
+}
+/* Outcomes have no waveform. */
+[data-kind='done'] .wave,
+[data-kind='copied'] .wave,
+[data-kind='error'] .wave,
+[data-kind='info'] .wave,
+[data-kind='toast'] .wave {
   display: none;
-  font-family: 'Segoe Fluent Icons', 'Segoe MDL2 Assets';
-  font-size: 14px;
-  line-height: 1;
-}
-[data-kind='done'] .glyph,
-[data-kind='copied'] .glyph,
-[data-kind='error'] .glyph,
-[data-kind='info'] .glyph,
-[data-kind='toast'] .glyph {
-  display: block;
-}
-[data-kind='done'] .icon {
-  background: rgba(108, 203, 95, 0.18);
-  color: var(--green);
-}
-[data-kind='copied'] .icon {
-  background: rgba(96, 205, 255, 0.16);
-  color: var(--accent);
-}
-[data-kind='error'] .icon {
-  background: rgba(255, 153, 0, 0.18);
-  color: #ffb54c;
-}
-[data-kind='info'] .icon,
-[data-kind='toast'] .icon {
-  color: var(--accent);
 }
 
-.body {
+/* ---------- the live words: one quiet line, newest words visible, fading at the leading edge ---------- */
+
+.textwrap {
   min-width: 0;
-  flex: 1;
+  max-width: 340px;
+  overflow: hidden;
   display: flex;
-  flex-direction: column;
-  justify-content: center;
+  justify-content: flex-end;
 }
-.text {
-  font-size: 14px;
-  line-height: 20px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 440px;
-}
-.text.placeholder {
-  color: var(--text-2);
-}
-.hint {
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--text-3);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.hint:empty {
+.textwrap[hidden] {
   display: none;
 }
-.hint.warn {
-  color: #ffb54c;
+.textwrap.clipped {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 32px);
+  mask-image: linear-gradient(to right, transparent 0, #000 32px);
 }
-[data-kind='cleaning'] .hint {
+.text {
+  flex: none;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 400;
+  color: var(--text-2);
+  letter-spacing: 0.005em;
+}
+[data-placeholder='true'] .text {
+  color: var(--text-3);
+}
+[data-kind='done'] .text,
+[data-kind='copied'] .text,
+[data-kind='error'] .text,
+[data-kind='info'] .text,
+[data-kind='toast'] .text {
+  color: var(--text);
+}
+[data-kind='cleaning'] .text {
   background: linear-gradient(90deg, var(--text-3) 0%, var(--text) 50%, var(--text-3) 100%);
   background-size: 200% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: shimmer 1.2s linear infinite;
+  animation: shimmer 1.4s linear infinite;
 }
 @keyframes shimmer {
   from {
@@ -180,29 +242,140 @@ body {
 
 .undo {
   flex: none;
+  margin-right: -8px;
   border: 1px solid var(--stroke-strong);
   background: var(--card);
-  border-radius: var(--radius-sm);
-  padding: 4px 12px;
-  font-size: 13px;
+  border-radius: 12px;
+  padding: 2px 10px;
+  font-size: 12px;
   cursor: default;
 }
 .undo:hover {
   background: var(--card-hover);
 }
-.undo:active {
-  background: var(--card-press);
-  color: var(--text-2);
-}
 .undo[hidden] {
   display: none;
 }
 
-/* The mic is still opening: a grey, flat meter, like a muted one, until the first audio arrives. */
-.pill[data-starting='true'] .bar {
-  transform: scaleY(0.18) !important;
-  background: var(--text-4);
+/* ---------- above the pill: the first-use hint, a warning, or (variant B) the caption ---------- */
+
+/* A small capsule of the same surface: readable over any window behind it. */
+.above {
+  max-width: 420px;
+  box-sizing: border-box;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 12px;
+  background: rgba(32, 32, 32, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.24);
+  font-size: 11px;
+  line-height: 22px;
+  color: var(--text-2);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0;
+  transition: opacity 200ms linear;
 }
-.pill[data-starting='true'] .icon {
-  background: var(--card);
+.above:empty {
+  visibility: hidden;
+}
+.above.shown {
+  opacity: 1;
+}
+.above[data-role='warn'] {
+  color: #ffb54c;
+}
+
+/* ---------- variant B: a waveform-only capsule with the words as a caption above ---------- */
+
+[data-variant='b'] .pill {
+  height: 36px;
+  border-radius: 18px;
+}
+[data-variant='b'] .content {
+  padding: 0 14px;
+  gap: 8px;
+}
+[data-variant='b'] .above[data-role='caption'] {
+  height: 28px;
+  padding: 0 14px;
+  border-radius: 14px;
+  font-size: 13px;
+  line-height: 26px;
+  color: var(--text-2);
+  max-width: 440px;
+  direction: rtl;
+  text-overflow: clip;
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 40px);
+  mask-image: linear-gradient(to right, transparent 0, #000 40px);
+  unicode-bidi: plaintext;
+}
+
+/* ---------- variant C: a card with the words above a centred waveform ---------- */
+
+[data-variant='c'] .pill {
+  height: 58px;
+  border-radius: 16px;
+}
+[data-variant='c'] .content {
+  display: inline-grid;
+  grid-template-columns: minmax(0, 340px);
+  justify-items: center;
+  align-content: center;
+  row-gap: 6px;
+  padding: 0 20px;
+}
+[data-variant='c'] .lead {
+  position: absolute;
+  margin-left: -9999px;
+}
+[data-variant='c'] .textwrap {
+  order: -1;
+  justify-content: center;
+}
+[data-variant='c'] .textwrap.clipped {
+  justify-content: flex-end;
+}
+[data-variant='c'] .wave {
+  height: 14px;
+}
+[data-variant='c'] .bar {
+  height: 14px;
+}
+[data-variant='c'] [data-kind='done'] .lead,
+[data-variant='c'] [data-kind='copied'] .lead,
+[data-variant='c'] [data-kind='error'] .lead,
+[data-variant='c'] [data-kind='info'] .lead,
+[data-variant='c'] [data-kind='toast'] .lead {
+  position: static;
+  margin: 0;
+}
+[data-variant='c'] .pill[data-kind='done'] .content,
+[data-variant='c'] .pill[data-kind='copied'] .content,
+[data-variant='c'] .pill[data-kind='error'] .content,
+[data-variant='c'] .pill[data-kind='info'] .content,
+[data-variant='c'] .pill[data-kind='toast'] .content {
+  display: inline-flex;
+  gap: 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #root,
+  .pill,
+  .lead > *,
+  .wave,
+  .above {
+    transition: none;
+  }
+  .bar {
+    transition: none;
+    animation: none !important;
+  }
+  .spinner,
+  [data-kind='cleaning'] .text {
+    animation: none;
+  }
 }

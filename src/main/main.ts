@@ -10,6 +10,7 @@ import { HistoryStore } from '../core/history';
 import { type Bindings, bindingFromKeys, bindingLabel, type HotkeyAction, HotkeyMachine, isModifier, menuMaskKeys, type RecordMode } from '../core/hotkeys';
 import { DEFAULT_SEGMENTER, LiveCleanup, Segmenter } from '../core/live';
 import { type MicDevice, type MicEvent, MicSelector, micKey, micName } from '../core/mics';
+import { finishHint } from '../core/pillhint';
 import { applyEnv, defaultSettings, parseSettings, resolveModelsDir, STT_MODEL } from '../core/settings';
 import type { Binding, Settings } from '../core/types';
 import { parseVocabularyFile } from '../core/vocabulary';
@@ -123,6 +124,27 @@ function idleTray(): void {
 
 function pillSend(channel: string, ...args: unknown[]): void {
   if (!pill.isDestroyed()) pill.webContents.send(channel, ...args);
+  if (channel === 'dictate:pill') pillShot(args[0] as { kind: string; mode?: string });
+}
+
+/** The pill's look: the comparison variant (QA), and whether it shows the live words. */
+function pillConfig(): void {
+  const v = process.env.DICTATE_PILL_VARIANT;
+  pillSend('dictate:pill-config', { variant: v === 'b' || v === 'c' ? v : 'a', showText: settings.pillText });
+}
+
+/** QA (DICTATE_PILL_SHOTS=<dir>): a PNG of the real pill window on each state change, and on request. */
+const shotDir = process.env.DICTATE_PILL_SHOTS;
+function pillShot(s: { kind: string; mode?: string; starting?: boolean } | string, delay = 380): void {
+  if (!shotDir || !pill || pill.isDestroyed()) return;
+  const name = typeof s === 'string' ? s : `${s.kind}${s.mode === 'toggle' ? '-handsfree' : ''}${s.starting ? '-starting' : ''}`;
+  setTimeout(() => {
+    void pill.webContents.capturePage().then((img) => {
+      const v = process.env.DICTATE_PILL_VARIANT ?? 'a';
+      fs.mkdirSync(shotDir, { recursive: true });
+      fs.writeFileSync(path.join(shotDir, `${v}-${name}.png`), img.toPNG());
+    });
+  }, delay);
 }
 
 function sound(cue: 'start' | 'stop' | 'cancel' | 'error'): void {
@@ -170,7 +192,8 @@ function onHotkey(a: HotkeyAction): void {
         return;
       }
       // Until the mic delivers audio the meter is grey and flat, and the start cue waits for it.
-      pillSend('dictate:pill', { kind: cleanup.warming() ? 'warming' : 'listening', mode: a.mode, hotkey: bindingLabel(settings.hotkey), starting: !rec.live });
+      const finish = finishHint(a.mode, a.via, { hotkey: bindingLabel(settings.hotkey), toggle: bindingLabel(settings.toggle) });
+      pillSend('dictate:pill', cleanup.warming() ? { kind: 'warming', finish } : { kind: 'listening', mode: a.mode, finish, starting: !rec.live });
       showPill(pill);
       rec.shown = true;
       if (first && rec.live) sound('start');
@@ -772,6 +795,7 @@ function updateSettings(patch: Partial<Settings>): void {
   if (patch.hotkey !== undefined || patch.toggle !== undefined || patch.picker !== undefined || patch.tapMs !== undefined || patch.doubleTapMs !== undefined) applyBindings();
   if (patch.historyLimit !== undefined) history.setLimit(settings.historyLimit);
   if (patch.micWarm !== undefined) warm?.settingChanged();
+  if (patch.pillText !== undefined) pillConfig();
   if (patch.startWithWindows !== undefined) applyLoginItem();
   if (['cleanup', 'llamaServer', 'modelsDir', 'vocabulary', 'batteryEmberonOnly', 'batteryUnloadMinutes'].some((k) => k in patch)) cleanup.update(settings);
   if ((patch.modelsDir && patch.modelsDir !== before.modelsDir) || (patch.sttThreads && patch.sttThreads !== before.sttThreads)) {
@@ -827,6 +851,7 @@ function registerIpc(): void {
 
   ipcMain.on('dictate:pill-ready', () => {
     log('info', 'pill ready');
+    pillConfig();
     sttLink.pillReady();
   });
   ipcMain.on('dictate:renderer-error', (_e, page: string, message: string) => log('error', `renderer ${page}: ${String(message).slice(0, 2000)}`));
@@ -981,6 +1006,11 @@ async function main(): Promise<void> {
         const t = performance.now();
         if (line === 'down') machine.down(key, t);
         else if (line === 'up') machine.up(key, t);
+        else if (line.startsWith('shot ')) pillShot(line.slice(5), 0);
+        else if (line.startsWith('state ')) {
+          pillSend('dictate:pill', JSON.parse(line.slice(6)));
+          showPill(pill);
+        } else if (line.startsWith('partial ')) pillSend('dictate:partial', line.slice(8));
       }
       seen = lines.length;
     });

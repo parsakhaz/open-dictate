@@ -276,6 +276,7 @@ function general(): Node[] {
         ['both', 'Paste, and keep it on the clipboard', ''],
       ], (v) => set({ output: v })),
     ),
+    card('Show what you say', 'The live words in the pill while you speak. Off leaves just the waveform.', toggle(s.pillText, (v) => set({ pillText: v }))),
     card('Sounds', 'A soft cue when dictation starts, stops or is cancelled.', toggle(s.sounds, (v) => set({ sounds: v }))),
     card('Start with Windows', 'Start dictate in the tray when you sign in.', toggle(s.startWithWindows, (v) => set({ startWithWindows: v }))),
   ];

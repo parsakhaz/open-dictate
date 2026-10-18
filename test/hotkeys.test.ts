@@ -206,11 +206,20 @@ describe('Ctrl+key combos', () => {
     down(VK.LShift, 10);
     down(VK.Space, 20);
     for (const k of [VK.Space, VK.LShift, VK.LCtrl]) up(k, 100);
-    expect(actions).toEqual([start, toggle]);
+    // via: the combo, so the pill says that combo finishes it, not the dictation key
+    const viaCombo = { ...toggle, via: 'combo' };
+    expect(actions).toEqual([start, viaCombo]);
     down(VK.LCtrl, 5000);
     down(VK.LShift, 5010);
     down(VK.Space, 5020);
-    expect(actions).toEqual([start, toggle, stop]);
+    expect(actions).toEqual([start, viaCombo, stop]);
+  });
+
+  it('Right Alt alone as the toggle combo, with Shift + Right Alt as the dictation key (a real setup)', () => {
+    const { actions, down, up } = machine({ hotkey: { keys: [VK.LShift, VK.RAlt] }, toggle: { keys: [VK.RAlt] }, picker: null });
+    down(VK.RAlt, 0);
+    up(VK.RAlt, 80);
+    expect(actions).toEqual([start, { ...toggle, via: 'combo' }]);
   });
 });
 

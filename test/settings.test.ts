@@ -17,6 +17,7 @@ describe('parseSettings', () => {
     expect(d.output).toBe('paste');
     expect(d.sttThreads).toBe(4);
     expect(d.micWarm).toBe('off');
+    expect(d.pillText).toBe(true);
   });
 
   it('unloads the models after 60 idle minutes on battery by default', () => {

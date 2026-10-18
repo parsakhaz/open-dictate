@@ -8,7 +8,8 @@ export type HotkeyAction =
   /** Capture starts at key down, before we know whether this is a hold or the first of a double-tap. */
   | { type: 'start' }
   /** The press is a hold (push-to-talk) or a double-tap (toggle): show the pill and keep recording. */
-  | { type: 'mode'; mode: RecordMode }
+  /** `via: 'combo'`: hands-free started from the toggle combo, which also ends it (not the dictation key). */
+  | { type: 'mode'; mode: RecordMode; via?: 'combo' }
   | { type: 'stop' }
   /** `tap`: a lone tap, nothing to type; the pill was never shown. */
   | { type: 'cancel'; reason: 'tap' | 'shortcut' | 'escape' }
@@ -183,7 +184,7 @@ export class HotkeyMachine {
         if (bindingMatches(toggle, this.downKeys)) {
           this.emit({ type: 'start' });
           this.state = 'toggle';
-          this.emit({ type: 'mode', mode: 'toggle' });
+          this.emit({ type: 'mode', mode: 'toggle', via: 'combo' });
           return;
         }
         if (bindingMatches(hotkey, this.downKeys) && t >= this.quietUntil) {

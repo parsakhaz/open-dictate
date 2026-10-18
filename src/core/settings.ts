@@ -28,6 +28,7 @@ export function defaultSettings(vocabulary: VocabTerm[] = []): Settings {
     cleanup: 'gemma-emberon',
     output: 'paste',
     sounds: true,
+    pillText: true,
     micWarm: 'off',
     liveCleanup: true,
     liveCleanupSet: false,
@@ -90,6 +91,7 @@ export function parseSettings(data: unknown, defaults: Settings): Settings {
     cleanup: CHAINS.includes(d.cleanup as CleanupChain) ? (d.cleanup as CleanupChain) : defaults.cleanup,
     output: OUTPUTS.includes(d.output as OutputMode) ? (d.output as OutputMode) : defaults.output,
     sounds: bool(d.sounds, defaults.sounds),
+    pillText: bool(d.pillText, defaults.pillText),
     micWarm: (['off', '30s', 'always'] as const).find((w) => w === d.micWarm) ?? defaults.micWarm,
     // A saved value the person never chose was just the default of its day: it follows today's default.
     liveCleanup: d.liveCleanupSet === true ? bool(d.liveCleanup, defaults.liveCleanup) : defaults.liveCleanup,

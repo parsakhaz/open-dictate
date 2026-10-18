@@ -37,7 +37,9 @@ export function createPill(): BrowserWindow {
 export function placePill(w: BrowserWindow): void {
   const d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   const a = d.workArea;
-  w.setBounds({ x: Math.round(a.x + (a.width - PILL_W) / 2), y: Math.round(a.y + a.height - PILL_H + 12), width: PILL_W, height: PILL_H });
+  // QA screenshots of the pill are taken off-screen, out of the person's way.
+  const away = process.env.DICTATE_PILL_SHOTS ? -10_000 : 0;
+  w.setBounds({ x: Math.round(a.x + (a.width - PILL_W) / 2) + away, y: Math.round(a.y + a.height - PILL_H + 12), width: PILL_W, height: PILL_H });
 }
 
 export function showPill(w: BrowserWindow): void {

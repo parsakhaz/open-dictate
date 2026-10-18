@@ -59,6 +59,8 @@ export interface Settings {
   cleanup: CleanupChain;
   output: OutputMode;
   sounds: boolean;
+  /** Show the live words in the pill; off leaves just the waveform. */
+  pillText: boolean;
   /** How long the mic stays open after a dictation, so a follow-up starts instantly. */
   micWarm: 'off' | '30s' | 'always';
   /** Clean finished sentences while the person is still speaking. */
