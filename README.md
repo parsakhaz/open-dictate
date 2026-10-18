@@ -40,7 +40,10 @@ dictate reuses voice-lab's models and llama.cpp build; it downloads nothing.
    pnpm start
    ```
 
-3. A microphone icon appears in the tray, and the welcome page opens once. The speech model loads in about 2.5 s and the cleanup models in about 5 s. The icon turns white when it is ready.
+3. A microphone icon appears in the tray (check the overflow arrow `^` if you don't see it), and the welcome page opens on first run. Pick your mic there, check the meter moves when you speak, and press **Get started**. That also turns on **Start with Windows**, unless you switch it off.
+4. The speech model loads in about 2.5 s and the cleanup models in about 5 s. The icon is grey while loading and turns white when it is ready. Then hold Right Ctrl in any text field and speak.
+
+**To quit:** right-click the tray icon → **Quit dictate**. Closing the settings window only hides it; dictate keeps running in the tray. Quitting also stops the two llama-servers. They are tied to dictate's process, so they go away even if dictate is killed.
 
 ## Using it
 
@@ -141,7 +144,7 @@ Measured on the target laptop (Ryzen AI Max+ PRO 395, Radeon 8060S iGPU, 128 GB)
 | Recognizer flush after release | ~90 ms |
 | Cleanup chain, warm, 1-sentence dictation | 280 ms (Gemma 230 ms + Emberon 47 ms) |
 | Fixture (14 s, 2 sentences) → STT flush → Gemma → Emberon → sink | 1085 ms |
-| Release-to-paste, median of 5 real dictations | _see the PR_ |
+| Release-to-paste, median of 5 real dictations | not measured yet: desktop QA is deferred (see [Desktop QA](#desktop-qa)); the median is shown in **Settings → History** once you have dictated |
 | Idle CPU, whole process tree, 60 s | 0.6 % of one core (375 ms CPU per minute) |
 | Memory, whole process tree | 4.7 GB working set (Gemma's mlocked weights are 3.2 GB) |
 
@@ -191,7 +194,19 @@ $env:DICTATE_LLM_TESTS = '1'; pnpm test   # also run cleanup on real llama-serve
 - `src/main/`: the Electron main process (tray, windows, the dictation flow, output).
 - `src/renderer/`: the pill (and mic capture), the history picker, and settings. Plain DOM, no framework.
 
-For QA without a microphone, use `DICTATE_FAKE_MIC=path\to\file.wav`. It plays the WAV through the real capture path at every key press. `DICTATE_DATA_DIR` points settings, history and logs at a scratch folder.
+For QA without a microphone, use `DICTATE_FAKE_MIC=path\to\file.wav`. It plays the WAV through the real capture path at every key press. `DICTATE_DATA_DIR` points settings, history and logs at a scratch folder. `DICTATE_QA_DEVICES=path\to\devices.json` replaces the mic list with a file you can edit, to simulate plugging and unplugging mics.
+
+### Desktop QA
+
+`qa/qa.js` drives the real app on an unlocked desktop. It injects key presses and opens and types into Notepad, an Edge window and a terminal, so don't use the machine while it runs. It has not been run yet: the machine was locked throughout development.
+
+```powershell
+pnpm build
+node qa/qa.js                 # every scenario
+node qa/qa.js ptt picker      # some: ptt toggle esc tap picker browser body terminal crash mic
+```
+
+It covers hold-to-talk five times (with release-to-paste timing and the clipboard restored), double-tap toggle, Esc, a lone tap and Right Ctrl shortcuts, the history picker, an Edge text field, an Edge page with no field, a terminal, a Gemma crash, and a simulated mic unplug. It also records which targets show a text caret. Results go to `tmp/qa/out/summary.json` with screenshots, and its app data goes to `tmp/qa-data`, not your settings.
 
 ## Licence
 
