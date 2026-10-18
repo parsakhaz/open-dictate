@@ -369,7 +369,11 @@ function cleanupPage(): Node[] {
       toggle(s.liveCleanup, (v) => set({ liveCleanup: v })),
     ),
     h('h2', {}, 'On battery'),
-    card('Unload models when idle', `Free the GPU after this long without dictating on battery. They reload on the next key press (about 5 s).${st.onBattery ? ' On battery now.' : ''}`, select(String(s.batteryUnloadMinutes), [['0', 'Never'], ['5', '5 minutes'], ['15', '15 minutes'], ['30', '30 minutes'], ['60', '1 hour']], (v) => set({ batteryUnloadMinutes: Number(v) }))),
+    card(
+      'Unload models when idle',
+      `On battery, after this long without dictating. Loaded models use memory but no CPU or GPU while idle; reloading takes about 5 s and reads about 3 GB from disk. Plugged in, they stay loaded.${st.onBattery ? ' On battery now.' : ''}`,
+      select(String(s.batteryUnloadMinutes), [['0', 'Never'], ['5', '5 minutes'], ['15', '15 minutes'], ['30', '30 minutes'], ['60', '1 hour'], ['120', '2 hours']], (v) => set({ batteryUnloadMinutes: Number(v) })),
+    ),
     card('Emberon only on battery', 'Skip Gemma while unplugged, for less GPU work.', toggle(s.batteryEmberonOnly, (v) => set({ batteryEmberonOnly: v }))),
     st.missing.length ? h('div.warning', {}, 'Missing files: ', ...st.missing.map((m) => h('code', {}, m))) : null,
   ].filter(Boolean) as Node[];

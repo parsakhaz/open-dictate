@@ -42,7 +42,8 @@ export type CleanupChain = 'off' | 'emberon' | 'gemma' | 'gemma-emberon';
 export type OutputMode = 'paste' | 'clipboard' | 'both';
 
 export interface Settings {
-  version: 1;
+  /** 2: batteryUnloadMinutes defaults to 60 (a version-1 file's 15 was the old default and is migrated). */
+  version: 2;
   /** Hold for push-to-talk, double-tap to toggle. */
   hotkey: Binding | null;
   /** Optional extra combo that toggles recording; off by default. */

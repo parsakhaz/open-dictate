@@ -17,7 +17,7 @@ export const EMBERON_GGUF = 'Emberon-2-Q4_K_M.gguf';
 
 export function defaultSettings(vocabulary: VocabTerm[] = []): Settings {
   return {
-    version: 1,
+    version: 2,
     hotkey: { keys: [VK.RCtrl] },
     toggle: null,
     picker: { keys: [VK.RCtrl, VK.V] },
@@ -36,7 +36,7 @@ export function defaultSettings(vocabulary: VocabTerm[] = []): Settings {
     llamaServer: DEFAULT_LLAMA_SERVER,
     sttThreads: 4,
     startWithWindows: false,
-    batteryUnloadMinutes: 15,
+    batteryUnloadMinutes: 60,
     batteryEmberonOnly: false,
     onboarded: false,
     vocabulary,
@@ -62,6 +62,12 @@ const str = (x: unknown, d: string) => (typeof x === 'string' && x.trim() ? x : 
 const bool = (x: unknown, d: boolean) => (typeof x === 'boolean' ? x : d);
 const num = (x: unknown, d: number, lo: number, hi: number) => (typeof x === 'number' && Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : d);
 
+/** Version 1 saved every field, so a 15 there is the old default rather than a choice: it becomes 60. */
+function unloadMinutes(d: Record<string, unknown>, defaults: Settings): number {
+  const v = num(d.batteryUnloadMinutes, defaults.batteryUnloadMinutes, 0, 24 * 60);
+  return (d.version ?? 1) === 1 && v === 15 ? 60 : v;
+}
+
 export function parseSettings(data: unknown, defaults: Settings): Settings {
   if (typeof data !== 'object' || data === null) return defaults;
   const d = data as Record<string, unknown>;
@@ -72,7 +78,7 @@ export function parseSettings(data: unknown, defaults: Settings): Settings {
   const vocab = Array.isArray(d.vocabulary) ? d.vocabulary.filter((t) => typeof t?.term === 'string') : null;
   const micOrder = Array.isArray(d.micOrder) ? parseMicPrefs(d.micOrder) : defaults.micOrder;
   return {
-    version: 1,
+    version: 2,
     hotkey: binding(d.hotkey, defaults.hotkey),
     toggle: binding(d.toggle, defaults.toggle),
     picker: binding(d.picker, defaults.picker),
@@ -91,7 +97,7 @@ export function parseSettings(data: unknown, defaults: Settings): Settings {
     llamaServer: str(d.llamaServer, defaults.llamaServer),
     sttThreads: Math.round(num(d.sttThreads, defaults.sttThreads, 1, 16)),
     startWithWindows: bool(d.startWithWindows, defaults.startWithWindows),
-    batteryUnloadMinutes: num(d.batteryUnloadMinutes, defaults.batteryUnloadMinutes, 0, 24 * 60),
+    batteryUnloadMinutes: unloadMinutes(d, defaults),
     batteryEmberonOnly: bool(d.batteryEmberonOnly, defaults.batteryEmberonOnly),
     onboarded: bool(d.onboarded, defaults.onboarded),
     vocabulary: vocab ? normalizeVocabulary(vocab as VocabTerm[]) : defaults.vocabulary,

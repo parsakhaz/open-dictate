@@ -19,6 +19,30 @@ describe('parseSettings', () => {
     expect(d.micWarm).toBe('off');
   });
 
+  it('unloads the models after 60 idle minutes on battery by default', () => {
+    expect(d.batteryUnloadMinutes).toBe(60);
+    expect(d.version).toBe(2);
+  });
+
+  it('moves a saved 15 (the old default, in a version-1 file) to 60', () => {
+    const s = parseSettings({ version: 1, batteryUnloadMinutes: 15 }, d);
+    expect(s.batteryUnloadMinutes).toBe(60);
+    expect(s.version).toBe(2);
+    // a file from before versions too
+    expect(parseSettings({ batteryUnloadMinutes: 15 }, d).batteryUnloadMinutes).toBe(60);
+  });
+
+  it('keeps any other saved value: the person chose it', () => {
+    for (const v of [0, 5, 30, 60, 120]) expect(parseSettings({ version: 1, batteryUnloadMinutes: v }, d).batteryUnloadMinutes).toBe(v);
+  });
+
+  it('keeps 15 once migrated: a person who picks 15 now means it', () => {
+    const once = parseSettings({ version: 1, batteryUnloadMinutes: 15 }, d);
+    const chosen = parseSettings({ ...once, batteryUnloadMinutes: 15 }, d);
+    expect(chosen.batteryUnloadMinutes).toBe(15);
+    expect(parseSettings(JSON.parse(JSON.stringify(chosen)), d).batteryUnloadMinutes).toBe(15);
+  });
+
   it('accepts a binding written as a plain key list, as people write it by hand', () => {
     const s = parseSettings({ hotkey: [165], picker: [165, 86] }, d);
     expect(s.hotkey).toEqual({ keys: [165] });
