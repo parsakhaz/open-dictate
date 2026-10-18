@@ -43,6 +43,24 @@ describe('parseSettings', () => {
     expect(parseSettings(JSON.parse(JSON.stringify(chosen)), d).batteryUnloadMinutes).toBe(15);
   });
 
+  it('cleans up as you speak by default (the user\'s decision), with Gemma then Emberon', () => {
+    expect(d.liveCleanup).toBe(true);
+    expect(d.liveCleanupSet).toBe(false);
+    expect(d.cleanup).toBe('gemma-emberon');
+  });
+
+  it('turns a saved Off on when it was only the old default, not a choice', () => {
+    expect(parseSettings({ version: 2, liveCleanup: false }, d).liveCleanup).toBe(true);
+    expect(parseSettings({ version: 1, liveCleanup: false }, d).liveCleanup).toBe(true);
+  });
+
+  it('keeps an Off (or On) the person set themselves', () => {
+    const off = parseSettings({ version: 2, liveCleanup: false, liveCleanupSet: true }, d);
+    expect(off.liveCleanup).toBe(false);
+    expect(parseSettings(JSON.parse(JSON.stringify(off)), d).liveCleanup).toBe(false);
+    expect(parseSettings({ liveCleanup: true, liveCleanupSet: true }, d).liveCleanup).toBe(true);
+  });
+
   it('accepts a binding written as a plain key list, as people write it by hand', () => {
     const s = parseSettings({ hotkey: [165], picker: [165, 86] }, d);
     expect(s.hotkey).toEqual({ keys: [165] });

@@ -765,6 +765,8 @@ function pushState(): void {
 
 function updateSettings(patch: Partial<Settings>): void {
   const before = settings;
+  // From the settings page: the person's own choice from now on.
+  if (patch.liveCleanup !== undefined) patch = { ...patch, liveCleanupSet: true };
   settings = parseSettings({ ...settings, ...patch }, defaultSettings(settings.vocabulary));
   saveSettings.save();
   if (patch.hotkey !== undefined || patch.toggle !== undefined || patch.picker !== undefined || patch.tapMs !== undefined || patch.doubleTapMs !== undefined) applyBindings();

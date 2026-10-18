@@ -63,6 +63,8 @@ export interface Settings {
   micWarm: 'off' | '30s' | 'always';
   /** Clean finished sentences while the person is still speaking. */
   liveCleanup: boolean;
+  /** The person chose liveCleanup themselves; otherwise it follows the default (On since 2026-10-18; it was Off). */
+  liveCleanupSet: boolean;
   /** Live cleanup's fallback sentence split: a pause at least this long. */
   livePauseMs: number;
   historyLimit: number;
