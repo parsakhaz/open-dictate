@@ -72,7 +72,14 @@ function saveClipboard() {
   // A run that died before restoring left the person's clipboard here: keep it, never overwrite it.
   if (fs.existsSync(CLIP)) return;
   fs.mkdirSync(CLIP, { recursive: true });
-  clipPs(`$o = [System.Windows.Forms.Clipboard]::GetDataObject(); foreach ($f in 'UnicodeText','HTML Format') { $v = $o.GetData($f); if ($v -ne $null) { [IO.File]::WriteAllText((Join-Path '${CLIP}' (($f -replace ' ','') + '.txt')), [string]$v, [Text.Encoding]::UTF8) } }`);
+  try {
+    clipPs(`$o = [System.Windows.Forms.Clipboard]::GetDataObject(); foreach ($f in 'UnicodeText','HTML Format') { $v = $o.GetData($f); if ($v -ne $null) { [IO.File]::WriteAllText((Join-Path '${CLIP}' (($f -replace ' ','') + '.txt')), [string]$v, [Text.Encoding]::UTF8) } }`);
+  } catch (err) {
+    // An empty snapshot must never be "restored" over the person's clipboard later.
+    fs.rmSync(CLIP, { recursive: true, force: true });
+    throw new Error(`cannot read the clipboard (is the screen locked?): ${err.message.split(/?
+/)[0]}`);
+  }
 }
 function restoreClipboard() {
   if (!fs.existsSync(CLIP)) return;
