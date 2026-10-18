@@ -59,6 +59,8 @@ export class LlamaServer {
   private wanted = false;
   private restarts = 0;
   private restartTimer?: ReturnType<typeof setTimeout>;
+  /** Bumped by every launch and stop: a launch whose generation is stale never claims the server's state. */
+  private gen = 0;
   /** Called on every state change, for the tray and settings. */
   onState?: (s: ServerState) => void;
 
@@ -76,10 +78,15 @@ export class LlamaServer {
   start(): Promise<void> {
     this.wanted = true;
     if (!this.readyPromise) {
-      this.readyPromise = this.launch();
-      this.readyPromise.catch((err) => {
+      const gen = ++this.gen;
+      const p = this.launch(gen);
+      this.readyPromise = p;
+      p.catch((err) => {
+        // A launch superseded by stop() or a newer launch is not a failure of the current one.
+        if (gen !== this.gen) return;
         this.opts.log('error', `${this.name}: ${(err as Error).message}`);
         this.readyPromise = undefined;
+        this.set('crashed');
         this.scheduleRestart();
       });
     }
@@ -108,9 +115,11 @@ export class LlamaServer {
     }, delay);
   }
 
-  private async launch(): Promise<void> {
+  private async launch(gen: number): Promise<void> {
     this.set('starting');
     this.port = await freePort();
+    const current = () => this.wanted && gen === this.gen;
+    if (!current()) throw new Error('stopped');
     const t0 = performance.now();
     const args = llamaArgs(this.opts.gguf, this.port, this.opts.ctx ?? 4096);
     const proc = (this.opts.spawn ?? spawn)(this.opts.exe, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
@@ -133,29 +142,34 @@ export class LlamaServer {
       this.set('crashed');
       this.scheduleRestart();
     });
-    for (;;) {
-      if (!this.wanted) throw new Error('stopped');
-      if (spawnError) throw new Error(`llama-server could not start (${this.opts.exe}): ${spawnError.message}`);
-      if (proc.exitCode !== null) throw new Error(`llama-server exited (${proc.exitCode}) during start-up: ${tail.slice(-500)}`);
-      try {
-        const r = await fetch(`http://127.0.0.1:${this.port}/health`);
-        if (r.ok) break;
-      } catch {
-        // not listening yet
+    try {
+      for (;;) {
+        if (!current()) throw new Error('stopped');
+        if (spawnError) throw new Error(`llama-server could not start (${this.opts.exe}): ${spawnError.message}`);
+        if (proc.exitCode !== null) throw new Error(`llama-server exited (${proc.exitCode}) during start-up: ${tail.slice(-500)}`);
+        try {
+          const r = await fetch(`http://127.0.0.1:${this.port}/health`, { signal: AbortSignal.timeout(2000) });
+          if (r.ok) break;
+        } catch {
+          // not listening yet
+        }
+        if (performance.now() - t0 > 120_000) throw new Error(`not healthy after 120 s: ${tail.slice(-500)}`);
+        await new Promise((r) => setTimeout(r, 100));
       }
-      if (performance.now() - t0 > 120_000) {
-        proc.kill();
-        throw new Error(`not healthy after 120 s: ${tail.slice(-500)}`);
+      const loadMs = performance.now() - t0;
+      if (this.opts.warmup) {
+        const w0 = performance.now();
+        await this.post(this.opts.warmup(), AbortSignal.timeout(60_000));
+        this.opts.log('info', `${this.name} ready in ${(loadMs / 1000).toFixed(2)} s, warm-up ${(performance.now() - w0).toFixed(0)} ms`);
+      } else {
+        this.opts.log('info', `${this.name} ready in ${(loadMs / 1000).toFixed(2)} s`);
       }
-      await new Promise((r) => setTimeout(r, 100));
-    }
-    const loadMs = performance.now() - t0;
-    if (this.opts.warmup) {
-      const w0 = performance.now();
-      await this.post(this.opts.warmup());
-      this.opts.log('info', `${this.name} ready in ${(loadMs / 1000).toFixed(2)} s, warm-up ${(performance.now() - w0).toFixed(0)} ms`);
-    } else {
-      this.opts.log('info', `${this.name} ready in ${(loadMs / 1000).toFixed(2)} s`);
+      if (!current()) throw new Error('stopped');
+    } catch (err) {
+      // A failed or abandoned launch takes its process with it, so retries never pile up resident models.
+      if (this.proc === proc) this.proc = undefined;
+      proc.kill();
+      throw err;
     }
     this.restarts = 0;
     this.set('ready');
@@ -182,6 +196,7 @@ export class LlamaServer {
   /** Kills the process (battery unload or quit). start() brings it back. */
   stop(): void {
     this.wanted = false;
+    this.gen++;
     clearTimeout(this.restartTimer);
     this.restartTimer = undefined;
     this.readyPromise = undefined;

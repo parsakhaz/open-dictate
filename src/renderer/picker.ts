@@ -179,3 +179,6 @@ dictate.on('dictate:picker-items', (next: HistoryEntry[]) => {
 });
 
 dictate.on('dictate:picker-close', () => root.classList.remove('visible'));
+
+// Listeners are registered: main may now open the picker.
+dictate.send('dictate:picker-ready');

@@ -36,6 +36,9 @@ let state: PillState = { kind: 'hidden' };
 let partial = '';
 let silent = false;
 let hideTimer: ReturnType<typeof setTimeout> | undefined;
+/** A short warning shown under the text without replacing the recording controls (a mic change). */
+let notice = '';
+let noticeTimer: ReturnType<typeof setTimeout> | undefined;
 
 function render(): void {
   const s = state;
@@ -75,8 +78,22 @@ function render(): void {
       hint.textContent = '';
       break;
   }
+  if (notice && (s.kind === 'listening' || s.kind === 'warming' || s.kind === 'transcribing' || s.kind === 'cleaning')) {
+    hint.textContent = notice;
+    hint.classList.add('warn');
+  }
   pill.classList.toggle('compact', !hint.textContent);
 }
+
+dictate.on('dictate:notice', (msg: string) => {
+  notice = msg;
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => {
+    notice = '';
+    render();
+  }, 4000);
+  render();
+});
 
 function tail(t: string): string {
   return t.length > 90 ? `…${t.slice(-89)}` : t;

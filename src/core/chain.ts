@@ -35,12 +35,16 @@ export function stepsFor(chain: CleanupChain, v3Template: string, vocab: VocabTe
 
 class Timeout extends Error {}
 
+/** The most any one cleanup step may take, however long the dictation. */
+export const MAX_STEP_MS = 8000;
+
 /**
- * A step's time budget: `base` (3 s) covers any short dictation; a long one also gets time to generate its
- * output (~15 ms a token on the iGPU), so a 2-minute dictation is cleaned instead of timing out.
+ * A step's time budget: `base` (3 s) for any dictation up to ~250 characters; a longer one also gets time to
+ * generate its output (~15 ms a token on the iGPU), never more than MAX_STEP_MS. Past that the step falls
+ * back to its input, as on any timeout.
  */
 export function stepTimeout(base: number, input: string): number {
-  return base + Math.max(0, cleanupMaxTokens(input) - 128) * 15;
+  return Math.min(MAX_STEP_MS, base + Math.max(0, cleanupMaxTokens(input) - 128) * 15);
 }
 
 export async function runChain(raw: string, steps: ChainStep[], deps: ChainDeps, opts: ChainOptions = {}): Promise<{ text: string; steps: StepResult[] }> {

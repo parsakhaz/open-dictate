@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { listMics, type MicDevice, MicSelector, micKey, micName } from '../src/core/mics';
+import { listMics, type MicDevice, MicSelector, micKey, micName, parseMicPrefs } from '../src/core/mics';
 
 const BOYA: MicDevice = { deviceId: 'b1', label: 'Microphone (BOYA mini 2) (2e8a:00f2)' };
 const ARRAY: MicDevice = { deviceId: 'a1', label: 'Microphone Array (AMD Audio Device)' };
 const HEADSET: MicDevice = { deviceId: 'h1', label: 'Headset Microphone (WH-1000XM5)' };
 
-function selector(order: string[], available: MicDevice[]) {
-  const s = new MicSelector(order);
+function selector(labels: string[], available: MicDevice[]) {
+  const s = new MicSelector(labels.map((label) => ({ label })));
   s.update(available);
   return s;
 }
@@ -107,13 +107,37 @@ describe('MicSelector', () => {
   });
 
   it('picking a mic makes it the top preference', () => {
-    const order = [BOYA.label, ARRAY.label];
-    const s = selector(order, [ARRAY, BOYA, HEADSET]);
+    const s = selector([BOYA.label, ARRAY.label], [ARRAY, BOYA, HEADSET]);
     s.pick(HEADSET);
-    expect(order).toEqual([HEADSET.label, BOYA.label, ARRAY.label]);
+    expect(s.order.map((p) => p.label)).toEqual([HEADSET.label, BOYA.label, ARRAY.label]);
     expect(s.current).toEqual(HEADSET);
     s.pick(ARRAY);
-    expect(order).toEqual([ARRAY.label, HEADSET.label, BOYA.label]);
+    expect(s.order.map((p) => p.label)).toEqual([ARRAY.label, HEADSET.label, BOYA.label]);
+  });
+
+  it('tells two identical mics apart by groupId (S5)', () => {
+    const A: MicDevice = { deviceId: 'a', label: 'Microphone (USB Audio)', groupId: 'g1' };
+    const B: MicDevice = { deviceId: 'b', label: 'Microphone (USB Audio)', groupId: 'g2' };
+    const s = new MicSelector([]);
+    s.update([A, B]);
+    s.pick(B);
+    expect(s.order).toEqual([{ label: B.label, groupId: 'g2' }]);
+    // re-enumeration keeps B, not the first label match
+    expect(s.update([{ ...A, deviceId: 'a2' }, { ...B, deviceId: 'b2' }]).active?.groupId).toBe('g2');
+    // unplugging B is noticed even though a mic with the same label remains
+    const u = s.update([A]);
+    expect(u.event).toEqual({ kind: 'disconnected', from: B.label, to: null });
+    // and B coming back switches back to B, not A
+    expect(s.update([A, B]).active?.groupId).toBe('g2');
+  });
+
+  it('reads old label-only preferences and upgrades them when picked', () => {
+    expect(parseMicPrefs(['Microphone (X)', { label: 'Y', groupId: 'g' }, 3, null])).toEqual([{ label: 'Microphone (X)' }, { label: 'Y', groupId: 'g' }]);
+    const s = new MicSelector([{ label: BOYA.label }]);
+    s.update([{ ...BOYA, groupId: 'gb' }]);
+    expect(s.current?.deviceId).toBe('b1');
+    s.pick({ ...BOYA, groupId: 'gb' });
+    expect(s.order).toEqual([{ label: BOYA.label, groupId: 'gb' }]);
   });
 
   it('picking the system default does not snap straight back to a preference', () => {

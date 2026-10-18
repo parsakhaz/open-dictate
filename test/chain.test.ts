@@ -98,4 +98,8 @@ describe('stepTimeout', () => {
     // 1000 characters: up to 424 output tokens, 296 beyond the first 128, at 15 ms each
     expect(stepTimeout(3000, 'x'.repeat(1000))).toBe(3000 + 296 * 15);
   });
+
+  it('never exceeds the hard cap of 8 s (S8)', () => {
+    expect(stepTimeout(3000, 'x'.repeat(5000))).toBe(8000);
+  });
 });

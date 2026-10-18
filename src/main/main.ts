@@ -17,7 +17,8 @@ import { Cleanup } from './cleanup';
 import { type TrayState, trayIcon } from './icons';
 import { KeyHook } from './keyhook';
 import { fileLogger } from './log';
-import { PasteSink } from './output';
+import { realPasteSink } from './output';
+import type { PasteSink } from './paste';
 import { type PickRequest, pickFromHistory } from './pick';
 import { finishDictation } from './pipeline';
 import { debouncedWriter, readJson, writeJson } from './store';
@@ -166,7 +167,7 @@ function onHotkey(a: HotkeyAction): void {
       return;
     }
     case 'picker':
-      openPicker();
+      void openPicker();
       return;
   }
 }
@@ -198,12 +199,13 @@ async function stopRecording(): Promise<void> {
     return idleTray();
   }
   pillSend('dictate:partial', raw);
-  const result = await finishDictation(raw, cleanup.steps(), settings.output, s.releasedAt, { chain: cleanup.deps(), sink, history, saveHistory: () => saveHistory.save(), log }, (phase) => {
+  const result = await finishDictation(raw, cleanup.steps(), settings.output, s.releasedAt, { chain: cleanup.deps(), sink, history, saveHistory: () => saveHistory.now(), log }, (phase) => {
     if (phase === 'cleaning') pillSend('dictate:pill', { kind: 'cleaning' });
   });
   log('info', `dictation ${s.id}: final after ${sttMs.toFixed(0)} ms`);
   const d = result.delivery;
-  if (d?.pasted) pillSend('dictate:pill', { kind: 'done', message: settings.output === 'both' ? 'Pasted and copied' : 'Pasted' });
+  if (d?.pasted && d.confirmed === false) pillSend('dictate:pill', { kind: 'copied', message: 'Pasted — also on the clipboard' });
+  else if (d?.pasted) pillSend('dictate:pill', { kind: 'done', message: settings.output === 'both' ? 'Pasted and copied' : 'Pasted' });
   else if (d?.copied) pillSend('dictate:pill', { kind: 'copied', message: settings.output === 'clipboard' ? 'Copied' : 'Copied — press Ctrl+V' });
   else pillSend('dictate:pill', { kind: 'error', message: 'Could not paste — it’s in History (Right Ctrl+V)' });
   pushState();
@@ -286,8 +288,9 @@ function micToast(e: MicEvent): void {
   if (e.kind === 'disconnected') {
     const msg = `${micName(e.from)} disconnected — using ${e.to ? micName(e.to) : 'the default mic'}`;
     log('info', msg);
-    if (rec?.shown) return; // the pill is busy; the switch is silent but logged
-    showToast(msg, false, 4000);
+    // Mid-recording the pill keeps its controls and shows the change as a notice under the text.
+    if (rec?.shown || finishing.size) pillSend('dictate:notice', msg);
+    else showToast(msg, false, 4000);
   } else {
     log('info', `switched to ${e.to}`);
     if (rec || finishing.size) {
@@ -316,8 +319,9 @@ function showToast(message: string, undo: boolean, ms: number): void {
   }
 }
 
-function pickMic(label: string | null): void {
-  const dev = label ? (lastDevices().find((m) => m.label === label) ?? null) : null;
+/** `deviceId` null = the system default. Devices are picked by id, so two identical mics are never confused. */
+function pickMic(deviceId: string | null): void {
+  const dev = deviceId ? (lastDevices().find((m) => m.deviceId === deviceId) ?? null) : null;
   mics.pick(dev);
   settings.micOrder = [...mics.order];
   saveSettings.save();
@@ -340,13 +344,47 @@ function pickerItems() {
   return history.list();
 }
 
-function openPicker(): void {
-  if (!picker || picker.isDestroyed()) picker = createPicker();
-  pickerTarget = foregroundWindow();
-  placePicker(picker, caretRect());
+let pickerReady: Promise<boolean> = Promise.resolve(false);
+/** Bumped by every open and close, so an open still waiting for the renderer is dropped if closed meanwhile. */
+let pickerToken = 0;
+
+/** Creates the picker window and resolves once its page has registered its listeners. */
+function ensurePicker(): Promise<boolean> {
+  if (picker && !picker.isDestroyed()) return pickerReady;
+  const w = createPicker();
+  picker = w;
+  pickerReady = new Promise<boolean>((resolve) => {
+    const ok = (e: Electron.IpcMainEvent) => {
+      if (e.sender !== w.webContents) return;
+      ipcMain.removeListener('dictate:picker-ready', ok);
+      resolve(true);
+    };
+    ipcMain.on('dictate:picker-ready', ok);
+    w.webContents.once('render-process-gone', () => resolve(false));
+    setTimeout(() => resolve(false), 5000);
+  });
+  w.webContents.on('render-process-gone', () => {
+    if (picker === w) picker = undefined;
+  });
+  return pickerReady;
+}
+
+async function openPicker(): Promise<void> {
+  const token = ++pickerToken;
+  const target = foregroundWindow();
+  const caret = caretRect();
+  if (!(await ensurePicker())) {
+    log('error', 'history picker did not load');
+    return;
+  }
+  // Closed (or reopened) while the page was loading: do nothing.
+  if (token !== pickerToken || !picker) return;
+  pickerTarget = target;
+  placePicker(picker, caret);
   picker.webContents.send('dictate:picker-open', { items: pickerItems(), now: Date.now() });
   picker.showInactive();
   picker.setAlwaysOnTop(true, 'pop-up-menu');
+  // Keys go to the picker only once it is on screen and listening.
   hook.send({ type: 'capture', on: true });
   // While open, the hook swallows typing keys; if focus moves elsewhere (a click, Alt+Tab, a notification),
   // close at once so typing in the new window is never eaten.
@@ -358,6 +396,7 @@ function openPicker(): void {
 }
 
 function closePicker(): void {
+  pickerToken++;
   clearInterval(pickerWatch);
   if (!picker?.isVisible()) return;
   hook.send({ type: 'capture', on: false });
@@ -441,7 +480,7 @@ function rebuildTrayMenu(): void {
   const current = mics.current;
   const micItems: Electron.MenuItemConstructorOptions[] = [
     { label: `System default${defaultMicLabel ? ` (${micName(defaultMicLabel)})` : ''}`, type: 'radio', checked: !current, click: () => pickMic(null) },
-    ...devices.map((d) => ({ label: micName(d.label), sublabel: d.label, type: 'radio' as const, checked: current?.label === d.label, click: () => pickMic(d.label) })),
+    ...devices.map((d) => ({ label: micName(d.label), sublabel: d.label, type: 'radio' as const, checked: current?.deviceId === d.deviceId, click: () => pickMic(d.deviceId) })),
   ];
   const chain = (c: Settings['cleanup'], label: string): Electron.MenuItemConstructorOptions => ({ label, type: 'radio', checked: settings.cleanup === c, click: () => updateSettings({ cleanup: c }) });
   const out = (o: Settings['output'], label: string): Electron.MenuItemConstructorOptions => ({ label, type: 'radio', checked: settings.output === o, click: () => updateSettings({ output: o }) });
@@ -450,7 +489,7 @@ function rebuildTrayMenu(): void {
       { label: `Hold ${bindingLabel(settings.hotkey)} to dictate · double-tap to toggle`, enabled: false },
       { type: 'separator' },
       { label: 'Copy last dictation', enabled: !!last, click: () => last && void clipboard.writeText(last.text).catch(() => undefined) },
-      { label: `History…   ${bindingLabel(settings.picker)}`, enabled: !!last, click: () => openPicker() },
+      { label: `History…   ${bindingLabel(settings.picker)}`, enabled: !!last, click: () => void openPicker() },
       { type: 'separator' },
       { label: 'Microphone', submenu: micItems },
       { label: 'Cleanup', submenu: [chain('gemma-emberon', 'Gemma → Emberon (best)'), chain('gemma', 'Gemma only'), chain('emberon', 'Emberon only (fastest)'), chain('off', 'Off (raw transcript)')] },
@@ -563,8 +602,8 @@ function registerIpc(): void {
     recordingBinding?.resolve(null);
     recordingBinding = null;
   });
-  ipcMain.handle('dictate:pick-mic', (_e, label: string | null) => {
-    pickMic(label);
+  ipcMain.handle('dictate:pick-mic', (_e, deviceId: string | null) => {
+    pickMic(deviceId);
     return state();
   });
   ipcMain.handle('dictate:set-gain', (_e, label: string, db: number) => {
@@ -586,6 +625,7 @@ function registerIpc(): void {
     if (!rec?.shown) pill.hide();
   });
   ipcMain.on('dictate:devices', (_e, d: { list: MicDevice[]; defaultLabel: string }) => {
+    if (process.env.DICTATE_QA_DEVICES) return;
     devicesCache = d.list;
     onDevices(d);
   });
@@ -597,9 +637,18 @@ function registerIpc(): void {
       pillSend('dictate:pill', { kind: 'error', message: `Microphone error: ${a.message}` });
     }
   });
-  ipcMain.on('dictate:mic-lost', (_e, a: { id: number }) => {
-    log('warn', `capture ${a.id}: mic stream ended`);
+  ipcMain.on('dictate:mic-lost', (_e, a: { id: number; label: string }) => {
+    // Capture has already moved to the default mic; the device list will say whether something better is left.
+    log('warn', `capture ${a.id}: mic "${a.label}" ended; continuing on the default mic`);
+    if (rec?.id === a.id && rec.shown) pillSend('dictate:notice', `${micName(a.label || 'Microphone')} stopped — using the default mic`);
     pillSend('dictate:enumerate');
+  });
+  ipcMain.on('dictate:capture-failed', (_e, a: { id: number; message: string }) => {
+    log('error', `capture ${a.id}: no mic could be reopened (${a.message}); finishing with what was heard`);
+    if (rec?.id !== a.id) return;
+    machine.reset();
+    if (rec.shown) pillSend('dictate:notice', 'Microphone lost — keeping what you said');
+    void stopRecording();
   });
   ipcMain.on('dictate:silent', (_e, a: { id: number; silent: boolean }) => {
     if (rec?.id === a.id) pillSend('dictate:silent-state', a.silent);
@@ -664,7 +713,7 @@ async function main(): Promise<void> {
   powerMonitor.on('unlock-screen', () => machine.clearKeys());
   powerMonitor.on('resume', () => machine.clearKeys());
 
-  sink = new PasteSink({ modifiersDown: () => machine.modifiersDown(), ownPid: process.pid, log });
+  sink = realPasteSink({ modifiersDown: () => machine.modifiersDown(), ownPid: process.pid, log });
   machine = new HotkeyMachine(bindings(), onHotkey, { tapMs: settings.tapMs, doubleTapMs: settings.doubleTapMs });
 
   tray = new Tray(trayIcon('loading'));
@@ -686,6 +735,7 @@ async function main(): Promise<void> {
   });
   startStt();
   cleanup.sync();
+  void ensurePicker();
 
   hook = new KeyHook(path.join(appRoot(), 'out', 'native', 'keyhook.js'), onHook, log);
   hook.start();
@@ -693,6 +743,20 @@ async function main(): Promise<void> {
   applyLoginItem();
 
   if (!settings.onboarded) openSettings();
+
+  // QA: simulate plugging and unplugging mics by rewriting this JSON file ({ list, defaultLabel }).
+  const qaDevices = process.env.DICTATE_QA_DEVICES;
+  if (qaDevices) {
+    log('warn', `QA device list from ${qaDevices}`);
+    const apply = () => {
+      const d = readJson(qaDevices) as { list: MicDevice[]; defaultLabel: string } | undefined;
+      if (!d) return;
+      devicesCache = d.list;
+      onDevices(d);
+    };
+    fs.watchFile(qaDevices, { interval: 300 }, apply);
+    apply();
+  }
 }
 
 app.on('window-all-closed', () => {

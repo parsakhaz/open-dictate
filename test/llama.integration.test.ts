@@ -13,7 +13,7 @@ const have = fs.existsSync(exe) && fs.existsSync(path.join(models, GEMMA_GGUF)) 
 const root = path.join(__dirname, '..');
 
 describe.skipIf(!have || !process.env.DICTATE_LLM_TESTS)('cleanup chain on real llama-servers', () => {
-  it('cleans names with Gemma v3 then Emberon, warm, within budget', async () => {
+  it('cleans names with Gemma v3 then Emberon on every warm run, deterministically, each under 1.5 s', async () => {
     const vocab = parseVocabularyFile(fs.readFileSync(path.join(root, 'defaults/vocabulary.json'), 'utf8')).terms;
     const steps = stepsFor('gemma-emberon', fs.readFileSync(path.join(root, 'defaults/prompt-v3.txt'), 'utf8'), vocab);
     const log = (l: string, m: string) => console.log(l, m);
@@ -35,12 +35,17 @@ describe.skipIf(!have || !process.env.DICTATE_LLM_TESTS)('cleanup chain on real 
         const r = await runChain(raw, steps, deps);
         times.push(performance.now() - t0);
         console.log(r);
+        // every run: both steps succeed and every name is fixed
+        expect(r.steps.map((s) => s.status)).toEqual(['ok', 'ok']);
+        expect(r.text).toMatch(/Doozy/);
+        expect(r.text).toMatch(/Pane/);
+        expect(r.text).toMatch(/Claude Code/);
+        if (last) expect(r.text).toBe(last); // deterministic at temperature 0
         last = r.text;
       }
       console.log('chain ms', times.map(Math.round));
-      expect(last).toMatch(/Doozy/);
-      expect(last).toMatch(/Pane/);
-      expect(last).toMatch(/Claude Code/);
+      // warm budget for a one-sentence dictation (measured ~280 ms; generous for a busy laptop)
+      for (const t of times) expect(t).toBeLessThan(1500);
     } finally {
       servers.gemma.stop();
       servers.emberon.stop();

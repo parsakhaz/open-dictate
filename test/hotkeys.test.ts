@@ -67,13 +67,20 @@ describe('hold: push-to-talk', () => {
     expect(actions).toEqual([start, ptt, stop]);
   });
 
-  it('ignores a stray key once push-to-talk is under way', () => {
+  it('finishes (keeps the words) when another key is pressed late in a long hold', () => {
     const { actions, down, up } = machine();
     down(VK.RCtrl, 0);
     down(C, 3000);
     up(C, 3050);
     up(VK.RCtrl, 4000);
     expect(actions).toEqual([start, ptt, stop]);
+  });
+
+  it('cancels when another key is pressed just after the hold threshold: a slow shortcut (S1)', () => {
+    const { actions, down } = machine();
+    down(VK.RCtrl, 0);
+    down(C, 300);
+    expect(actions).toEqual([start, ptt, { type: 'cancel', reason: 'shortcut' }]);
   });
 });
 
@@ -182,6 +189,15 @@ describe('Ctrl+key combos', () => {
     expect(m.wouldOpenPicker(VK.V)).toBe(true);
     down(VK.V, 1100);
     expect(actions).toEqual([start, { type: 'cancel', reason: 'shortcut' }, { type: 'picker' }]);
+  });
+
+  it('a slow Right Ctrl+V opens the picker on both sides of the hold threshold (S1)', () => {
+    for (const at of [200, 300, 2500]) {
+      const { actions, down } = machine();
+      down(VK.RCtrl, 0);
+      down(VK.V, at);
+      expect(actions.slice(-2)).toEqual([{ type: 'cancel', reason: 'shortcut' }, { type: 'picker' }]);
+    }
   });
 
   it('an optional toggle combo works on its own', () => {

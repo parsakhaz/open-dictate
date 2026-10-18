@@ -57,6 +57,12 @@ export interface Timing {
 
 export const DEFAULT_TIMING: Timing = { tapMs: 250, doubleTapMs: 350 };
 
+/**
+ * Another key pressed while holding the hotkey: before this, the hold was the start of a shortcut and is
+ * cancelled; after it, the dictation is finished and delivered.
+ */
+export const KEEP_WORDS_MS = 1500;
+
 function specMatches(spec: KeySpec, code: number): boolean {
   return typeof spec === 'number' ? spec === code : MODIFIERS[spec].includes(code);
 }
@@ -111,7 +117,8 @@ type State =
  * - hold past tapMs: push-to-talk, finished on release;
  * - tap, tap within doubleTapMs: toggle on; the next tap (or double-tap) stops it;
  * - tap, then hold: push-to-talk, keeping the audio from the first tap;
- * - a lone tap, or the key used with any other key (Ctrl+C): cancelled, nothing typed.
+ * - a lone tap, or the key used with any other key (Ctrl+C): cancelled, nothing typed (after KEEP_WORDS_MS of
+ *   holding, the dictation is finished instead);
  * Esc cancels any recording. The picker combo (Right Ctrl+V) cancels the speculative capture and opens the picker.
  */
 export class HotkeyMachine {
@@ -205,7 +212,14 @@ export class HotkeyMachine {
         this.down2(code, t);
         return;
       case 'push-to-talk':
-        // A stray key mid-dictation is the speaker's business; only Esc (above) and release end it.
+        if (inBinding(hotkey, code)) return;
+        // The hotkey is being used with another key, which the app sees as Ctrl+key. Early in a hold that was
+        // a shortcut (Right Ctrl, pause, C); after KEEP_WORDS_MS the person was dictating, so their words are
+        // finished and kept rather than thrown away.
+        if (t - this.pressedAt < KEEP_WORDS_MS || bindingMatches(picker, this.downKeys)) {
+          this.end({ type: 'cancel', reason: 'shortcut' });
+          this.down2(code, t);
+        } else this.end({ type: 'stop' });
         return;
       case 'toggle':
         if (bindingMatches(hotkey, this.downKeys) || bindingMatches(toggle, this.downKeys)) {

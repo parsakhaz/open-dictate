@@ -1,4 +1,5 @@
 // Shared types and defaults. Pure; browser-safe.
+import type { MicPref } from './mics';
 
 export const SAMPLE_RATE = 16000;
 
@@ -50,8 +51,8 @@ export interface Settings {
   picker: Binding | null;
   tapMs: number;
   doubleTapMs: number;
-  /** Preferred microphone labels, most preferred first; empty = the system default. */
-  micOrder: string[];
+  /** Preferred microphones, most preferred first; empty = the system default. */
+  micOrder: MicPref[];
   /** Input gain per micKey(label); a mic missing here gets defaultGainDb(label). */
   gainDb: Record<string, number>;
   cleanup: CleanupChain;

@@ -1,28 +1,36 @@
-// Mic capture for dictation: getUserMedia -> 16 kHz AudioContext -> worklet (gain, levels, 100 ms chunks)
-// -> the recognizer's MessagePort. The context and worklet are prepared once at start-up; only the mic stream
-// is opened per dictation, and closed after.
-import { SilenceWatch } from '../core/audio';
+// The browser side of capture: getUserMedia, a 16 kHz AudioContext with the capture worklet, and the
+// recognizer's MessagePort. Session logic lives in core/capture.ts. The context and worklet are prepared once;
+// only the mic stream is opened per dictation, and closed after.
+import { type CaptureBackend, CaptureController, type CaptureEvents, type MicStream, type SttMsg, type WorkletMsg } from '../core/capture';
+import type { ChunkerOut } from '../core/chunker';
 import { listMics, type MicDevice } from '../core/mics';
 import { dictate } from './bridge';
 
+// ---------- the recognizer port: messages wait until it arrives ----------
+
 let sttPort: MessagePort | null = null;
-const waiting: ((p: MessagePort) => void)[] = [];
+const pending: SttMsg[] = [];
 window.addEventListener('message', (e: MessageEvent) => {
   if (e.data === 'dictate:stt-port' && e.ports[0]) {
     sttPort = e.ports[0];
-    for (const w of waiting.splice(0)) w(sttPort);
+    for (const m of pending.splice(0)) sttPort.postMessage(m);
   }
 });
 
-function port(): Promise<MessagePort> {
-  return sttPort ? Promise.resolve(sttPort) : new Promise((r) => waiting.push(r));
+function toStt(m: SttMsg): void {
+  // No transfer list: the far end is a MessagePortMain, which only transfers ports.
+  if (sttPort) sttPort.postMessage(m);
+  else pending.push(m);
 }
+
+// ---------- audio graph ----------
 
 let ctx: AudioContext | null = null;
 let node: AudioWorkletNode | null = null;
 let ready: Promise<void> | null = null;
+let fakeWav: Uint8Array | undefined;
+let fakeBuffer: Promise<AudioBuffer> | null = null;
 
-/** Builds the audio graph once and leaves it suspended: no audio thread work while idle. */
 export function prepare(): Promise<void> {
   if (!ready) {
     ready = (async () => {
@@ -32,174 +40,95 @@ export function prepare(): Promise<void> {
       const mute = ctx.createGain();
       mute.gain.value = 0;
       node.connect(mute).connect(ctx.destination);
-      node.port.onmessage = (e) => onWorklet(e.data);
+      node.port.onmessage = (e: MessageEvent<ChunkerOut>) => controller.onWorklet(e.data);
       await ctx.suspend();
     })();
   }
   return ready;
 }
 
-interface Session {
-  id: number;
-  stream: MediaStream | null;
-  source: AudioNode | null;
-  out: MessagePort;
-  silence: SilenceWatch;
-  silent: boolean;
-  ending: boolean;
+interface BrowserStream extends MicStream {
+  source: AudioNode;
 }
 
-let session: Session | null = null;
-let onLevel: (rms: number, peak: number) => void = () => undefined;
-
-export function setLevelListener(cb: (rms: number, peak: number) => void): void {
-  onLevel = cb;
-}
-
-let flushed: (() => void) | null = null;
-
-function onWorklet(m: { type: 'chunk'; samples: Float32Array } | { type: 'level'; rms: number; peak: number; limited: number } | { type: 'flushed' }): void {
-  if (m.type === 'flushed') {
-    flushed?.();
-    flushed = null;
-    return;
-  }
-  const s = session;
-  if (!s) return;
-  if (m.type === 'chunk') {
-    // No transfer list: the far end is a MessagePortMain, which only transfers ports.
-    s.out.postMessage({ type: 'frame', id: s.id, samples: m.samples });
-  } else {
-    onLevel(m.rms, m.peak);
-    const silent = s.silence.push(m.rms, (512 / 16000) * 1000);
-    if (silent !== s.silent) {
-      s.silent = silent;
-      dictate.send('dictate:silent', { id: s.id, silent });
-    }
-  }
-}
-
-async function openStream(deviceId: string | null): Promise<MediaStream> {
+async function openMic(deviceId: string | null): Promise<BrowserStream> {
   const audio = { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false };
-  if (deviceId) {
-    try {
-      return await navigator.mediaDevices.getUserMedia({ audio: { ...audio, deviceId: { exact: deviceId } } });
-    } catch (err) {
-      // The device went away between enumeration and now: fall back to the system default.
-      console.warn('[dictate] mic open failed, using default', err);
-    }
-  }
-  return navigator.mediaDevices.getUserMedia({ audio });
-}
-
-function attach(s: Session, stream: MediaStream): void {
-  s.source?.disconnect();
-  for (const t of s.stream?.getTracks() ?? []) t.stop();
-  s.stream = stream;
-  s.source = ctx!.createMediaStreamSource(stream);
-  s.source.connect(node!);
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: deviceId ? { ...audio, deviceId: { exact: deviceId } } : audio });
   const track = stream.getAudioTracks()[0];
-  track?.addEventListener('ended', () => {
-    // Unplugged mid-recording: main picks the fallback and calls switchDevice(); audio so far is kept.
-    if (session === s && !s.ending) dictate.send('dictate:mic-lost', { id: s.id });
-  });
+  return {
+    label: track?.label ?? '',
+    source: ctx!.createMediaStreamSource(stream),
+    stop: () => {
+      for (const t of stream.getTracks()) t.stop();
+    },
+    onEnded: (cb) => track?.addEventListener('ended', cb),
+  };
 }
 
-// QA: DICTATE_FAKE_MIC plays a WAV through the real capture path instead of opening the mic.
-let fakeBuffer: Promise<AudioBuffer> | null = null;
-
-async function attachFake(s: Session, wav: Uint8Array): Promise<void> {
+/** QA: DICTATE_FAKE_MIC plays a WAV through the real capture path instead of opening the mic. */
+async function openFake(wav: Uint8Array): Promise<BrowserStream> {
   fakeBuffer ??= ctx!.decodeAudioData(wav.slice().buffer);
   const src = ctx!.createBufferSource();
   src.buffer = await fakeBuffer;
-  src.connect(node!);
   src.start();
-  s.source = src;
-}
-
-export async function start(id: number, deviceId: string | null, gainDb: number, fakeWav?: Uint8Array): Promise<void> {
-  const t0 = performance.now();
-  await prepare();
-  if (session) await cancel(session.id);
-  const out = await port();
-  const s: Session = { id, stream: null, source: null, out, silence: new SilenceWatch(), silent: false, ending: false };
-  session = s;
-  out.postMessage({ type: 'begin', id });
-  node!.port.postMessage({ type: 'gain', db: gainDb });
-  try {
-    let label = 'fake mic';
-    if (fakeWav) await attachFake(s, fakeWav);
-    else {
-      const stream = await openStream(deviceId);
-      if (session !== s) {
-        for (const t of stream.getTracks()) t.stop();
-        return;
+  return {
+    label: 'fake mic',
+    source: src,
+    stop: () => {
+      try {
+        src.stop();
+      } catch {
+        // already stopped
       }
-      attach(s, stream);
-      label = stream.getAudioTracks()[0]?.label ?? '';
-    }
-    await ctx!.resume();
-    dictate.send('dictate:capture-started', { id, label, openMs: Math.round(performance.now() - t0) });
-  } catch (err) {
-    if (session === s) session = null;
-    out.postMessage({ type: 'cancel', id });
-    dictate.send('dictate:capture-error', { id, message: (err as Error).message });
-  }
+    },
+    onEnded: () => undefined,
+  };
 }
 
-/** Mid-recording device change: the recognizer stream carries on. */
-export async function switchDevice(id: number, deviceId: string | null, gainDb: number): Promise<void> {
-  const s = session;
-  if (!s || s.id !== id) return;
-  node!.port.postMessage({ type: 'gain', db: gainDb });
-  try {
-    const stream = await openStream(deviceId);
-    if (session !== s) {
-      for (const t of stream.getTracks()) t.stop();
-      return;
-    }
-    attach(s, stream);
-  } catch (err) {
-    dictate.send('dictate:capture-error', { id, message: (err as Error).message });
-  }
+const backend: CaptureBackend = {
+  prepare,
+  open: (deviceId) => (fakeWav ? openFake(fakeWav) : openMic(deviceId)),
+  connect: (s) => {
+    (s as BrowserStream).source.connect(node!);
+  },
+  disconnect: (s) => (s as BrowserStream).source.disconnect(),
+  resume: async () => {
+    await ctx?.resume();
+  },
+  suspend: async () => {
+    await ctx?.suspend();
+  },
+  worklet: (m: WorkletMsg) => node?.port.postMessage(m),
+  stt: toStt,
+};
+
+let levelListener: (rms: number, peak: number) => void = () => undefined;
+
+const events: CaptureEvents = {
+  started: (id, label, openMs) => dictate.send('dictate:capture-started', { id, label, openMs }),
+  error: (id, message) => dictate.send('dictate:capture-error', { id, message }),
+  lost: (id, label) => dictate.send('dictate:mic-lost', { id, label }),
+  failed: (id, message) => dictate.send('dictate:capture-failed', { id, message }),
+  silent: (id, silent) => dictate.send('dictate:silent', { id, silent }),
+  level: (rms, peak) => levelListener(rms, peak),
+};
+
+const controller = new CaptureController(backend, events);
+
+export function setLevelListener(cb: (rms: number, peak: number) => void): void {
+  levelListener = cb;
 }
 
-function close(s: Session): void {
-  s.source?.disconnect();
-  for (const t of s.stream?.getTracks() ?? []) t.stop();
-  s.stream = null;
-  s.source = null;
-  void ctx?.suspend();
+export function start(id: number, deviceId: string | null, gainDb: number, fake?: Uint8Array): Promise<void> {
+  fakeWav = fake;
+  return controller.start(id, deviceId, gainDb);
 }
 
-/** Sends the last partial chunk, then the end marker; the recognizer answers main with the final. */
-export async function stop(id: number): Promise<void> {
-  const s = session;
-  if (!s || s.id !== id) {
-    // Never started (mic failed): still end the recognizer stream so main gets a final.
-    (await port()).postMessage({ type: 'end', id });
-    return;
-  }
-  s.ending = true;
-  s.source?.disconnect();
-  await new Promise<void>((r) => {
-    flushed = r;
-    node!.port.postMessage({ type: 'flush' });
-    setTimeout(r, 100);
-  });
-  session = null;
-  close(s);
-  s.out.postMessage({ type: 'end', id });
-}
+export const stop = (id: number) => controller.stop(id);
+export const cancel = (id: number) => controller.cancel(id);
+export const switchDevice = (id: number, deviceId: string | null, gainDb: number) => controller.switchDevice(id, deviceId, gainDb);
 
-export async function cancel(id: number): Promise<void> {
-  const s = session;
-  if (!s || s.id !== id) return;
-  s.ending = true;
-  session = null;
-  close(s);
-  s.out.postMessage({ type: 'cancel', id });
-}
+// ---------- devices ----------
 
 export interface DeviceList {
   list: MicDevice[];

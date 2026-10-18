@@ -2,6 +2,7 @@
 // malformed falls back to its default, so an old or hand-edited file never stops the app. Pure.
 import { DEFAULT_HISTORY_LIMIT } from './history';
 import { DEFAULT_TIMING, VK } from './hotkeys';
+import { parseMicPrefs } from './mics';
 import type { Binding, CleanupChain, KeySpec, OutputMode, Settings, VocabTerm } from './types';
 import { normalizeVocabulary } from './vocabulary';
 
@@ -65,7 +66,7 @@ export function parseSettings(data: unknown, defaults: Settings): Settings {
     for (const [k, v] of Object.entries(d.gainDb)) if (typeof v === 'number' && Number.isFinite(v)) gainDb[k] = Math.min(40, Math.max(-20, v));
   }
   const vocab = Array.isArray(d.vocabulary) ? d.vocabulary.filter((t) => typeof t?.term === 'string') : null;
-  const micOrder = Array.isArray(d.micOrder) ? d.micOrder.filter((x): x is string => typeof x === 'string' && x.trim() !== '') : defaults.micOrder;
+  const micOrder = Array.isArray(d.micOrder) ? parseMicPrefs(d.micOrder) : defaults.micOrder;
   return {
     version: 1,
     hotkey: binding(d.hotkey, defaults.hotkey),

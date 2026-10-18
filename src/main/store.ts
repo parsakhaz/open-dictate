@@ -18,7 +18,7 @@ export function writeJson(file: string, data: unknown): void {
 }
 
 /** Coalesces bursts of saves (history edits, slider drags) into one write. */
-export function debouncedWriter(file: string, get: () => unknown, ms = 300): { save: () => void; flush: () => void } {
+export function debouncedWriter(file: string, get: () => unknown, ms = 300): { save: () => void; flush: () => void; now: () => void } {
   let t: ReturnType<typeof setTimeout> | undefined;
   const flush = () => {
     clearTimeout(t);
@@ -33,5 +33,7 @@ export function debouncedWriter(file: string, get: () => unknown, ms = 300): { s
     flush: () => {
       if (t) flush();
     },
+    /** Writes at once, cancelling any pending write; throws if the write fails. */
+    now: flush,
   };
 }

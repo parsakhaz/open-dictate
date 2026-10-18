@@ -48,7 +48,7 @@ async function refresh(next: Promise<State>): Promise<void> {
 }
 
 const set = (patch: Partial<Settings>) => refresh(dictate.invoke<State>('dictate:set-settings', patch));
-const pickMic = (label: string | null) => refresh(dictate.invoke<State>('dictate:pick-mic', label));
+const pickMic = (deviceId: string | null) => refresh(dictate.invoke<State>('dictate:pick-mic', deviceId));
 
 // ---------- building blocks ----------
 
@@ -115,7 +115,11 @@ let meters: Meter[] = [];
 /** Meters refresh at ~25 fps: smooth enough to read, a fraction of the cost of every frame. */
 let meterTimer: ReturnType<typeof setTimeout> | undefined;
 
+/** Bumped by stopMeters(): a mic that finishes opening for an older page is closed at once. */
+let meterGen = 0;
+
 function stopMeters(): void {
+  meterGen++;
   clearTimeout(meterTimer);
   for (const m of meters) {
     for (const t of m.stream.getTracks()) t.stop();
@@ -125,8 +129,15 @@ function stopMeters(): void {
 }
 
 async function startMeter(deviceId: string | null, label: string, el: HTMLElement): Promise<void> {
+  const gen = meterGen;
+  if (document.hidden) return;
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { ...(deviceId ? { deviceId: { exact: deviceId } } : {}), echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    // The page changed, or the window was hidden, while the mic was opening.
+    if (gen !== meterGen || document.hidden || !el.isConnected) {
+      for (const t of stream.getTracks()) t.stop();
+      return;
+    }
     const ctx = new AudioContext();
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 1024;
@@ -200,8 +211,8 @@ function welcome(): Node[] {
 }
 
 function micSelect(): HTMLSelectElement {
-  const options: [string, string][] = [['', `System default${st.defaultMicLabel ? ` (${micName(st.defaultMicLabel)})` : ''}`], ...st.devices.map((d) => [d.label, micName(d.label)] as [string, string])];
-  return select(st.mic?.label ?? '', options, (v) => void pickMic(v || null));
+  const options: [string, string][] = [['', `System default${st.defaultMicLabel ? ` (${micName(st.defaultMicLabel)})` : ''}`], ...st.devices.map((d) => [d.deviceId, micName(d.label)] as [string, string])];
+  return select(st.mic?.deviceId ?? '', options, (v) => void pickMic(v || null));
 }
 
 function general(): Node[] {
@@ -236,7 +247,7 @@ function microphone(): Node[] {
     ...st.devices.map((d) => ({ deviceId: d.deviceId, label: d.label, name: micName(d.label) })),
   ];
   for (const d of all) {
-    const active = (st.mic?.label ?? null) === (d.deviceId ? d.label : null);
+    const active = (st.mic?.deviceId ?? null) === d.deviceId;
     const meter = meterEl();
     void startMeter(d.deviceId, d.label, meter);
     const gain = gainOf(d.label);
@@ -261,14 +272,14 @@ function microphone(): Node[] {
         h(
           'div.cardrow',
           {},
-          h('label.radio', {}, h('input', { type: 'radio', name: 'mic', checked: active, onchange: () => void pickMic(d.deviceId ? d.label : null) }), h('span.radiodot'), h('span.radiotext', {}, h('span', {}, d.name), h('span.radiodesc', {}, d.deviceId ? d.label : 'Follows the Windows default input'))),
+          h('label.radio', {}, h('input', { type: 'radio', name: 'mic', checked: active, onchange: () => void pickMic(d.deviceId) }), h('span.radiodot'), h('span.radiotext', {}, h('span', {}, d.name), h('span.radiodesc', {}, d.deviceId ? d.label : 'Follows the Windows default input'))),
         ),
         h('div.microw', {}, meter, h('div.gain', {}, h('span.muted', {}, 'Input gain'), slider, gainLabel)),
       ),
     );
   }
   const order = s.micOrder.length
-    ? h('ol.order', {}, ...s.micOrder.map((l) => h('li', {}, micName(l), st.devices.some((d) => micKey(d.label) === micKey(l)) ? null : h('span.muted', {}, ' · not connected'))))
+    ? h('ol.order', {}, ...s.micOrder.map((p) => h('li', {}, micName(p.label), st.devices.some((d) => micKey(d.label) === micKey(p.label) && (!p.groupId || d.groupId === p.groupId)) ? null : h('span.muted', {}, ' · not connected'))))
     : h('div.muted', {}, 'None yet: dictate uses the system default until you pick one.');
   return [
     h('h1', {}, 'Microphone'),

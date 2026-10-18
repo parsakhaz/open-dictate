@@ -50,7 +50,7 @@ dictate reuses voice-lab's models and llama.cpp build; it downloads nothing.
 | **Double-tap Right Ctrl** | Hands-free: keep talking. Tap Right Ctrl again to finish. |
 | **Esc** while recording | Cancels; nothing is typed. |
 | **Right Ctrl + V** | Opens your dictation history at the cursor, like Win + V. |
-| A single tap of Right Ctrl, or Right Ctrl + any key | Nothing: Right Ctrl keeps working in shortcuts. |
+| A single tap of Right Ctrl, or Right Ctrl + any key | Nothing: Right Ctrl keeps working in shortcuts. (If you were already dictating for more than 1.5 s, the dictation is finished and kept instead.) |
 
 **The pill.** A small pill at the bottom of the screen shows what is happening. It doesn't take focus from your app.
 
@@ -58,7 +58,7 @@ dictate reuses voice-lab's models and llama.cpp build; it downloads nothing.
 - **Transcribing**, then **Cleaning…**
 - **Pasted**, after which it fades out.
 
-If there is no text field to paste into (the desktop, the taskbar), the text stays on the clipboard and the pill says **Copied — press Ctrl+V**. If the mic hears nothing for 2 s, the pill says so.
+If there is no text field to paste into (the desktop, the taskbar), the text stays on the clipboard and the pill says **Copied — press Ctrl+V**. If the app shows no text caret (a web page with no field selected), dictate still pastes, but leaves the text on the clipboard too: **Pasted — also on the clipboard**. If the mic hears nothing for 2 s, the pill says so. Every dictation is saved to history before it is pasted.
 
 **History picker** (Right Ctrl + V):
 
@@ -86,7 +86,8 @@ Open **Settings** from the tray (or click the tray icon).
 - When it is unplugged, dictate switches to the next one you've used, or to the system default. The pill says *"BOYA mini 2 disconnected — using Microphone Array"*. Audio already recorded is kept.
 - When it comes back, dictate switches back and shows *"Switched to BOYA mini 2"* with **Undo** for 6 s.
 - Undo keeps the other mic until the preferred one is next unplugged.
-- dictate never switches mid-recording.
+- dictate never switches to a better mic mid-recording. If the mic in use disappears mid-recording (even the system default), capture moves to the default mic at once and the pill notes it; if no mic can be opened, the recording finishes with what was heard.
+- Mics are remembered by name plus Chromium's group id, so two identical USB mics are told apart. Input gain is per mic name.
 
 Settings, history and the log live in `%APPDATA%\dictate\` (`settings.json`, `history.json`, `logs\dictate.log`).
 
@@ -113,7 +114,7 @@ Settings, history and the log live in `%APPDATA%\dictate\` (`settings.json`, `hi
   - `-ngl 99 -fa on -c 4096 -np 1 -lm mmap+mlock --poll 0`
   - Each server gets one warm-up request with the real system prompt at start-up. The prompt is identical on every call (`cache_prompt: true`), so only the new transcript is processed.
   - `chat_template_kwargs: {enable_thinking: false}`, temperature 0, and `max_tokens` capped near the input length.
-  - Each step has 3 s. A step that errors, times out, comes back empty, or fails voice-lab's length/overlap guard keeps its input text.
+  - Each step has 3 s for a dictation up to ~250 characters; longer ones get ~15 ms per expected output token on top, never more than 8 s. A step that errors, times out, comes back empty, or fails voice-lab's length/overlap guard keeps its input text.
   - Gemma runs first: run the other way round, Emberon mangles names like "Doozy".
 - **Output:**
   1. Wait until modifiers are released.
@@ -121,7 +122,7 @@ Settings, history and the log live in `%APPDATA%\dictate\` (`settings.json`, `hi
   3. Write the text and send Ctrl+V with `SendInput`.
   4. After 350 ms, restore the clipboard, unless something else changed it in the meantime.
 
-  If another app holds the clipboard open, the text is typed as Unicode key events instead.
+  If the clipboard cannot be read (so it could not be put back) or written, dictate never overwrites it: the text is typed as Unicode key events instead. If the focused control shows no caret, the paste may have landed nowhere, so the text stays on the clipboard rather than being restored over.
 - **Robustness:**
   - single instance
   - llama-servers restart after a crash (1 s, 2 s, 4 s … backoff), and so do the recognizer and the hook
