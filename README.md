@@ -100,10 +100,10 @@ pnpm test:scripts
 pnpm package
 ```
 
-On Linux, install the graphical/native dependencies before starting. Ubuntu/Debian:
+On Linux, install the graphical/native dependencies before starting. On Ubuntu 24.04+, prefer the `.deb` if the AppImage is blocked by the desktop’s sandbox policy; the package installs its supported sandbox integration. Keep Chromium’s sandbox enabled. Ubuntu/Debian (use `libasound2t64` on distributions that renamed `libasound2`):
 
 ```sh
-sudo apt-get install libgtk-3-0 libnss3 libasound2 libgbm1 libxtst6 libx11-6 xdotool
+sudo apt-get install libgtk-3-0 libnss3 libasound2 libgbm1 libxtst6 libxt6 libxrandr2 libx11-6 xdotool x11-utils
 ```
 
 `src/core/` holds shared hotkey, capture, cleanup, history and settings logic. `src/native/` isolates Windows hooks/WASAPI, Mac Quartz/Cocoa, X11 tools and desktop capabilities. `src/engine/` hosts recognition and llama-server lifecycle. `src/main/` owns tray, windows, model setup and output; `src/renderer/` is plain DOM plus AudioWorklet capture.
@@ -117,6 +117,8 @@ For isolated application QA:
 - `DICTATE_QA_CONTROL=<file>` accepts appended `down` / `up` lines for a synthetic hotkey journey; this tests the app pipeline, not the native keyboard hook.
 - `DICTATE_QA_DEVICES=<JSON file>` simulates microphone hotplug.
 - `DICTATE_SMOKE_TEST=<report.json>` runs the complete startup with a fresh temporary data folder, checks all renderers/preload/IPC and native bindings, captures Settings, writes the report and quits.
+
+`node qa/app-smoke.mjs --report tmp/app-smoke/report.json` runs a real WAV through the application’s AudioWorklet capture, recognizer transport, output/history, and cancel flow using `DICTATE_MODELS_DIR`. It uses synthetic hotkeys and a log output sink; native input is tested separately with `node qa/native-smoke.mjs --report tmp/native-input.json` (Linux needs a graphical session or Xvfb). Both isolate their data and close their own processes.
 
 The original Windows desktop driver `qa/qa.js` still covers Notepad, browser and terminal paste, toggle, cancel, history and mic events on an unlocked Windows desktop. It interacts with the actual keyboard/clipboard, so use an isolated test session and read its setup before running. Its previous 49/49 result predates this portability change; new per-OS evidence belongs to the current PR/CI run.
 

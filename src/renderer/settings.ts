@@ -308,7 +308,7 @@ function modelCard(kind: 'speech' | 'cleanup'): HTMLElement {
     : st.setup.phase === 'error' ? st.setup.message ?? 'Download failed. Try again.' : '' : '';
   const title = kind === 'speech' ? 'Speech model' : 'Optional local cleanup';
   const desc = kind === 'speech'
-    ? (st.speechInstalled ? 'Nemotron English streaming model is installed.' : 'Download 443 MB once to transcribe English locally. No account or API key needed.')
+    ? (st.speechInstalled ? st.stt === 'ready' ? 'Nemotron English streaming model is ready.' : st.stt === 'error' ? `Speech model error: ${st.sttError}` : 'Nemotron English streaming model is installed and loading…' : 'Download 443 MB once to transcribe English locally. No account or API key needed.')
     : 'Download Gemma, Emberon and llama.cpp (about 3.2 GB) for local text cleanup. Raw dictation works without these.';
   const button = h('button.button', {disabled: busy || (kind === 'speech' && st.speechInstalled), onclick: () => void action('dictate:setup-models', kind)}, kind === 'speech' && st.speechInstalled ? 'Installed' : `Download ${kind === 'speech' ? 'speech model' : 'cleanup models'}`);
   return card(title, h('span', {}, desc, progress ? h('div.warnline', {}, progress) : null), h('div.bindingrow', {}, button, busy && st.setup.kind === kind ? h('button.button.subtle', {onclick: () => void action('dictate:cancel-setup')}, 'Cancel') : null));
@@ -387,6 +387,7 @@ function general(): Node[] {
   return [
     h('h1', {}, 'Hotkeys & output'),
     ...platformCards(),
+    ...(st.stt !== 'ready' ? [modelCard('speech')] : []),
     card('Dictate now', 'Start here or from the tray. Click Finish after speaking. Clipboard mode lets you paste the result into any app.', h('button.button.accent', {disabled: st.stt !== 'ready', onclick: () => void action('dictate:toggle')}, st.recording ? 'Finish dictation' : 'Start dictation')),
     card('History', 'Search, copy or reuse a previous dictation.', h('button.button', {onclick: () => void action('dictate:open-history')}, 'Open history')),
     h('h2', {}, 'Hotkeys'),

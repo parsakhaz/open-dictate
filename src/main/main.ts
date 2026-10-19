@@ -27,6 +27,7 @@ import { runSmoke } from './smoke';
 import { type TrayState, trayIcon } from './icons';
 import { KeyHook } from './keyhook';
 import { fileLogger } from './log';
+import { focusForPaste } from './focus';
 import { NativeMic } from './nativemic';
 import { realPasteSink } from './output';
 import type { PasteSink } from './paste';
@@ -45,7 +46,8 @@ if (process.platform === 'linux') app.setDesktopName('org.dictate.Dictate');
 if (process.env.DICTATE_SMOKE_TEST) app.disableHardwareAcceleration();
 
 // The isolated container used for local QA forbids AF_UNIX sockets. Native CI keeps the real lock enabled.
-const skipInstanceLock = !!process.env.DICTATE_SMOKE_TEST && process.env.DICTATE_SMOKE_SKIP_INSTANCE_LOCK === '1';
+const isolatedQa = !!process.env.DICTATE_DATA_DIR && (!!process.env.DICTATE_SMOKE_TEST || !!process.env.DICTATE_QA_CONTROL);
+const skipInstanceLock = isolatedQa && process.env.DICTATE_SMOKE_SKIP_INSTANCE_LOCK === '1';
 if (!skipInstanceLock && !app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -697,10 +699,10 @@ function closePicker(): void {
 
 async function choose(req: PickRequest): Promise<void> {
   closePicker();
-  // The picker never took focus, but put the target back in front if something else did.
+  // The portable picker takes focus; wait until its original target is active before pasting.
   const target = picker.target;
-  if (!req.copyOnly && isWindow(target) && foregroundWindow() !== target) setForeground(target);
-  const d = await pickFromHistory(history, req, sink);
+  const focused = req.copyOnly || await focusForPaste(target, { current: foregroundWindow, exists: isWindow, activate: setForeground });
+  const d = await pickFromHistory(history, { ...req, copyOnly: req.copyOnly || !focused }, sink);
   if (d && !req.copyOnly && !d.pasted) showToast(d.copied ? `Copied — press ${pasteKeys}` : 'Could not paste or copy', false, 3500);
 }
 
@@ -714,6 +716,8 @@ function onHook(e: FromHook): void {
     return;
   }
   if (e.type === 'click') {
+    // Portable pickers use ordinary window focus/blur. screenToDipPoint is not a macOS API.
+    if (!platformCapabilities().canSwallowKeys) return;
     if (picker.isOpen && pickerWin && !pickerWin.isDestroyed()) {
       const b = pickerWin.getBounds();
       const p = screen.screenToDipPoint({ x: e.x, y: e.y });
@@ -1126,7 +1130,7 @@ async function main(): Promise<void> {
   hook = new KeyHook(path.join(appRoot(), 'out', 'native', 'keyhook.js'), onHook, log);
   hook.start();
   applyBindings();
-  if (!process.env.DICTATE_SMOKE_TEST) applyLoginItem();
+  if (!process.env.DICTATE_SMOKE_TEST && !process.env.DICTATE_QA_CONTROL) applyLoginItem();
   else log('info', 'QA: existing OS login items are unchanged');
   // A fresh installation asks only after the button press; subsequent launches reuse the saved choice.
   if (settings.portableShortcutEnabled) applyPortableShortcut();
@@ -1148,6 +1152,8 @@ async function main(): Promise<void> {
         const t = performance.now();
         if (line === 'down') machine.down(key, t);
         else if (line === 'up') machine.up(key, t);
+        else if (line === 'escape') { machine.down(VK.Escape, t); machine.up(VK.Escape, t + 1); }
+        else if (line === 'quit') app.quit();
         else if (line.startsWith('shot ')) pillShot(line.slice(5), 0);
         else if (line.startsWith('state ')) {
           pillSend('dictate:pill', JSON.parse(line.slice(6)));
