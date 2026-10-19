@@ -70,8 +70,9 @@ void app.whenReady().then(async () => {
     step('walkthroughSavesSteps');
     await js(`(() => {
       const row = [...document.querySelectorAll('.card')].find(e => e.querySelector('.cardtitle')?.textContent === 'Start at login');
-      const input = row.querySelector('input'); input.click();
-      if (input.checked) throw new Error('Could not select Start at login Off');
+      const input = row.querySelector('input');
+      // Off until the person turns it on: Finish must not enable it on its own.
+      if (input.checked) throw new Error('Start at login must start Off');
     })()`);
     win.webContents.send('dictate:state', state());
     await pause(60);

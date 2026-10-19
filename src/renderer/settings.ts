@@ -59,7 +59,8 @@ const PAGES: { id: Page; label: string; icon: string }[] = [
 let st: State;
 let page: Page = 'general';
 let actionError = '';
-let welcomeStartAtLogin = true;
+/** Start at login stays as saved (off by default) until the person turns it on in the Done step. */
+let welcomeStartAtLogin = false;
 let renderedPage: Page | undefined;
 let renderPending = false;
 let pointerActive = false;
@@ -529,7 +530,8 @@ function hardwareStep(): Node[] {
   } else {
     if (!hardwareStarted && !st.hardwareError) {
       hardwareStarted = true;
-      void action('dictate:hardware-check');
+      // Started by opening the step, not by a button: after Getting started it reports without changing the chain.
+      void action('dictate:hardware-check', false);
     }
     body.push(st.hardwareError ? h('section.card', {}, h('div.warning', {}, st.hardwareError), h('button.button', { onclick: () => void action('dictate:hardware-check') }, 'Retry')) : card('Checking this computer…', 'Timing a cleanup of a 5-second sample.', h('span.spinner')));
   }
@@ -1000,6 +1002,7 @@ document.addEventListener('visibilitychange', () => {
 
 void dictate.invoke<State>('dictate:get-state').then(async (s) => {
   st = s;
+  welcomeStartAtLogin = s.settings.startAtLogin;
   if (!s.settings.onboarded) {
     page = 'start';
     step = resumeStep(s.settings.onboardingStep, stepCtx());

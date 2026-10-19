@@ -40,3 +40,20 @@ export function resumeStep(saved: unknown, ctx: StepContext): Step {
 }
 
 export const stepNumber = (step: Step) => ({ index: at(step) + 1, total: STEPS.length });
+
+/**
+ * Whether a loaded profile counts as onboarded. A settings file saved before Getting started existed has no
+ * `onboardingStep`; if its speech model is installed it already works, so it skips the walkthrough.
+ */
+export function upgradedOnboarded(saved: unknown, speechInstalled: boolean): boolean {
+  if (typeof saved !== 'object' || saved === null) return false;
+  const s = saved as Record<string, unknown>;
+  if (s.onboarded === true) return true;
+  return !('onboardingStep' in s) && speechInstalled;
+}
+
+/** After a runtime download, keep a llama-server the person set that still exists; otherwise use the downloaded one. */
+export const keepsLlamaServer = (current: string, exists: (p: string) => boolean) => current !== 'llama-server' && exists(current);
+
+/** The speed check picks the chain during Getting started or when asked to; afterwards it only reports. */
+export const appliesMeasuredChain = (p: { onboarded: boolean; requested: boolean }) => !p.onboarded || p.requested;
