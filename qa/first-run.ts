@@ -98,6 +98,11 @@ void (async () => {
   try {
     if (!process.env.DICTATE_QA_SKIP_DOWNLOAD) await interruptedThenResumed();
     await fullDiskRefused();
+    if (process.env.DICTATE_QA_GEMMA) {
+      const t0 = Date.now();
+      await new SetupManager().install('cleanup', { ...options, cleanupModels: ['gemma'] });
+      report.gemmaDownloadSeconds = (Date.now() - t0) / 1000;
+    }
     await speedCheck();
     report.ok = true;
   } catch (err) {

@@ -1,7 +1,8 @@
-// Real first-run download and speed check, headless: node qa/first-run.mjs [--dir <folder>] [--report <json>] [--skip-download]
+// Real first-run download and speed check, headless: node qa/first-run.mjs [--dir <folder>] [--report <json>] [--skip-download] [--gemma]
 // Downloads about 0.7 GB from the pinned official sources into a fresh folder (or --dir), cutting the
 // connection's progress at 30% of the first file and resuming it, refuses a simulated full disk, then times
-// Emberon (and Gemma → Emberon if Gemma is in that folder) on this computer. Writes the report as JSON.
+// Emberon (and Gemma → Emberon if Gemma is in that folder; --gemma downloads it first, 3.1 GB) on this computer.
+// Writes the report as JSON.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -16,4 +17,5 @@ const env = { ...process.env, DICTATE_QA_ROOT: root };
 if (value('--dir')) { env.DICTATE_QA_DIR = path.resolve(value('--dir')); fs.mkdirSync(env.DICTATE_QA_DIR, { recursive: true }); }
 if (value('--report')) env.DICTATE_QA_REPORT = path.resolve(value('--report'));
 if (args.includes('--skip-download')) env.DICTATE_QA_SKIP_DOWNLOAD = '1';
+if (args.includes('--gemma')) env.DICTATE_QA_GEMMA = '1';
 process.exit(spawnSync(process.execPath, [out], { env, stdio: 'inherit' }).status ?? 1);
