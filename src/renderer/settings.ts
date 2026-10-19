@@ -36,6 +36,7 @@ interface State {
   hardwareRunning: boolean;
   hardwareError: string;
   dataDir: string;
+  update: { status: 'off' | 'disabled' | 'idle' | 'checking' | 'up-to-date' | 'available' | 'downloading' | 'ready' | 'error'; mode: 'install' | 'notify' | 'off'; version?: string; url?: string; percent?: number; message?: string; checkedAt?: string };
   shortcutRegistered: boolean;
   shortcutRequested: boolean;
   startupError: string;
@@ -644,10 +645,40 @@ function start(): Node[] {
   return { welcome: welcomeStep, licences: licencesStep, download: downloadStep, hardware: hardwareStep, microphone: microphoneStep, hotkey: hotkeyStep, try: tryStep, done: doneStep }[step]();
 }
 
+function updatesCard(): HTMLElement {
+  const u = st.update;
+  const checked = u.checkedAt ? ` Checked ${new Date(u.checkedAt).toLocaleString()}.` : '';
+  const text: Record<State['update']['status'], string> = {
+    off: 'This development build does not update itself.',
+    disabled: 'Off: dictate never contacts GitHub on its own. Check now still works.',
+    idle: 'Checks GitHub Releases a minute after start and once a day. Nothing else is sent.',
+    checking: 'Checking GitHub Releases…',
+    'up-to-date': `You have the latest version.${checked}`,
+    available: u.mode === 'notify' ? `Version ${u.version} is out. This build is not code-signed, so it cannot replace itself: download it from GitHub.` : `Version ${u.version} is available.`,
+    downloading: `Downloading version ${u.version ?? ''}… ${u.percent ?? 0}%`,
+    ready: `Version ${u.version} installs when you quit dictate, or after 10 minutes without dictating. Never during a dictation.`,
+    error: `Couldn’t check for updates: ${u.message ?? 'unknown error'}.${checked}`,
+  };
+  return card(
+    'Automatic updates',
+    h('span', { 'data-update-status': u.status }, text[u.status]),
+    u.mode === 'off' ? null : toggle(st.settings.autoUpdate, (v) => set({ autoUpdate: v })),
+    u.mode === 'off'
+      ? null
+      : h(
+          'div.bindingrow',
+          {},
+          h('button.button', { disabled: u.status === 'checking' || u.status === 'downloading' || u.status === 'ready', onclick: () => void action('dictate:check-updates') }, 'Check now'),
+          u.status === 'available' && u.url ? h('button.button.accent', { onclick: () => void dictate.invoke('dictate:open-url', u.url) }, `Download ${u.version}`) : null,
+        ),
+  );
+}
+
 function about(): Node[] {
   return [
     h('h1', {}, 'About'),
     card('dictate', h('span', {}, `Version ${st.version}. Part of `, link('open-dictate', 'https://github.com/parsakhaz/open-dictate'), ', free software under the GNU AGPL-3.0. Copyright © 2026 Dcouple Inc.')),
+    updatesCard(),
     h('h2', {}, 'Models and libraries'),
     h(
       'div.licences',

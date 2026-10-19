@@ -23,6 +23,8 @@ import { Cleanup } from './cleanup';
 import { migratePlatformSettings, runtimeDefaults } from './config';
 import { applyAutostart } from './startup';
 import { runHardwareCheck } from './hardware';
+import { type UpdateEngine, Updater } from './updater';
+import { updateMode } from '../core/updates';
 import { assetsFor, essentialsInstalled, SetupManager, speechInstalled } from './setup';
 import { runSmoke } from './smoke';
 import { type TrayState, trayIcon } from './icons';
@@ -102,6 +104,9 @@ let shortcutRegistered = false;
 let shortcutRequested = false;
 let startupError = '';
 let hardwareRunning = false;
+let updater: Updater | undefined;
+/** When the last dictation, download or speed check ended: auto-update installs only after 10 idle minutes. */
+let lastActivityAt = Date.now();
 let hardwareError = '';
 /** Getting started's "Try it" box is open: a dictation made while Settings is in front lands there. */
 let practicing = false;
@@ -175,6 +180,8 @@ function hotkeyLabel(i = 0): string {
 function idleTray(): void {
   if (rec || finishing.size) return;
   setTray(!sttReady ? (sttError ? 'error' : 'loading') : 'idle');
+  lastActivityAt = Date.now();
+  updater?.activity();
 }
 
 function pillSend(channel: string, ...args: unknown[]): void {
@@ -890,9 +897,60 @@ async function hardwareCheck(measureGemma: boolean): Promise<unknown> {
   } finally {
     hardwareRunning = false;
     cleanup.sync();
+    lastActivityAt = Date.now();
+    updater?.activity();
     pushState();
   }
   return state();
+}
+
+const RELEASES_API = 'https://api.github.com/repos/parsakhaz/open-dictate/releases/latest';
+
+/** C6: GitHub Releases only, and only while Settings → About → Automatic updates is on. */
+async function startUpdater(): Promise<void> {
+  const mode = updateMode({ platform: process.platform, packaged: app.isPackaged, appImage: process.env.APPIMAGE });
+  let engine: UpdateEngine | undefined;
+  if (mode === 'install') {
+    const { autoUpdater } = await import('electron-updater');
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.logger = null;
+    engine = {
+      check: async () => {
+        await autoUpdater.checkForUpdates();
+      },
+      install: () => {
+        quitting = true;
+        // Silent, then relaunch: the app starts in the tray as it does at login.
+        autoUpdater.quitAndInstall(true, true);
+      },
+      on: ((event: 'available' | 'none' | 'progress' | 'downloaded' | 'error', cb: (x?: string | number) => void) => {
+        if (event === 'available') autoUpdater.on('update-available', (i) => cb(i.version));
+        else if (event === 'none') autoUpdater.on('update-not-available', () => cb());
+        else if (event === 'progress') autoUpdater.on('download-progress', (p) => cb(p.percent));
+        else if (event === 'downloaded') autoUpdater.on('update-downloaded', (i) => cb(i.version));
+        else autoUpdater.on('error', (e) => cb(e.message));
+      }) as UpdateEngine['on'],
+    };
+  }
+  updater = new Updater({
+    mode,
+    currentVersion: app.getVersion(),
+    enabled: () => settings.autoUpdate,
+    busy: () => ({ recording: !!rec, cleaning: finishing.size > 0, downloading: setup.state.phase === 'downloading' || setup.state.phase === 'extracting' || hardwareRunning }),
+    lastActivityAt: () => lastActivityAt,
+    log,
+    engine,
+    latestRelease: async () => {
+      const r = await fetch(RELEASES_API, { headers: { Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(15_000) });
+      if (r.status === 404) return null;
+      if (!r.ok) throw new Error(`GitHub answered HTTP ${r.status}`);
+      const j = (await r.json()) as { tag_name?: string; html_url?: string };
+      return j.tag_name && j.html_url ? { tag: j.tag_name, url: j.html_url } : null;
+    },
+    onChange: () => pushState(),
+  });
+  updater.start();
 }
 
 function stats() {
@@ -933,6 +991,7 @@ function state() {
     hardwareRunning,
     hardwareError,
     dataDir: userData(),
+    update: updater?.state ?? { status: 'off', mode: 'off' },
     shortcutRegistered,
     shortcutRequested,
     startupError,
@@ -958,6 +1017,7 @@ function updateSettings(patch: Partial<Settings>): void {
   if (patch.micWarm !== undefined) warm?.settingChanged();
   if (patch.pillText !== undefined) pillConfig();
   if (patch.startAtLogin !== undefined) applyLoginItem();
+  if (patch.autoUpdate !== undefined) updater?.setEnabled(settings.autoUpdate);
   if (patch.portableShortcut !== undefined || patch.portableShortcutEnabled !== undefined) applyPortableShortcut();
   if (['cleanup', 'llamaServer', 'modelsDir', 'vocabulary', 'batteryEmberonOnly', 'batteryUnloadMinutes'].some((k) => k in patch)) cleanup.update(settings);
   if ((patch.modelsDir && patch.modelsDir !== before.modelsDir) || (patch.sttThreads && patch.sttThreads !== before.sttThreads)) {
@@ -1026,6 +1086,10 @@ function registerIpc(): void {
       // The Cleanup page's button also repairs a broken llama.cpp runtime, so it always reinstalls it.
       else await setup.install(kind, { ...options, reinstallRuntime: kind === 'cleanup' });
     } catch (err) { cleanup.sync(); throw err; }
+    finally {
+      lastActivityAt = Date.now();
+      updater?.activity();
+    }
     if (kind === 'speech' || kind === 'essentials') { const old = stt; stt = undefined; old?.kill(); startStt(); }
     if (kind === 'speech') cleanup.sync();
     else {
@@ -1066,6 +1130,10 @@ function registerIpc(): void {
   ipcMain.handle('dictate:finish-onboarding', (_e, startAtLogin: boolean) => {
     practicing = false;
     updateSettings({ onboarded: true, onboardingStep: 'done', startAtLogin });
+    return state();
+  });
+  ipcMain.handle('dictate:check-updates', async () => {
+    await updater?.check();
     return state();
   });
   ipcMain.handle('dictate:hardware-check', () => hardwareCheck(fs.existsSync(path.join(settings.modelsDir, GEMMA_GGUF))));
@@ -1206,6 +1274,7 @@ async function main(): Promise<void> {
 
   registerIpc();
   startCapture();
+  void startUpdater();
   pill = createPill();
   pill.webContents.on('render-process-gone', (_e, d) => {
     log('error', `pill renderer gone: ${d.reason}`);

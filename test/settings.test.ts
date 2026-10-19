@@ -126,6 +126,11 @@ describe('first-run walkthrough state', () => {
     expect([s.onboardingStep, s.hardware]).toEqual(['welcome', null]);
   });
 
+  it('checks for updates by default, and keeps the choice to turn that off', () => {
+    expect(d.autoUpdate).toBe(true);
+    expect(parseSettings({ autoUpdate: false }, d).autoUpdate).toBe(false);
+  });
+
   it('an existing profile that finished the old welcome page stays onboarded', () => {
     expect(parseSettings({ onboarded: true }, d).onboarded).toBe(true);
   });

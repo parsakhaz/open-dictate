@@ -52,6 +52,7 @@ export function defaultSettings(vocabulary: VocabTerm[] = []): Settings {
     onboardingStep: 'welcome',
     licencesSeen: false,
     hardware: null,
+    autoUpdate: true,
     vocabulary,
   };
 }
@@ -145,6 +146,7 @@ export function parseSettings(data: unknown, defaults: Settings): Settings {
     onboardingStep: isStep(d.onboardingStep) ? d.onboardingStep : defaults.onboardingStep,
     licencesSeen: bool(d.licencesSeen, defaults.licencesSeen),
     hardware: hardwareResult(d.hardware),
+    autoUpdate: bool(d.autoUpdate, defaults.autoUpdate),
     vocabulary: vocab ? normalizeVocabulary(vocab as VocabTerm[]) : defaults.vocabulary,
   };
 }

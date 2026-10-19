@@ -104,6 +104,8 @@ export interface Settings {
   onboardingStep: string;
   /** The models and licences step was shown. */
   licencesSeen: boolean;
+  /** Check GitHub Releases for updates (C6); installs on quit or when idle where the build can. */
+  autoUpdate: boolean;
   /** The last hardware check, shown in the walkthrough and Settings → Cleanup. */
   hardware: HardwareResult | null;
   vocabulary: VocabTerm[];
