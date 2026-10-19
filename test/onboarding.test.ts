@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canGoBack, canSkip, nextStep, previousStep, resumeStep, STEPS, type Step, stepNumber, tryReady } from '../src/core/onboarding';
+import { canGoBack, canSkip, nextStep, previousStep, resumeStep, STEPS, type Step, stepNumber, tryReady, tryWait } from '../src/core/onboarding';
 
 const seen = { licencesSeen: true, speechReady: false };
 const fresh = { licencesSeen: false, speechReady: false };
@@ -37,6 +37,13 @@ describe('first-run walkthrough', () => {
     expect(STEPS.filter((s) => !canGoBack(s))).toEqual(['welcome']);
     expect(previousStep('download')).toBe('licences');
     expect(previousStep('welcome')).toBe('welcome');
+  });
+
+  it('keeps "Try it" waiting until the recognizer has loaded, not only until the files are on disk', () => {
+    expect(tryWait(false, 'error')).toBe('download');
+    expect(tryWait(true, 'loading')).toBe('loading');
+    expect(tryWait(true, 'error')).toBe('error');
+    expect(tryWait(true, 'ready')).toBe(null);
   });
 
   it('keeps "Try it" waiting until the speech model is installed, whatever happened to the download', () => {

@@ -393,6 +393,7 @@ function startStt(): void {
       if (!sttReady) {
         sttError = m.message;
         setTray('error');
+        pushState();
       }
     } else if (m.type === 'partial') {
       const s = rec?.id === m.id ? rec : finishing.get(m.id);

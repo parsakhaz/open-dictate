@@ -28,6 +28,12 @@ export const canGoBack = (step: Step) => step !== 'welcome';
 /** Downloads run in the background, so a failed or unfinished one only holds back the practice dictation. */
 export const tryReady = (ctx: StepContext) => ctx.speechReady;
 
+/** What "Try it" still waits for: the files, then the recognizer loading them (a few seconds after a download). */
+export function tryWait(speechInstalled: boolean, stt: 'ready' | 'loading' | 'error'): 'download' | 'loading' | 'error' | null {
+  if (!speechInstalled) return 'download';
+  return stt === 'ready' ? null : stt;
+}
+
 export function resumeStep(saved: unknown, ctx: StepContext): Step {
   if (!isStep(saved)) return 'welcome';
   return !ctx.licencesSeen && at(saved) > at('licences') ? 'licences' : saved;
