@@ -1439,6 +1439,14 @@ async function main(): Promise<void> {
         // Agent cards: hover (expanded) without a mouse, and the top card's buttons ("card choose Prod").
         else if (line.startsWith('cards-hover ')) pillSend('dictate:qa-hover', line.slice(12) === 'on');
         else if (line === 'cards-list') pillSend('dictate:qa-list');
+        // Where the top card is on screen (physical pixels, for a real pointer), and what the queue holds.
+        else if (line === 'card-where' && cardRect) {
+          const b = pill.getBounds();
+          log('info', `QA card at ${JSON.stringify(screen.dipToScreenRect(pill, { x: Math.round(b.x + cardRect.x), y: Math.round(b.y + cardRect.y), width: Math.round(cardRect.width), height: Math.round(cardRect.height) }))}`);
+        } else if (line === 'cards-dump') {
+          const v = agents?.hub.queue.view(Date.now());
+          log('info', `QA cards ${JSON.stringify({ top: v?.top ? { title: v.top.title, source: v.top.source, urgency: v.top.urgency, kind: v.top.kind, target: !!v.top.target } : null, more: v?.more ?? 0, all: v?.all.map((c) => c.title) ?? [] })}`);
+        }
         else if (line.startsWith('pause ')) agents?.setPaused(line.slice(6) === 'on');
         else if (line.startsWith('card ')) {
           const [action, ...rest] = line.slice(5).split(' ');
