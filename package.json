@@ -18,7 +18,7 @@
     "smoke:package": "node scripts/smoke-package.mjs",
     "release:check": "node scripts/release.mjs validate",
     "release:checksums": "node scripts/release.mjs checksums",
-    "postinstall": "node qa/prepare-native.mjs"
+    "postinstall": "node qa/prepare-native.mjs --report tmp/package-smoke/native-install.json"
   },
   "dependencies": {
     "koffi": "3.3.3",

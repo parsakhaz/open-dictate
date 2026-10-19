@@ -45,7 +45,7 @@ app.whenReady().then(async () => {
     version: '0.1.0',
     platform: { platform: process.platform, displayServer: process.platform === 'win32' ? 'win32' : process.platform === 'darwin' ? 'macos' : 'x11', globalHotkeys: true, canSwallowKeys: process.platform === 'win32', automaticPaste: true, accessibilityRequired: process.platform === 'darwin', accessibilityGranted: true },
     microphonePermission: 'granted',
-    setup: {phase:'idle'}, speechInstalled:true, shortcutRegistered:false, startupError:'', recording:false, automation:true,
+    setup: {phase:'idle'}, speechInstalled:true, shortcutRegistered:false, shortcutRequested:false, startupError:'', recording:false, automation:true,
   });
   ipcMain.handle('dictate:get-state', () => state());
   ipcMain.handle('dictate:set-settings', (_e, p) => {

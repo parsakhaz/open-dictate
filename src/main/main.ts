@@ -98,6 +98,7 @@ let keyDownAt = 0;
 let micBluetooth = false;
 const setup = new SetupManager();
 let shortcutRegistered = false;
+let shortcutRequested = false;
 let startupError = '';
 const pasteKeys = process.platform === 'darwin' ? 'Cmd+V' : 'Ctrl+V';
 
@@ -864,6 +865,7 @@ function state() {
     setup: setup.state,
     speechInstalled: speechInstalled(settings.modelsDir),
     shortcutRegistered,
+    shortcutRequested,
     startupError,
     recording: !!rec,
     automation: !!process.env.DICTATE_SMOKE_TEST,
@@ -920,8 +922,15 @@ function toggleFromApp(): void {
 function applyPortableShortcut(): void {
   globalShortcut.unregisterAll();
   shortcutRegistered = false;
+  shortcutRequested = false;
   if (platformCapabilities().displayServer !== 'wayland' || !settings.portableShortcutEnabled || !settings.portableShortcut) return;
-  try { shortcutRegistered = globalShortcut.register(settings.portableShortcut, toggleFromApp); }
+  try {
+    // On Wayland this boolean confirms submission, not consent. Electron 44.7 has no resolution event.
+    shortcutRequested = globalShortcut.register(settings.portableShortcut, () => {
+      shortcutRegistered = true;
+      toggleFromApp();
+    });
+  }
   catch (err) { log('warn', `desktop shortcut: ${(err as Error).message}`); }
 }
 

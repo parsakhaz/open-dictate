@@ -29,6 +29,7 @@ interface State {
   setup: { phase: string; kind?: string; file?: string; received?: number; total?: number; message?: string };
   speechInstalled: boolean;
   shortcutRegistered: boolean;
+  shortcutRequested: boolean;
   startupError: string;
   recording: boolean;
   automation: boolean;
@@ -321,7 +322,7 @@ function platformCards(): Node[] {
   if (p.accessibilityRequired && (!p.accessibilityGranted || st.microphonePermission !== 'granted')) rows.push(card('Allow microphone and keyboard access', 'macOS needs Microphone, Accessibility and Input Monitoring permissions. Enable Dictate in System Settings → Privacy & Security, then restart Dictate.', h('button.button', {onclick: () => void action('dictate:permissions')}, 'Enable access')));
   if (!p.canSwallowKeys && p.globalHotkeys) rows.push(card('Keyboard behavior', 'Hold and double-tap work globally. The desktop also receives keys; use an unused dictation key and avoid combinations already used by your apps. History opens in its own focused window.'));
   if (p.displayServer === 'wayland') {
-    rows.push(card('Desktop toggle shortcut', st.shortcutRegistered ? 'Shortcut registered with the desktop. Use it to start and finish; output stays on the clipboard.' : 'Wayland can offer a toggle through its shortcut portal. Hold-to-talk and automatic paste are restricted by the desktop. You can always use Start / Finish here and paste copied text yourself.', h('button.button', {onclick: () => void action('dictate:enable-shortcut')}, st.shortcutRegistered ? 'Re-register' : 'Enable desktop shortcut'), select(st.settings.portableShortcut, [['CommandOrControl+Shift+Space','Ctrl+Shift+Space'],['CommandOrControl+Alt+D','Ctrl+Alt+D'],['','Disabled']], (v) => void set({portableShortcut:v}))));
+    rows.push(card('Desktop toggle shortcut', st.shortcutRegistered ? 'Desktop shortcut confirmed by activation. Use it to start and finish; output stays on the clipboard.' : st.shortcutRequested ? 'Shortcut request submitted. Approve any desktop consent dialog, then press the shortcut to confirm it works. You can always use Start / Finish here.' : st.settings.portableShortcutEnabled ? 'The desktop did not accept the shortcut request. Retry, choose another shortcut, or use Start / Finish here and paste copied text yourself.' : 'Wayland can offer a toggle through its shortcut portal. Hold-to-talk and automatic paste are restricted by the desktop. You can always use Start / Finish here and paste copied text yourself.', h('button.button', {onclick: () => void action('dictate:enable-shortcut')}, st.shortcutRegistered || st.shortcutRequested ? 'Retry request' : 'Enable desktop shortcut'), select(st.settings.portableShortcut, [['CommandOrControl+Shift+Space','Ctrl+Shift+Space'],['CommandOrControl+Alt+D','Ctrl+Alt+D'],['','Disabled']], (v) => void set({portableShortcut:v}))));
   }
   return rows;
 }
