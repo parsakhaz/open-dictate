@@ -1,0 +1,2 @@
+Available devices:
+  Metal: Apple M2 (10922 MiB, 10922 MiB free)
