@@ -52,6 +52,7 @@ export interface Settings {
   picker: Binding | null;
   /** Toggle accelerator offered by the desktop portal on Wayland. */
   portableShortcut: string;
+  portableShortcutEnabled: boolean;
   tapMs: number;
   doubleTapMs: number;
   /** Preferred microphones, most preferred first; empty = the system default. */

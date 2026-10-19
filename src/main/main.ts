@@ -41,6 +41,8 @@ if (process.env.DICTATE_DATA_DIR) app.setPath('userData', process.env.DICTATE_DA
 app.setName('dictate');
 if (process.platform === 'win32') app.setAppUserModelId('org.dictate.Dictate');
 if (process.platform === 'linux') app.setDesktopName('org.dictate.Dictate');
+// Headless runners may expose a GPU device without a functioning compositor. Keep screenshot QA deterministic.
+if (process.env.DICTATE_SMOKE_TEST) app.disableHardwareAcceleration();
 
 // The isolated container used for local QA forbids AF_UNIX sockets. Native CI keeps the real lock enabled.
 const skipInstanceLock = !!process.env.DICTATE_SMOKE_TEST && process.env.DICTATE_SMOKE_SKIP_INSTANCE_LOCK === '1';
@@ -881,7 +883,7 @@ function updateSettings(patch: Partial<Settings>): void {
   if (patch.micWarm !== undefined) warm?.settingChanged();
   if (patch.pillText !== undefined) pillConfig();
   if (patch.startAtLogin !== undefined) applyLoginItem();
-  if (patch.portableShortcut !== undefined) applyPortableShortcut();
+  if (patch.portableShortcut !== undefined || patch.portableShortcutEnabled !== undefined) applyPortableShortcut();
   if (['cleanup', 'llamaServer', 'modelsDir', 'vocabulary', 'batteryEmberonOnly', 'batteryUnloadMinutes'].some((k) => k in patch)) cleanup.update(settings);
   if ((patch.modelsDir && patch.modelsDir !== before.modelsDir) || (patch.sttThreads && patch.sttThreads !== before.sttThreads)) {
     const old = stt;
@@ -914,7 +916,7 @@ function toggleFromApp(): void {
 function applyPortableShortcut(): void {
   globalShortcut.unregisterAll();
   shortcutRegistered = false;
-  if (platformCapabilities().displayServer !== 'wayland' || !settings.portableShortcut) return;
+  if (platformCapabilities().displayServer !== 'wayland' || !settings.portableShortcutEnabled || !settings.portableShortcut) return;
   try { shortcutRegistered = globalShortcut.register(settings.portableShortcut, toggleFromApp); }
   catch (err) { log('warn', `desktop shortcut: ${(err as Error).message}`); }
 }
@@ -923,7 +925,7 @@ function registerIpc(): void {
   ipcMain.handle('dictate:get-state', () => state());
   ipcMain.handle('dictate:toggle', () => { toggleFromApp(); return state(); });
   ipcMain.handle('dictate:open-history', () => picker.open());
-  ipcMain.handle('dictate:enable-shortcut', () => { applyPortableShortcut(); return state(); });
+  ipcMain.handle('dictate:enable-shortcut', () => { updateSettings({ portableShortcutEnabled: true }); return state(); });
   ipcMain.handle('dictate:permissions', async () => {
     if (process.platform === 'darwin') {
       requestAccessibility();
@@ -1124,8 +1126,10 @@ async function main(): Promise<void> {
   hook = new KeyHook(path.join(appRoot(), 'out', 'native', 'keyhook.js'), onHook, log);
   hook.start();
   applyBindings();
-  applyLoginItem();
-  // Portal registration is user initiated in Settings; avoid permission dialogs during unattended startup.
+  if (!process.env.DICTATE_SMOKE_TEST) applyLoginItem();
+  else log('info', 'QA: existing OS login items are unchanged');
+  // A fresh installation asks only after the button press; subsequent launches reuse the saved choice.
+  if (settings.portableShortcutEnabled) applyPortableShortcut();
 
   if (!settings.onboarded) openSettings();
 

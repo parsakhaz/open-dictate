@@ -9,6 +9,8 @@ export type CleanupModel = 'gemma' | 'emberon';
 export interface ChainStep {
   model: CleanupModel;
   system: string;
+  /** Canonical terms already present in the input must survive cleanup unchanged. */
+  preserveTerms?: string[];
 }
 
 export interface ChainDeps {
@@ -36,8 +38,9 @@ export interface ChainOptions {
 
 /** Gemma with prompt v3 goes first: run the other way round, Emberon mangles names such as "Doozy". */
 export function stepsFor(chain: CleanupChain, v3Template: string, vocab: VocabTerm[]): ChainStep[] {
-  const gemma: ChainStep = { model: 'gemma', system: fillTemplate(v3Template, vocab) };
-  const emberon: ChainStep = { model: 'emberon', system: EMBERON_SYSTEM };
+  const preserveTerms = vocab.map((v) => v.term);
+  const gemma: ChainStep = { model: 'gemma', system: fillTemplate(v3Template, vocab), preserveTerms };
+  const emberon: ChainStep = { model: 'emberon', system: EMBERON_SYSTEM, preserveTerms };
   if (chain === 'gemma') return [gemma];
   if (chain === 'emberon') return [emberon];
   if (chain === 'gemma-emberon') return [gemma, emberon];
@@ -45,6 +48,16 @@ export function stepsFor(chain: CleanupChain, v3Template: string, vocab: VocabTe
 }
 
 class Timeout extends Error {}
+
+function vocabularyProblem(input: string, output: string, terms: string[] = []): string | undefined {
+  for (const term of terms) {
+    if (!term.trim()) continue;
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, 'iu');
+    if (pattern.test(input) && !pattern.test(output)) return `cleanup changed vocabulary: ${term}`;
+  }
+  return undefined;
+}
 
 /** The most any one cleanup step may take, however long the dictation. */
 export const MAX_STEP_MS = 8000;
@@ -91,7 +104,8 @@ export async function runChain(raw: string, steps: ChainStep[], deps: ChainDeps,
       const content = await Promise.race([deps.complete(step.model, chatRequest(step.system, text, history), ctrl.signal), timedOut]);
       const out = plainText(content);
       const ms = performance.now() - t0;
-      const guard = out ? checkOutput(text, out, opts.guard ?? DEFAULT_GUARD) : { ok: false, reason: 'empty reply' };
+      const changedTerm = vocabularyProblem(text, out, step.preserveTerms);
+      const guard = changedTerm ? { ok: false, reason: changedTerm } : out ? checkOutput(text, out, opts.guard ?? DEFAULT_GUARD) : { ok: false, reason: 'empty reply' };
       if (guard.ok) {
         results.push({ model: step.model, status: 'ok', ms });
         text = out;

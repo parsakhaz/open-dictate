@@ -90,13 +90,6 @@ body {
 .page {
   max-width: 860px;
   padding: 24px 36px 48px;
-  animation: enter var(--normal) var(--ease);
-}
-@keyframes enter {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
 }
 
 h1 {

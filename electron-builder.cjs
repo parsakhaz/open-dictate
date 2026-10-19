@@ -11,6 +11,7 @@ module.exports = {
     'node_modules/**/*.{node,dll,dylib,so,so.*}',
     'node_modules/sherpa-onnx-*/**/*',
     'node_modules/uiohook-napi/prebuilds/**/*',
+    'node_modules/uiohook-napi/build/Release/**/*',
     'node_modules/koffi/build/**/*',
   ],
   npmRebuild: false,
@@ -49,5 +50,5 @@ module.exports = {
     syncDesktopName: true,
     desktop: { entry: { Name: 'Dictate', Comment: 'Local speech-to-text dictation', StartupWMClass: 'org.dictate.Dictate', Keywords: 'dictation;speech;transcription;' } },
   },
-  deb: { depends: ['libgtk-3-0', 'libnotify4', 'libnss3', 'libxss1', 'libxtst6', 'xdg-utils', 'libatspi2.0-0', 'libuuid1', 'libasound2', 'libxkbcommon0'] },
+  deb: { depends: ['libgtk-3-0', 'libnotify4', 'libnss3', 'libxss1', 'libxtst6', 'xdg-utils', 'libatspi2.0-0', 'libuuid1', 'libasound2', 'libxkbcommon0', 'libxt6', 'libxrandr2', 'xdotool', 'x11-utils'] },
 };

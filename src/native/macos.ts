@@ -3,7 +3,7 @@
 import koffi from 'koffi';
 import type { DesktopAdapter } from './desktop';
 
-export function createMacDesktop(): DesktopAdapter & { batterySaverOn(): boolean } {
+export function createMacDesktop(): DesktopAdapter & { batterySaverOn(): boolean; listeningAllowed(): boolean; postingAllowed(): boolean; requestListening(): boolean } {
   // Load AppKit before looking up its Objective-C classes.
   koffi.load('/System/Library/Frameworks/AppKit.framework/AppKit');
   const objc = koffi.load('/usr/lib/libobjc.A.dylib');
@@ -26,6 +26,9 @@ export function createMacDesktop(): DesktopAdapter & { batterySaverOn(): boolean
   const setFlags = cg.func('CGEventSetFlags', 'void', ['void *', 'uint64']);
   const setUnicode = cg.func('CGEventKeyboardSetUnicodeString', 'void', ['void *', 'ulong', 'void *']);
   const post = cg.func('CGEventPost', 'void', ['uint32', 'void *']);
+  const canListen = cg.func('CGPreflightListenEventAccess', 'bool', []);
+  const canPost = cg.func('CGPreflightPostEventAccess', 'bool', []);
+  const requestListen = cg.func('CGRequestListenEventAccess', 'bool', []);
   const UTF8 = 0x08000100;
   const commandFlag = 1 << 20;
 
@@ -67,6 +70,9 @@ export function createMacDesktop(): DesktopAdapter & { batterySaverOn(): boolean
     }
   }
   return {
+    listeningAllowed: () => canListen(),
+    postingAllowed: () => canPost(),
+    requestListening: () => requestListen(),
     foregroundWindow,
     isWindow: live,
     setForeground: (pid) => {

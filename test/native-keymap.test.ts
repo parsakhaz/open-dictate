@@ -15,4 +15,10 @@ describe('portable native key events', () => {
     ]);
     expect(canonicalKeyCode(0xffff)).toBeNull();
   });
+
+  it('accepts keypad navigation, Enter and the dedicated Pause/Menu keys', () => {
+    expect([0x0e1c, 0xee48, 0xee50, 0xee47, 0xee4f, 0xee52, 0xee53, 0x0e45, 0x0e5d].map(canonicalKeyCode)).toEqual([
+      0x0d, 0x26, 0x28, 0x24, 0x23, 0x2d, 0x2e, 0x13, 0x5d,
+    ]);
+  });
 });

@@ -338,21 +338,25 @@ function welcome(): Node[] {
   const mic = st.mic?.label ?? st.defaultMicLabel;
   void startMeter(st.mic?.deviceId ?? null, mic, meter);
   return [
-    h('div.hero', {}, h('div.heroicon', {}, '●'), h('h1', {}, 'Welcome to dictate'), h('p.lead', {}, 'Speak anywhere you can type. Everything runs on this laptop: nothing you say leaves it.')),
+    h('div.hero', {}, h('div.heroicon', {}, '●'), h('h1', {}, 'Welcome to dictate'), h('p.lead', {}, 'Speech recognition and cleanup run on this computer. Copied text follows your system’s clipboard settings.')),
     ...setupCards(),
     h(
       'div.steps',
       {},
-      h('div.step', {}, h('div.stepnum', {}, '1'), h('div', {}, h('div.cardtitle', {}, 'Hold to talk'), h('div.carddesc', {}, 'Hold ', keycap(st.labels.hotkey), ', speak, and let go. The text is typed where your cursor is.'))),
-      h('div.step', {}, h('div.stepnum', {}, '2'), h('div', {}, h('div.cardtitle', {}, 'Double-tap for hands-free'), h('div.carddesc', {}, 'Double-tap ', keycap(st.labels.hotkey), ' to keep listening; tap it again to finish. ', keycap('Esc'), ' cancels.'))),
-      h('div.step', {}, h('div.stepnum', {}, '3'), h('div', {}, h('div.cardtitle', {}, 'Find anything you said'), h('div.carddesc', {}, keycap(st.labels.picker), ' opens your dictation history, like ', keycap('Win + V'), '.'))),
+      st.platform.displayServer === 'wayland'
+        ? h('div.step', {}, h('div.stepnum', {}, '1'), h('div', {}, h('div.cardtitle', {}, 'Start from the app'), h('div.carddesc', {}, 'Open Hotkeys & output or the tray. Select Start dictation, speak, then Finish dictation. Paste the copied result into your app.')))
+        : h('div.step', {}, h('div.stepnum', {}, '1'), h('div', {}, h('div.cardtitle', {}, 'Hold to talk'), h('div.carddesc', {}, 'Hold ', keycap(st.labels.hotkey), ', speak, and let go. The text is typed where your cursor is.'))),
+      st.platform.displayServer === 'wayland'
+        ? h('div.step', {}, h('div.stepnum', {}, '2'), h('div', {}, h('div.cardtitle', {}, 'Enable a desktop toggle'), h('div.carddesc', {}, 'Use Enable desktop shortcut in Hotkeys & output. Your desktop may ask to allow a toggle combination.')))
+        : h('div.step', {}, h('div.stepnum', {}, '2'), h('div', {}, h('div.cardtitle', {}, 'Double-tap for hands-free'), h('div.carddesc', {}, 'Double-tap ', keycap(st.labels.hotkey), ' to keep listening; tap it again to finish. ', keycap('Esc'), ' cancels.'))),
+      h('div.step', {}, h('div.stepnum', {}, '3'), h('div', {}, h('div.cardtitle', {}, 'Find anything you said'), h('div.carddesc', {}, st.settings.picker ? keycap(st.labels.picker) : 'Open History from Hotkeys & output or the tray', st.settings.picker ? ' opens your dictation history.' : '.'))),
     ),
-    card(
+    st.platform.displayServer !== 'wayland' ? card(
       'Your dictation key',
       st.settings.hotkeys[0] && same(st.settings.hotkeys[0], { keys: [R_ALT] }) ? 'Right Alt it is. You can change it any time in Hotkeys & output.' : 'No Right Ctrl on your keyboard? Use Right Alt.',
       h('div.bindingrow', {}, keycap(st.labels.hotkey)),
       presets('hotkey'),
-    ),
+    ) : card('Output on this desktop', `Wayland keeps external applications isolated. Dictate copies your result; use ${pasteKeys()} to paste it where you need it.`),
     card('Microphone', 'Say something: the bar should move into the middle.', micSelect(), meter),
     card('Start at login', 'dictate waits quietly in the tray, using no CPU until you press the key.', toggle(startWin.on, (v) => (startWin.on = v))),
     h(
@@ -384,7 +388,7 @@ function general(): Node[] {
     h('h1', {}, 'Hotkeys & output'),
     ...platformCards(),
     card('Dictate now', 'Start here or from the tray. Click Finish after speaking. Clipboard mode lets you paste the result into any app.', h('button.button.accent', {disabled: st.stt !== 'ready', onclick: () => void action('dictate:toggle')}, st.recording ? 'Finish dictation' : 'Start dictation')),
-    card('History', 'Search, copy or reuse a previous dictation.', h('button.button', {onclick: () => void action('dictate:open-history')}, 'Open history')), 
+    card('History', 'Search, copy or reuse a previous dictation.', h('button.button', {onclick: () => void action('dictate:open-history')}, 'Open history')),
     h('h2', {}, 'Hotkeys'),
     card(
       st.settings.hotkeys.length > 1 ? 'Dictation keys' : 'Dictation key',

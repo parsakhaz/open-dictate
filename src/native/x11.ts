@@ -39,7 +39,9 @@ export function createX11Desktop(run: X11Command = x11Command): DesktopAdapter {
     hasTextCaret: () => false,
     sendCtrlV: () => run(['key', '--clearmodifiers', '--delay', '0', TERMINAL.test(windowClass(foregroundWindow())) ? 'ctrl+shift+v' : 'ctrl+v']).ok ? 4 : 0,
     sendEnter: () => run(['key', '--clearmodifiers', '--delay', '0', 'Return']).ok,
-    // Text goes through stdin, so a transcript never appears in process arguments or a shell command.
-    typeText: (text) => run(['type', '--clearmodifiers', '--delay', '0', '--file', '-'], text).ok,
+    // XTest cannot reliably type arbitrary Unicode into every toolkit (Chromium can silently drop it).
+    // Preserve the entire transcript for history/retry instead of typing a partial ASCII prefix. Normal
+    // clipboard paste supports full Unicode. Fallback text goes through stdin, never process arguments.
+    typeText: (text) => /^[\t\n\r\x20-\x7e]*$/.test(text) && run(['type', '--clearmodifiers', '--delay', '0', '--file', '-'], text).ok,
   };
 }

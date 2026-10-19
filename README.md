@@ -2,7 +2,7 @@
 
 [![Dictate CI](https://github.com/parsakhaz/experiments/actions/workflows/dictate.yml/badge.svg)](https://github.com/parsakhaz/experiments/actions/workflows/dictate.yml)
 
-Local English dictation for **Windows, macOS and Linux**. Hold a dictation key, speak, and release to transcribe. Optional local cleanup fixes punctuation and vocabulary. Audio and transcripts stay on your computer; setup downloads the models once.
+Local English dictation for **Windows, macOS and Linux**. Hold a dictation key, speak, and release to transcribe. Optional local cleanup fixes punctuation and vocabulary. Speech recognition and cleanup run on your computer; setup downloads the models once.
 
 ## Install and test
 
@@ -108,7 +108,7 @@ sudo apt-get install libgtk-3-0 libnss3 libasound2 libgbm1 libxtst6 libx11-6 xdo
 
 `src/core/` holds shared hotkey, capture, cleanup, history and settings logic. `src/native/` isolates Windows hooks/WASAPI, Mac Quartz/Cocoa, X11 tools and desktop capabilities. `src/engine/` hosts recognition and llama-server lifecycle. `src/main/` owns tray, windows, model setup and output; `src/renderer/` is plain DOM plus AudioWorklet capture.
 
-Real-model tests run when `DICTATE_MODELS_DIR` contains the model files. Set `DICTATE_LLAMA_SERVER` and `DICTATE_LLM_TESTS=1` to run real cleanup too. Their latency measurements originated on a Ryzen AI Max+ PRO 395/Vulkan Windows laptop; they are not cross-platform performance promises. CI's ordinary unit tests explicitly skip missing model prerequisites. See the PR's evidence for the actual model checks performed on this revision.
+Real-model tests run when `DICTATE_MODELS_DIR` contains the model files. Set `DICTATE_LLAMA_SERVER` and `DICTATE_LLM_TESTS=1` to run real cleanup too. Their latency measurements originated on a Ryzen AI Max+ PRO 395/Vulkan Windows laptop; they are not cross-platform performance promises. Set `DICTATE_LLM_MAX_MS=1500` or `DICTATE_E2E_MAX_MS=2500` to enforce the original hardware benchmark budgets. Cleanup that changes a correctly spelled vocabulary term is rejected and keeps its input. CI's ordinary unit tests explicitly skip missing model prerequisites. See the PR's evidence for the actual model checks performed on this revision.
 
 For isolated application QA:
 

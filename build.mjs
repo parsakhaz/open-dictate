@@ -1,6 +1,9 @@
 // Bundles every process with esbuild into out/. Native modules and electron stay external.
 import { build } from 'esbuild';
+import { prepareNative } from './qa/prepare-native.mjs';
 import { cpSync, mkdirSync, rmSync } from 'node:fs';
+
+prepareNative();
 
 const common = { bundle: true, sourcemap: true, logLevel: 'warning', target: 'node24' };
 const node = { ...common, platform: 'node', format: 'cjs', external: ['electron', 'sherpa-onnx-node', 'koffi', 'uiohook-napi'] };

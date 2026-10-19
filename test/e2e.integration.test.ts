@@ -85,7 +85,9 @@ describe.skipIf(!fs.existsSync(sttDir))('WAV fixture -> STT -> cleanup -> output
     expect(history.latest()?.raw).toBe(raw);
     // Delivered with a trailing space, so the next dictation does not run into it; history keeps the text.
     expect(`${history.latest()?.text} `).toBe(sink.pasted[0].text);
-    expect(ms).toBeLessThan(2500);
+    // Latency budgets belong to a named benchmark machine, rather than every CPU/GPU backend.
+    const budget = Number(process.env.DICTATE_E2E_MAX_MS);
+    if (budget > 0) expect(ms).toBeLessThan(budget);
 
     // The picker: choose the entry, then its raw transcript, then copy only.
     const id = history.latest()!.id;

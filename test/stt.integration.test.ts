@@ -26,5 +26,7 @@ describe.skipIf(!have)('Nemotron 1120 ms streaming STT', () => {
     console.log({ loadMs: Math.round(loadMs), flushMs: Math.round(flushMs), partials: partials.length, text });
     expect(partials.length).toBeGreaterThan(0);
     expect(text.split(/\s+/).length).toBeGreaterThan(5);
+    expect(text.toLowerCase()).toContain('deploy the kubernetes cluster with terraform');
+    expect(text.toLowerCase()).toContain('nemotron streaming models');
   }, 60_000);
 });

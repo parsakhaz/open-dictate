@@ -24,6 +24,7 @@ let desktop: DesktopAdapter | undefined;
 let nativeReason: string | undefined;
 let hookReason: string | undefined;
 let lowPower: (() => boolean) | undefined;
+let macAccess: ReturnType<typeof import('./macos')['createMacDesktop']> | undefined;
 const win = (): Windows => windows ??= require('./win32') as Windows;
 
 export function accessibilityGranted(): boolean {
@@ -32,7 +33,11 @@ export function accessibilityGranted(): boolean {
 
 /** macOS opens its system prompt; a restart is normally needed after changing Accessibility/Input Monitoring. */
 export function requestAccessibility(): boolean {
-  return process.platform !== 'darwin' || systemPreferences.isTrustedAccessibilityClient(true);
+  if (process.platform !== 'darwin') return true;
+  const trusted = systemPreferences.isTrustedAccessibilityClient(true);
+  nativeDesktop();
+  macAccess?.requestListening();
+  return trusted;
 }
 
 function nativeDesktop(): DesktopAdapter {
@@ -45,6 +50,7 @@ function nativeDesktop(): DesktopAdapter {
     } else if (session === 'macos') {
       const mac = (require('./macos') as typeof import('./macos')).createMacDesktop();
       desktop = mac;
+      macAccess = mac;
       lowPower = mac.batterySaverOn;
     } else if (session === 'x11') {
       const x = require('./x11') as typeof import('./x11');
@@ -66,16 +72,20 @@ export function platformCapabilities(): PlatformCapabilities {
   const session = desktopSession(process.platform, process.env);
   const trusted = accessibilityGranted();
   const native = nativeDesktop() !== unavailableDesktop;
+  const canListen = !macAccess || macAccess.listeningAllowed();
+  const canPost = !macAccess || macAccess.postingAllowed();
   const supported = session === 'win32' || session === 'macos' || session === 'x11';
   const reason = !trusted ? 'Allow Dictate in System Settings → Privacy & Security → Accessibility and Input Monitoring, then restart Dictate.'
-    : nativeReason ?? hookReason ?? (session === 'wayland' ? 'Wayland protects global keyboard input and external app focus. Use Start/Stop in Dictate and paste the copied result yourself.'
+    : nativeReason ?? hookReason ?? (!canListen ? 'Allow Dictate in System Settings → Privacy & Security → Input Monitoring, then restart Dictate.'
+      : !canPost ? 'Allow Dictate in System Settings → Privacy & Security → Accessibility, then restart Dictate to enable automatic paste.'
+      : session === 'wayland' ? 'Wayland protects global keyboard input and external app focus. Use Start/Stop in Dictate and paste the copied result yourself.'
       : session === 'headless' ? 'No desktop display is available. Use Dictate from a graphical desktop session.'
       : !supported ? `Desktop input is unsupported on ${process.platform}.` : undefined);
   return {
     platform: process.platform, displayServer: session,
-    globalHotkeys: supported && native && trusted && !hookReason,
+    globalHotkeys: supported && native && trusted && canListen && !hookReason,
     canSwallowKeys: session === 'win32',
-    automaticPaste: native && trusted,
+    automaticPaste: native && trusted && canPost,
     targetTracking: native && trusted,
     accessibilityRequired: session === 'macos', accessibilityGranted: trusted,
     ...(reason ? { reason } : {}),

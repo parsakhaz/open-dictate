@@ -40,6 +40,16 @@ describe('runChain', () => {
     expect(r.steps[1].status).toBe('rejected');
   });
 
+  it('keeps correctly spelled vocabulary when a later cleanup model changes a name', async () => {
+    const d = deps({
+      gemma: async () => 'The Doozy integration in Pane should use Claude Code and Codex.',
+      emberon: async () => 'The Dozy integration in Pane should use Claude Code and Codex.',
+    });
+    const r = await runChain('the doozie integration in pain should use claude code and codex', stepsFor('gemma-emberon', '{{VOCAB_INLINE}}', [{term:'Doozy'}, {term:'Pane'}]), d);
+    expect(r.text).toBe('The Doozy integration in Pane should use Claude Code and Codex.');
+    expect(r.steps[1]).toMatchObject({status:'rejected',reason:'cleanup changed vocabulary: Doozy'});
+  });
+
   it('falls back to the raw transcript when every step fails', async () => {
     const d = deps({
       gemma: async () => {

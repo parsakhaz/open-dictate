@@ -10,6 +10,7 @@ const argv = process.argv.slice(2);
 const option = (name, fallback) => { const i = argv.indexOf(name); return i < 0 ? fallback : argv[i + 1]; };
 const dist = resolve(option('--dist', 'dist'));
 const evidence = resolve(option('--evidence-dir', 'tmp/package-smoke'));
+const modelDir = process.env.DICTATE_SMOKE_MODEL_DIR || process.env.DICTATE_MODELS_DIR;
 const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url))).version;
 const scratch = mkdtempSync(join(tmpdir(), 'dictate-package-smoke-'));
 mkdirSync(evidence, { recursive: true });
@@ -24,9 +25,16 @@ async function smoke(executable, label) {
   rmSync(report, { force: true });
   const profile = join(scratch, label, 'profile');
   mkdirSync(profile, { recursive: true });
-  const args = process.env.DICTATE_SMOKE_NO_SANDBOX === '1' && process.platform === 'linux' ? ['--no-sandbox'] : [];
+  // Xvfb has no hardware GPU. Software rendering makes capturePage exercise a real painted surface.
+  const args = process.platform === 'linux' ? ['--disable-gpu', '--disable-dev-shm-usage'] : [];
+  if (process.env.DICTATE_SMOKE_NO_SANDBOX === '1' && process.platform === 'linux') args.push('--no-sandbox');
   const env = { ...process.env, DICTATE_SMOKE_TEST: report, DICTATE_DATA_DIR: profile, DICTATE_USER_DATA_DIR: profile };
   delete env.ELECTRON_RUN_AS_NODE;
+  delete env.DICTATE_MODELS_DIR;
+  if (modelDir) {
+    env.DICTATE_SMOKE_MODEL_DIR = resolve(modelDir);
+    env.DICTATE_SMOKE_WAV = resolve(process.env.DICTATE_SMOKE_WAV || 'fixtures/two-sentences.wav');
+  }
   let output = '';
   await new Promise((done, fail) => {
     const child = spawn(executable, args, { env, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -48,12 +56,18 @@ async function smoke(executable, label) {
   });
   if (!existsSync(report)) throw new Error(`${label}: Electron did not write a smoke report\n${output}`);
   const result = JSON.parse(readFileSync(report, 'utf8'));
-  if (result.ok !== true || result.platform !== process.platform || result.arch !== process.arch || result.rendererLoaded !== true) {
+  if (result.ok !== true || result.packaged !== true || result.version !== version || result.platform !== process.platform || result.arch !== process.arch || result.rendererLoaded !== true) {
     throw new Error(`${label}: startup/renderer failed: ${JSON.stringify(result)}`);
   }
+  if (!existsSync(`${report}.png`)) throw new Error(`${label}: settings screenshot was not captured`);
+  if (result.singleInstanceLockSkipped && process.env.DICTATE_SMOKE_SKIP_INSTANCE_LOCK !== '1') throw new Error(`${label}: single-instance lock unexpectedly skipped`);
   for (const name of ['sherpa', 'koffi', 'uiohook']) {
     if (result.native?.[name] !== true) throw new Error(`${label}: native ${name} was not loaded: ${JSON.stringify(result)}`);
   }
+  if (modelDir && (typeof result.inference?.text !== 'string' || !result.inference.text || result.inference.partials < 1)) {
+    throw new Error(`${label}: packaged recognizer did not transcribe the speech fixture: ${JSON.stringify(result)}`);
+  }
+  if (modelDir) console.log(`PASS ${label} packaged speech: ${result.inference.text}`);
   console.log(`PASS ${label}: ${result.platform}/${result.arch}, packaged renderer and sherpa/koffi/uiohook loaded`);
 }
 function artifact(name) {

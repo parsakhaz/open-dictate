@@ -36,8 +36,8 @@ describe('portable first-run configuration', () => {
     const defaults = runtimeDefaults(vocab, { platform: 'linux', userData: '/home/a/dictate' });
     const legacy = { modelsDir: 'C:\\repos\\experiments\\worktrees\\voice-lab\\voice-lab\\models', llamaServer: 'C:\\repos\\experiments\\worktrees\\voice-lab\\voice-lab\\bin\\llama-b11700-vulkan\\llama-server.exe', cleanup: 'gemma' };
     const migrated = migratePlatformSettings(legacy, defaults, () => false);
-    expect(migrated.modelsDir).toBe(path.join('/home/a/dictate', 'models'));
-    expect(migrated.llamaServer).toBe(path.join('/home/a/dictate', 'bin', 'llama-server'));
+    expect(migrated.modelsDir).toBe(path.posix.join('/home/a/dictate', 'models'));
+    expect(migrated.llamaServer).toBe(path.posix.join('/home/a/dictate', 'bin', 'llama-server'));
     expect(migrated.cleanup).toBe('gemma');
     expect(migratePlatformSettings(legacy, defaults, () => true)).toEqual(legacy);
     expect(migratePlatformSettings({ modelsDir: '/my/custom/models' }, defaults, () => false).modelsDir).toBe('/my/custom/models');

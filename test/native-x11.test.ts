@@ -25,8 +25,11 @@ describe('X11 desktop output', () => {
       calls.push({ args, input });
       return { ok: true, text: '' };
     });
-    expect(desktop.typeText('hello "$(touch /tmp/no)"\nکوردی')).toBe(true);
-    expect(calls).toEqual([{ args: ['type', '--clearmodifiers', '--delay', '0', '--file', '-'], input: 'hello "$(touch /tmp/no)"\nکوردی' }]);
+    expect(desktop.typeText('hello "$(touch /tmp/no)"\n')).toBe(true);
+    expect(calls).toEqual([{ args: ['type', '--clearmodifiers', '--delay', '0', '--file', '-'], input: 'hello "$(touch /tmp/no)"\n' }]);
+    // Chromium/X11 may drop unmapped Unicode even when xdotool exits zero. Reject the entire fallback,
+    // before typing an ASCII prefix, rather than reporting successful delivery of a truncated transcript.
+    expect(desktop.typeText('hello کوردی')).toBe(false);
     expect(desktop.setForeground(0)).toBe(false);
     expect(desktop.isWindow(1)).toBe(false);
     expect(calls).toHaveLength(1);
