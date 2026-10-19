@@ -1260,6 +1260,8 @@ async function main(): Promise<void> {
         else if (line === 'up') machine.up(key, t);
         else if (line === 'escape') { machine.down(VK.Escape, t); machine.up(VK.Escape, t + 1); }
         else if (line === 'quit') app.quit();
+        // Bring Settings to the front, as a click would (Getting started's practice box needs it focused).
+        else if (line === 'focus') { app.focus({ steal: true }); settingsWin?.show(); settingsWin?.focus(); }
         else if (line.startsWith('shot ')) pillShot(line.slice(5), 0);
         else if (line.startsWith('state ')) {
           pillSend('dictate:pill', JSON.parse(line.slice(6)));
