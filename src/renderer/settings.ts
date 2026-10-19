@@ -4,7 +4,7 @@ import { dbfs, defaultGainDb } from '../core/audio';
 import { bindingLabel, dictationKeyProblem } from '../core/hotkeys';
 import type { MicDevice } from '../core/mics';
 import { micKey, micName } from '../core/mics';
-import { canGoBack, canSkip, nextStep, previousStep, resumeStep, STEPS, type Step, stepNumber, tryReady } from '../core/onboarding';
+import { canGoBack, canSkip, nextStep, previousStep, resumeStep, STEPS, type Step, stepNumber, tryReady, tryWait } from '../core/onboarding';
 import { displaySize, THIRD_PARTY } from '../core/thirdparty';
 import type { Binding, CleanupChain, OutputMode, Settings, VocabTerm } from '../core/types';
 import { dictate, h } from './bridge';
@@ -592,6 +592,9 @@ function tryStep(): Node[] {
     const pct = busySetup() && s.overallTotal ? ` (${Math.floor(((s.overallReceived ?? 0) / s.overallTotal) * 100)}%)` : '';
     return stepFrame('Try it', null, [card('Waiting for the speech model', `It is still downloading${pct}. Come back once it is done, or skip and try your key in any app later.`, h('button.button', { onclick: () => go('download') }, 'See the download'))], primaryButton('Next', () => go('done')));
   }
+  const waiting = tryWait(true, st.stt);
+  if (waiting === 'loading') return stepFrame('Try it', null, [card('Loading the speech model…', 'This takes a few seconds after a download.', h('span.spinner'))], primaryButton('Next', () => go('done')));
+  if (waiting === 'error') return stepFrame('Try it', null, [card('The speech model did not load', st.sttError || 'See the log in Settings → General.')], primaryButton('Next', () => go('done')));
   const manual = st.platform.displayServer === 'wayland' || !st.platform.globalHotkeys;
   const result = practice
     ? h(
