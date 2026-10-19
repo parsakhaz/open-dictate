@@ -60,6 +60,11 @@ vi.mock('../src/native/win32', () => ({
     board.typed.push(t);
     return true;
   },
+  writeClipboardText: async (t: string, o: { history: boolean }) => {
+    board.items = [{ types: ['text/plain'], data: { 'text/plain': t } }];
+    board.text = t;
+    board.writes.push(`text:${t}${o.history ? '' : ' (no history)'}`);
+  },
 }));
 
 const { realPasteSink } = await import('../src/main/output');
@@ -83,6 +88,11 @@ describe('realPasteSink', () => {
     const d = await sink().deliver('hello', 'paste');
     expect(d).toMatchObject({ pasted: true, confirmed: true });
     expect(board.items[0].data).toEqual({ 'text/plain': 'OLD', 'text/html': '<b>OLD</b>' });
+  });
+
+  it('writes the pasted text with the privacy formats that keep it out of Win+V history (B1)', async () => {
+    await sink().deliver('hello', 'paste');
+    expect(board.writes[0]).toBe('text:hello (no history)');
   });
 
   it('leaves the clipboard untouched and types when one format cannot be read (M3)', async () => {

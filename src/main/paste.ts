@@ -11,7 +11,11 @@ export interface ClipboardPort {
   /** Everything on the clipboard, read out in full; rejects if it cannot be read. */
   snapshot(): Promise<unknown>;
   restore(snapshot: unknown): Promise<void>;
-  writeText(text: string): Promise<void>;
+  /**
+   * Puts text on the clipboard, never synced to the cloud clipboard. `transient` text is only there for a paste
+   * and the old clipboard goes back right after, so it is also kept out of Win+V history and clipboard monitors.
+   */
+  writeText(text: string, transient: boolean): Promise<void>;
   readText(): Promise<string>;
 }
 
@@ -58,9 +62,9 @@ export class PasteSink implements OutputSink {
     return run;
   }
 
-  private async copy(text: string): Promise<boolean> {
+  private async copy(text: string, transient = false): Promise<boolean> {
     try {
-      await this.deps.clipboard.writeText(text);
+      await this.deps.clipboard.writeText(text, transient);
       return true;
     } catch (err) {
       this.deps.log('warn', `clipboard write failed: ${(err as Error).message}`);
@@ -95,7 +99,7 @@ export class PasteSink implements OutputSink {
         return this.type(text, 'clipboard unreadable');
       }
     }
-    if (!(await this.copy(text))) return this.type(text, 'clipboard busy');
+    if (!(await this.copy(text, mode === 'paste'))) return this.type(text, 'clipboard busy');
     const sent = this.deps.input.sendCtrlV();
     if (sent !== 4) {
       // Blocked (an elevated window, the secure desktop): the text stays on the clipboard.

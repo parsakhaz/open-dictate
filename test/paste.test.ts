@@ -6,6 +6,7 @@ import { finishDictation, type OutputSink, withTrailingSpace } from '../src/main
 function setup(opts: { snapshotFails?: boolean; writeFails?: boolean; caret?: boolean; noTextField?: boolean; sent?: number } = {}) {
   let board = 'OLD';
   const calls: string[] = [];
+  const writes: string[] = [];
   const clipboard: ClipboardPort = {
     snapshot: async () => {
       calls.push('snapshot');
@@ -16,8 +17,9 @@ function setup(opts: { snapshotFails?: boolean; writeFails?: boolean; caret?: bo
       calls.push('restore');
       board = s as string;
     },
-    writeText: async (t) => {
+    writeText: async (t, transient) => {
       calls.push('write');
+      writes.push(transient ? 'transient' : 'kept');
       if (opts.writeFails) throw new Error('clipboard busy');
       board = t;
     },
@@ -40,7 +42,7 @@ function setup(opts: { snapshotFails?: boolean; writeFails?: boolean; caret?: bo
     log: () => undefined,
     sleep: async () => undefined,
   });
-  return { sink, calls, board: () => board };
+  return { sink, calls, writes, board: () => board };
 }
 
 describe('PasteSink', () => {
@@ -92,6 +94,22 @@ describe('PasteSink', () => {
     const clip = setup();
     expect(await clip.sink.deliver('hello', 'clipboard')).toEqual({ pasted: false, copied: true });
     expect(clip.calls).toEqual(['write']);
+  });
+});
+
+describe('PasteSink keeps dictations out of clipboard history and the cloud (B1)', () => {
+  it('marks the text of a paste-and-restore as transient', async () => {
+    const t = setup();
+    await t.sink.deliver('hello', 'paste');
+    expect(t.writes).toEqual(['transient']);
+  });
+
+  it('writes text the person keeps on the clipboard as kept: clipboard mode, both mode, no text field', async () => {
+    for (const [mode, opts] of [['clipboard', {}], ['both', {}], ['paste', { noTextField: true }]] as const) {
+      const t = setup(opts);
+      await t.sink.deliver('hello', mode);
+      expect(t.writes).toEqual(['kept']);
+    }
   });
 });
 

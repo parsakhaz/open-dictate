@@ -1,6 +1,6 @@
 // Wires the paste rules (paste.ts) to the real clipboard, SendInput and the foreground window.
 import { ClipboardItem, clipboard } from 'electron';
-import { caretRect, foregroundWindow, looksLikeNoTextTarget, sendCtrlV, typeText, windowClass, windowPid } from '../native/win32';
+import { caretRect, foregroundWindow, looksLikeNoTextTarget, sendCtrlV, typeText, windowClass, windowPid, writeClipboardText } from '../native/win32';
 import { type ClipboardPort, PasteSink } from './paste';
 
 /** Clipboard calls that take longer than this are treated as failed: another app has it locked. */
@@ -41,7 +41,7 @@ const electronClipboard: ClipboardPort = {
     if (!snap.length) return clipboard.clear();
     await within(clipboard.write(snap.map((r) => new ClipboardItem(r as never))));
   },
-  writeText: (text) => within(clipboard.writeText(text)),
+  writeText: (text, transient) => within(writeClipboardText(text, { history: !transient })),
   readText: () => within(clipboard.readText()),
 };
 

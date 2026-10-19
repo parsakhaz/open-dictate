@@ -126,6 +126,8 @@ Settings, history and the log live in `%APPDATA%\dictate\` (`settings.json`, `hi
   3. Write the text and send Ctrl+V with `SendInput`.
   4. After 350 ms, restore the clipboard, unless something else changed it in the meantime.
 
+  The text dictate puts on the clipboard is never uploaded to Windows' cloud clipboard. Text that is only there for the paste is also kept out of Win+V clipboard history and clipboard managers (the `CanIncludeInClipboardHistory`, `CanUploadToCloudClipboard` and `ExcludeClipboardContentFromMonitorProcessing` formats). Text left on the clipboard for you (clipboard-only output, "both", Copy last dictation, or when there was nothing to paste into) still shows in Win+V history.
+
   If the clipboard cannot be read (so it could not be put back) or written, dictate never overwrites it: the text is typed as Unicode key events instead. If the focused control shows no caret, the paste may have landed nowhere, so the text stays on the clipboard rather than being restored over. That rule applies only where a caret means something: Chromium and Electron windows, Firefox and terminals never show one (desktop QA found an Edge textarea and a page body look the same), so there the paste is trusted and the clipboard restored.
 - **Robustness:**
   - single instance

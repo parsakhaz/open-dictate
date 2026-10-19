@@ -221,3 +221,74 @@ export function killWithUs(pid: number): boolean {
   CloseHandle(h);
   return ok;
 }
+
+// ---------- clipboard text that stays on this PC ----------
+
+const OpenClipboard = user32.func('__stdcall', 'OpenClipboard', 'bool', ['intptr']);
+const CloseClipboard = user32.func('__stdcall', 'CloseClipboard', 'bool', []);
+const EmptyClipboard = user32.func('__stdcall', 'EmptyClipboard', 'bool', []);
+const SetClipboardData = user32.func('__stdcall', 'SetClipboardData', 'intptr', ['uint32', 'intptr']);
+const RegisterClipboardFormatW = user32.func('__stdcall', 'RegisterClipboardFormatW', 'uint32', ['str16']);
+const CreateWindowExW = user32.func('__stdcall', 'CreateWindowExW', 'intptr', ['uint32', 'str16', 'str16', 'uint32', 'int', 'int', 'int', 'int', 'intptr', 'intptr', 'intptr', 'intptr']);
+const GlobalAlloc = kernel32.func('__stdcall', 'GlobalAlloc', 'intptr', ['uint32', 'uintptr']);
+const GlobalLock = kernel32.func('__stdcall', 'GlobalLock', 'intptr', ['intptr']);
+const GlobalUnlock = kernel32.func('__stdcall', 'GlobalUnlock', 'bool', ['intptr']);
+const GlobalFree = kernel32.func('__stdcall', 'GlobalFree', 'intptr', ['intptr']);
+const RtlMoveMemory = kernel32.func('__stdcall', 'RtlMoveMemory', 'void', ['intptr', 'void *', 'uintptr']);
+
+const CF_UNICODETEXT = 13;
+const GMEM_MOVEABLE = 0x2;
+const HWND_MESSAGE = -3;
+
+let clipOwner = 0;
+const formats = new Map<string, number>();
+function format(name: string): number {
+  const id = formats.get(name) ?? (RegisterClipboardFormatW(name) as number);
+  formats.set(name, id);
+  return id;
+}
+
+/** Hands `data` to the clipboard as a new global block; the clipboard owns it once this succeeds. */
+function setData(fmt: number, data: Buffer): void {
+  const h = Number(GlobalAlloc(GMEM_MOVEABLE, data.length));
+  if (!h) throw new Error(`GlobalAlloc failed (${GetLastError()})`);
+  const p = Number(GlobalLock(h));
+  if (!p) {
+    GlobalFree(h);
+    throw new Error(`GlobalLock failed (${GetLastError()})`);
+  }
+  RtlMoveMemory(p, data, data.length);
+  GlobalUnlock(h);
+  if (!Number(SetClipboardData(fmt, h))) {
+    const err = GetLastError();
+    GlobalFree(h);
+    throw new Error(`SetClipboardData failed (${err})`);
+  }
+}
+
+/**
+ * Puts `text` on the clipboard with Windows' privacy formats: never uploaded to the cloud clipboard and, unless
+ * `history` is true, kept out of Win+V history and clipboard monitors. Electron's clipboard cannot set these, so
+ * it is written here. Retries for about 200 ms while another app has the clipboard open.
+ */
+export async function writeClipboardText(text: string, opts: { history: boolean }): Promise<void> {
+  // A message-only window owns the clipboard: with no owner, SetClipboardData fails after EmptyClipboard.
+  if (!clipOwner) clipOwner = Number(CreateWindowExW(0, 'STATIC', 'dictate-clipboard', 0, 0, 0, 0, 0, HWND_MESSAGE, 0, 0, 0));
+  if (!clipOwner) throw new Error(`cannot create the clipboard window (${GetLastError()})`);
+  for (let i = 0; !OpenClipboard(clipOwner); i++) {
+    if (i >= 10) throw new Error('clipboard busy');
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  try {
+    if (!EmptyClipboard()) throw new Error(`EmptyClipboard failed (${GetLastError()})`);
+    setData(CF_UNICODETEXT, Buffer.from(`${text}\0`, 'utf16le'));
+    const no = Buffer.alloc(4); // a DWORD 0: "no"
+    setData(format('CanUploadToCloudClipboard'), no);
+    if (!opts.history) {
+      setData(format('CanIncludeInClipboardHistory'), no);
+      setData(format('ExcludeClipboardContentFromMonitorProcessing'), no);
+    }
+  } finally {
+    CloseClipboard();
+  }
+}

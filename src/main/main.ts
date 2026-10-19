@@ -2,7 +2,7 @@
 // locally, cleaned by local LLMs and typed into the focused app.
 import fs from 'node:fs';
 import path from 'node:path';
-import { app, clipboard, ipcMain, Menu, MessageChannelMain, powerMonitor, screen, shell, Tray, type UtilityProcess, utilityProcess } from 'electron';
+import { app, ipcMain, Menu, MessageChannelMain, powerMonitor, screen, shell, Tray, type UtilityProcess, utilityProcess } from 'electron';
 import { dbfs, defaultGainDb } from '../core/audio';
 import { CaptureController, type CaptureEvents } from '../core/capture';
 import { runChain } from '../core/chain';
@@ -17,7 +17,7 @@ import { parseVocabularyFile } from '../core/vocabulary';
 import { WarmMic } from '../core/warm';
 import type { SttToMain } from '../engine/stt-worker';
 import type { FromHook } from '../native/keyhook-worker';
-import { batterySaverOn, caretRect, foregroundWindow, isWindow, killWithUs, setForeground } from '../native/win32';
+import { batterySaverOn, caretRect, foregroundWindow, isWindow, killWithUs, setForeground, writeClipboardText } from '../native/win32';
 import { type CapturePath, CaptureRouter } from './capture';
 import { Cleanup } from './cleanup';
 import { type TrayState, trayIcon } from './icons';
@@ -712,7 +712,7 @@ function rebuildTrayMenu(): void {
     Menu.buildFromTemplate([
       { label: `Hold ${bindingLabel(settings.hotkey)} to dictate · double-tap to toggle`, enabled: false },
       { type: 'separator' },
-      { label: 'Copy last dictation', enabled: !!last, click: () => last && void clipboard.writeText(last.text).catch(() => undefined) },
+      { label: 'Copy last dictation', enabled: !!last, click: () => last && void writeClipboardText(last.text, { history: true }).catch(() => undefined) },
       { label: `History…   ${bindingLabel(settings.picker)}`, enabled: !!last, click: () => void picker.open() },
       { type: 'separator' },
       { label: 'Microphone', submenu: micItems },
