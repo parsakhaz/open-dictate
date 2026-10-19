@@ -2,7 +2,7 @@
 // locally, cleaned by local LLMs and typed into the focused app.
 import fs from 'node:fs';
 import path from 'node:path';
-import { app, ipcMain, Menu, MessageChannelMain, powerMonitor, screen, shell, Tray, type UtilityProcess, utilityProcess } from 'electron';
+import { app, globalShortcut, ipcMain, Menu, MessageChannelMain, powerMonitor, screen, session, shell, systemPreferences, Tray, type UtilityProcess, utilityProcess } from 'electron';
 import { dbfs, defaultGainDb } from '../core/audio';
 import { CaptureController, type CaptureEvents } from '../core/capture';
 import { runChain } from '../core/chain';
@@ -11,15 +11,19 @@ import { type Bindings, bindingFromKeys, bindingLabel, type HotkeyAction, Hotkey
 import { DEFAULT_SEGMENTER, LiveCleanup, Segmenter } from '../core/live';
 import { type MicDevice, type MicEvent, MicSelector, micKey, micName } from '../core/mics';
 import { finishHint } from '../core/pillhint';
-import { applyEnv, defaultSettings, parseSettings, resolveModelsDir, STT_MODEL } from '../core/settings';
+import { applyEnv, parseSettings, resolveModelsDir, STT_MODEL } from '../core/settings';
 import type { Binding, Settings } from '../core/types';
 import { parseVocabularyFile } from '../core/vocabulary';
 import { WarmMic } from '../core/warm';
 import type { SttToMain } from '../engine/stt-worker';
 import type { FromHook } from '../native/keyhook-worker';
-import { batterySaverOn, caretRect, foregroundWindow, isWindow, killWithUs, setForeground, writeClipboardText } from '../native/win32';
+import { accessibilityGranted, batterySaverOn, caretRect, foregroundWindow, isWindow, killWithUs, platformCapabilities, requestAccessibility, setForeground, writeClipboardText } from '../native/platform';
 import { type CapturePath, CaptureRouter } from './capture';
 import { Cleanup } from './cleanup';
+import { migratePlatformSettings, runtimeDefaults } from './config';
+import { applyAutostart } from './startup';
+import { SetupManager, speechInstalled } from './setup';
+import { runSmoke } from './smoke';
 import { type TrayState, trayIcon } from './icons';
 import { KeyHook } from './keyhook';
 import { fileLogger } from './log';
@@ -35,13 +39,22 @@ import { createPicker, createPill, createSettings, placePicker, showPill } from 
 
 if (process.env.DICTATE_DATA_DIR) app.setPath('userData', process.env.DICTATE_DATA_DIR);
 app.setName('dictate');
-app.setAppUserModelId('dictate');
+if (process.platform === 'win32') app.setAppUserModelId('org.dictate.Dictate');
+if (process.platform === 'linux') app.setDesktopName('org.dictate.Dictate');
 
-if (!app.requestSingleInstanceLock()) {
+// The isolated container used for local QA forbids AF_UNIX sockets. Native CI keeps the real lock enabled.
+const skipInstanceLock = !!process.env.DICTATE_SMOKE_TEST && process.env.DICTATE_SMOKE_SKIP_INSTANCE_LOCK === '1';
+if (!skipInstanceLock && !app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => openSettings());
-  void app.whenReady().then(main);
+  void app.whenReady().then(async () => {
+    await main();
+    if (process.env.DICTATE_SMOKE_TEST) await runSmoke(process.env.DICTATE_SMOKE_TEST);
+  }).catch((err) => {
+    log('error', `start-up failed: ${(err as Error).stack}`);
+    app.exit(1);
+  });
 }
 
 const userData = () => app.getPath('userData');
@@ -79,6 +92,10 @@ let mainSttPort: Electron.MessagePortMain | undefined;
 let keyDownAt = 0;
 /** The open native mic is a Bluetooth headset: holding it open keeps the headset in its call profile. */
 let micBluetooth = false;
+const setup = new SetupManager();
+let shortcutRegistered = false;
+let startupError = '';
+const pasteKeys = process.platform === 'darwin' ? 'Cmd+V' : 'Ctrl+V';
 
 // ---------- dictation session ----------
 
@@ -317,7 +334,7 @@ async function stopRecording(): Promise<void> {
   const d = result.delivery;
   if (d?.pasted && d.confirmed === false) pillSend('dictate:pill', { kind: 'copied', message: 'Pasted — also on the clipboard' });
   else if (d?.pasted) pillSend('dictate:pill', { kind: 'done', message: `${settings.output === 'both' ? 'Pasted and copied' : 'Pasted'}${d.entered ? ' · Enter' : ''}` });
-  else if (d?.copied) pillSend('dictate:pill', { kind: 'copied', message: settings.output === 'clipboard' ? 'Copied' : 'Copied — press Ctrl+V' });
+  else if (d?.copied) pillSend('dictate:pill', { kind: 'copied', message: settings.output === 'clipboard' ? 'Copied' : `Copied — press ${pasteKeys}` });
   else pillSend('dictate:pill', { kind: 'error', message: `Could not paste — it’s in History (${bindingLabel(settings.picker)})` });
   pushState();
   rebuildTrayMenu();
@@ -329,9 +346,10 @@ async function stopRecording(): Promise<void> {
 function startStt(): void {
   sttReady = false;
   sttError = '';
-  const dir = path.join(resolveModelsDir(settings.modelsDir, fs.existsSync), STT_MODEL);
-  if (!fs.existsSync(dir)) {
-    sttError = `speech model not found at ${dir}`;
+  const models = resolveModelsDir(settings.modelsDir, fs.existsSync);
+  const dir = path.join(models, STT_MODEL);
+  if (!speechInstalled(models)) {
+    sttError = `speech model missing or incomplete at ${dir}. Use Download speech model in Settings to install or repair it.`;
     log('error', sttError);
     setTray('error');
     return;
@@ -479,8 +497,8 @@ const browserCapture: CapturePath = {
 
 function startCapture(): void {
   router = new CaptureRouter(() => (nativeOk && nativeCapture ? nativePath : null), browserCapture, log);
-  if (process.env.DICTATE_CAPTURE === 'browser') {
-    log('warn', 'native capture off (DICTATE_CAPTURE=browser)');
+  if (process.platform !== 'win32' || process.env.DICTATE_CAPTURE === 'browser') {
+    log('info', `using browser audio capture (${process.platform})`);
     return;
   }
   const nm = new NativeMic(
@@ -631,6 +649,7 @@ function makePickerWindow(): PickerWindow {
   const w = createPicker();
   pickerWin = w;
   const gone: (() => void)[] = [];
+  if (!platformCapabilities().canSwallowKeys) w.on('blur', () => closePicker());
   const fireGone = () => {
     if (pickerWin === w) pickerWin = undefined;
     for (const cb of gone.splice(0)) cb();
@@ -642,7 +661,8 @@ function makePickerWindow(): PickerWindow {
       if (!w.isDestroyed()) w.webContents.send(ch, ...args);
     },
     showInactive: () => {
-      w.showInactive();
+      if (platformCapabilities().canSwallowKeys) w.showInactive();
+      else { w.show(); w.focus(); }
       w.setAlwaysOnTop(true, 'pop-up-menu');
     },
     hide: () => {
@@ -679,7 +699,7 @@ async function choose(req: PickRequest): Promise<void> {
   const target = picker.target;
   if (!req.copyOnly && isWindow(target) && foregroundWindow() !== target) setForeground(target);
   const d = await pickFromHistory(history, req, sink);
-  if (d && !req.copyOnly && !d.pasted) showToast(d.copied ? 'Copied — press Ctrl+V' : 'Could not paste or copy', false, 3500);
+  if (d && !req.copyOnly && !d.pasted) showToast(d.copied ? `Copied — press ${pasteKeys}` : 'Could not paste or copy', false, 3500);
 }
 
 // ---------- keyboard ----------
@@ -726,6 +746,7 @@ function onHook(e: FromHook): void {
     return;
   }
   if (picker.isOpen) {
+    if (!platformCapabilities().canSwallowKeys) return;
     // Alt and Win combos (Alt+Tab, Win+D) are the person leaving: let them through and close.
     if (e.down && [0xa4, 0xa5, 0x5b, 0x5c].includes(e.vk)) closePicker();
     else if (e.down && !isModifier(e.vk)) picker.send('dictate:picker-key', { vk: e.vk, shift: e.shift });
@@ -763,6 +784,7 @@ function rebuildTrayMenu(): void {
     Menu.buildFromTemplate([
       { label: `Hold ${hotkeyLabel()} to dictate · double-tap to toggle`, enabled: false },
       { type: 'separator' },
+      { label: rec ? 'Finish dictation' : 'Start dictation', enabled: sttReady, click: () => toggleFromApp() },
       { label: 'Copy last dictation', enabled: !!last, click: () => last && void writeClipboardText(last.text, { history: true }).catch(() => undefined) },
       { label: `History…   ${bindingLabel(settings.picker)}`, enabled: !!last, click: () => void picker.open() },
       { type: 'separator' },
@@ -772,6 +794,7 @@ function rebuildTrayMenu(): void {
       { label: 'Sounds', type: 'checkbox', checked: settings.sounds, click: (i) => updateSettings({ sounds: i.checked }) },
       { type: 'separator' },
       { label: 'Settings…', click: () => openSettings() },
+      { label: 'Download speech model…', click: () => openSettings() },
       { label: 'Clear history', enabled: !!last, click: () => clearHistory() },
       { label: 'Open log', click: () => void shell.openPath(path.join(userData(), 'logs', 'dictate.log')) },
       { type: 'separator' },
@@ -830,6 +853,14 @@ function state() {
     history: { count: history.list().length, ...stats() },
     logFile: path.join(userData(), 'logs', 'dictate.log'),
     version: app.getVersion(),
+    platform: platformCapabilities(),
+    microphonePermission: process.platform === 'darwin' ? systemPreferences.getMediaAccessStatus('microphone') : 'system',
+    setup: setup.state,
+    speechInstalled: speechInstalled(settings.modelsDir),
+    shortcutRegistered,
+    startupError,
+    recording: !!rec,
+    automation: !!process.env.DICTATE_SMOKE_TEST,
   };
 }
 
@@ -839,15 +870,18 @@ function pushState(): void {
 
 function updateSettings(patch: Partial<Settings>): void {
   const before = settings;
+  if (patch.startWithWindows !== undefined && patch.startAtLogin === undefined) patch = { ...patch, startAtLogin: patch.startWithWindows };
+  if (patch.startAtLogin !== undefined) patch = { ...patch, startWithWindows: patch.startAtLogin };
   // From the settings page: the person's own choice from now on.
   if (patch.liveCleanup !== undefined) patch = { ...patch, liveCleanupSet: true };
-  settings = parseSettings({ ...settings, ...patch }, defaultSettings(settings.vocabulary));
+  settings = parseSettings({ ...settings, ...patch }, runtimeDefaults(settings.vocabulary, { platform: process.platform, userData: userData() }));
   saveSettings.save();
   if (patch.hotkeys !== undefined || patch.toggle !== undefined || patch.picker !== undefined || patch.tapMs !== undefined || patch.doubleTapMs !== undefined) applyBindings();
   if (patch.historyLimit !== undefined) history.setLimit(settings.historyLimit);
   if (patch.micWarm !== undefined) warm?.settingChanged();
   if (patch.pillText !== undefined) pillConfig();
-  if (patch.startWithWindows !== undefined) applyLoginItem();
+  if (patch.startAtLogin !== undefined) applyLoginItem();
+  if (patch.portableShortcut !== undefined) applyPortableShortcut();
   if (['cleanup', 'llamaServer', 'modelsDir', 'vocabulary', 'batteryEmberonOnly', 'batteryUnloadMinutes'].some((k) => k in patch)) cleanup.update(settings);
   if ((patch.modelsDir && patch.modelsDir !== before.modelsDir) || (patch.sttThreads && patch.sttThreads !== before.sttThreads)) {
     const old = stt;
@@ -861,13 +895,55 @@ function updateSettings(patch: Partial<Settings>): void {
 }
 
 function applyLoginItem(): void {
-  if (!app.isPackaged) {
-    app.setLoginItemSettings({ openAtLogin: settings.startWithWindows, path: process.execPath, args: [appRoot()] });
-  } else app.setLoginItemSettings({ openAtLogin: settings.startWithWindows });
+  try {
+    applyAutostart(settings.startAtLogin, { platform: process.platform, appRoot: appRoot(), executable: process.execPath, packaged: app.isPackaged, appImage: process.env.APPIMAGE, configHome: process.env.XDG_CONFIG_HOME, setLoginItem: (options) => app.setLoginItemSettings(options) });
+    startupError = '';
+  } catch (err) {
+    startupError = (err as Error).message;
+    log('error', `start at login: ${startupError}`);
+  }
+}
+
+function toggleFromApp(): void {
+  machine.toggle();
+  pushState();
+  rebuildTrayMenu();
+}
+
+/** Wayland's portal can offer a toggle even though raw key-up events and synthetic paste are forbidden. */
+function applyPortableShortcut(): void {
+  globalShortcut.unregisterAll();
+  shortcutRegistered = false;
+  if (platformCapabilities().displayServer !== 'wayland' || !settings.portableShortcut) return;
+  try { shortcutRegistered = globalShortcut.register(settings.portableShortcut, toggleFromApp); }
+  catch (err) { log('warn', `desktop shortcut: ${(err as Error).message}`); }
 }
 
 function registerIpc(): void {
   ipcMain.handle('dictate:get-state', () => state());
+  ipcMain.handle('dictate:toggle', () => { toggleFromApp(); return state(); });
+  ipcMain.handle('dictate:open-history', () => picker.open());
+  ipcMain.handle('dictate:enable-shortcut', () => { applyPortableShortcut(); return state(); });
+  ipcMain.handle('dictate:permissions', async () => {
+    if (process.platform === 'darwin') {
+      requestAccessibility();
+      await systemPreferences.askForMediaAccess('microphone');
+      if (accessibilityGranted()) hook.start();
+    }
+    return state();
+  });
+  ipcMain.handle('dictate:setup-models', async (_e, kind: 'speech' | 'cleanup') => {
+    if (kind !== 'speech' && kind !== 'cleanup') throw new Error('Unknown model download');
+    if (rec || finishing.size) throw new Error('Finish dictating before changing models');
+    cleanup.stopAll();
+    try {
+      await setup.install(kind, { modelsDir: settings.modelsDir, binDir: path.join(userData(), 'bin'), platform: process.platform, arch: process.arch });
+    } catch (err) { cleanup.sync(); throw err; }
+    if (kind === 'speech') { const old = stt; stt = undefined; old?.kill(); startStt(); cleanup.sync(); }
+    else updateSettings({ llamaServer: path.join(userData(), 'bin', process.platform === 'win32' ? 'llama-server.exe' : 'llama-server'), cleanup: 'gemma-emberon' });
+    return state();
+  });
+  ipcMain.handle('dictate:cancel-setup', () => setup.cancel());
   ipcMain.handle('dictate:set-settings', (_e, patch: Partial<Settings>) => {
     updateSettings(patch);
     return state();
@@ -895,8 +971,8 @@ function registerIpc(): void {
     return state();
   });
   ipcMain.handle('dictate:open-log', () => shell.openPath(path.join(userData(), 'logs', 'dictate.log')));
-  ipcMain.handle('dictate:finish-onboarding', (_e, startWithWindows: boolean) => {
-    updateSettings({ onboarded: true, startWithWindows });
+  ipcMain.handle('dictate:finish-onboarding', (_e, startAtLogin: boolean) => {
+    updateSettings({ onboarded: true, startAtLogin });
     return state();
   });
 
@@ -952,13 +1028,21 @@ function registerIpc(): void {
 
 function loadSettings(): Settings {
   const vocab = parseVocabularyFile(fs.readFileSync(path.join(appRoot(), 'defaults', 'vocabulary.json'), 'utf8')).terms;
-  const s = parseSettings(loadJson(path.join(userData(), 'settings.json'), log), defaultSettings(vocab));
+  const defaults = runtimeDefaults(vocab, { platform: process.platform, userData: userData() });
+  const data = migratePlatformSettings(loadJson(path.join(userData(), 'settings.json'), log), defaults, fs.existsSync);
+  const s = parseSettings(data, defaults);
   return applyEnv(s, process.env);
 }
 
 async function main(): Promise<void> {
   log('info', `dictate ${app.getVersion()} starting (electron ${process.versions.electron})`);
+  if (process.platform === 'darwin') app.dock?.hide();
+  session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
+    const own = contents.getURL().startsWith('file:') && [pill?.webContents, settingsWin?.webContents].includes(contents);
+    callback(own && permission === 'media' && 'mediaTypes' in details && (details.mediaTypes?.every((t) => t === 'audio') ?? false));
+  });
   settings = loadSettings();
+  setup.onChange = () => pushState();
   saveSettings = debouncedWriter(path.join(userData(), 'settings.json'), () => settings);
   if (!fs.existsSync(path.join(userData(), 'settings.json'))) writeJson(path.join(userData(), 'settings.json'), settings);
   const hist = loadJson(path.join(userData(), 'history.json'), log);
@@ -1032,6 +1116,7 @@ async function main(): Promise<void> {
     caret: caretRect,
     items: pickerItems,
     hotkey: () => hotkeyLabel(),
+    takesFocus: !platformCapabilities().canSwallowKeys,
     log,
   });
   void picker.ensure();
@@ -1040,6 +1125,7 @@ async function main(): Promise<void> {
   hook.start();
   applyBindings();
   applyLoginItem();
+  // Portal registration is user initiated in Settings; avoid permission dialogs during unattended startup.
 
   if (!settings.onboarded) openSettings();
 
@@ -1091,6 +1177,8 @@ app.on('before-quit', () => {
   quitting = true;
   saveSettings?.flush();
   saveHistory?.flush();
+  globalShortcut.unregisterAll();
+  setup.cancel();
   hook?.stop();
   nativeMic?.stop();
   cleanup?.stopAll();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ALT_MODELS_DIR, applyEnv, DEFAULT_MODELS_DIR, defaultSettings, parseSettings, resolveModelsDir } from '../src/core/settings';
+import { ALT_MODELS_DIR, applyEnv, DEFAULT_MODELS_DIR, defaultSettings, LEGACY_MODELS_DIR, parseSettings, resolveModelsDir } from '../src/core/settings';
 
 const d = defaultSettings([{ term: 'Pane' }]);
 
@@ -103,7 +103,8 @@ describe('paths', () => {
   });
 
   it('falls back to the voice-lab-app junction only when the default folder is missing', () => {
-    expect(resolveModelsDir(DEFAULT_MODELS_DIR, (p) => p === ALT_MODELS_DIR)).toBe(ALT_MODELS_DIR);
+    expect(resolveModelsDir(LEGACY_MODELS_DIR, (p) => p === ALT_MODELS_DIR)).toBe(ALT_MODELS_DIR);
+    expect(resolveModelsDir(DEFAULT_MODELS_DIR, (p) => p === ALT_MODELS_DIR)).toBe(DEFAULT_MODELS_DIR);
     expect(resolveModelsDir(DEFAULT_MODELS_DIR, () => true)).toBe(DEFAULT_MODELS_DIR);
     expect(resolveModelsDir('E:\\mine', (p) => p === ALT_MODELS_DIR)).toBe('E:\\mine');
   });

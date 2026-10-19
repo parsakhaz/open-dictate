@@ -1,10 +1,11 @@
 // Bundles every process with esbuild into out/. Native modules and electron stay external.
 import { build } from 'esbuild';
-import { cpSync, mkdirSync } from 'node:fs';
+import { cpSync, mkdirSync, rmSync } from 'node:fs';
 
 const common = { bundle: true, sourcemap: true, logLevel: 'warning', target: 'node24' };
-const node = { ...common, platform: 'node', format: 'cjs', external: ['electron', 'sherpa-onnx-node', 'koffi'] };
+const node = { ...common, platform: 'node', format: 'cjs', external: ['electron', 'sherpa-onnx-node', 'koffi', 'uiohook-napi'] };
 
+rmSync('out', { recursive: true, force: true });
 mkdirSync('out/renderer', { recursive: true });
 await Promise.all([
   build({ ...node, entryPoints: { 'main/main': 'src/main/main.ts', 'main/preload': 'src/main/preload.ts' }, outdir: 'out' }),

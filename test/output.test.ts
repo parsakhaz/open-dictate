@@ -49,9 +49,10 @@ vi.mock('electron', () => {
   };
 });
 
-vi.mock('../src/native/win32', () => ({
+vi.mock('../src/native/platform', () => ({
   caretRect: () => (board.caret ? { x: 0, y: 0, width: 1, height: 10 } : null),
   windowClass: () => board.cls,
+  hasTextCaret: () => board.caret || /^(Chrome_WidgetWin_\d+|MozillaWindowClass|CASCADIA_HOSTING_WINDOW_CLASS|ConsoleWindowClass)$/.test(board.cls),
   foregroundWindow: () => 42,
   looksLikeNoTextTarget: () => false,
   windowPid: () => 1,

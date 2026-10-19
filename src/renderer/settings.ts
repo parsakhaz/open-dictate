@@ -1,4 +1,4 @@
-// The settings window, in the style of Windows 11 Settings: a welcome page on first run, then pages for
+// The settings window: a welcome page on first run, then pages for
 // hotkeys, microphone, cleanup, vocabulary, history and advanced paths.
 import { dbfs, defaultGainDb } from '../core/audio';
 import { bindingLabel, dictationKeyProblem } from '../core/hotkeys';
@@ -24,25 +24,36 @@ interface State {
   history: { count: number; samples: number; median: number | null };
   logFile: string;
   version: string;
+  platform: { platform: string; displayServer: string; globalHotkeys: boolean; canSwallowKeys: boolean; automaticPaste: boolean; accessibilityRequired: boolean; accessibilityGranted: boolean; reason?: string };
+  microphonePermission: string;
+  setup: { phase: string; kind?: string; file?: string; received?: number; total?: number; message?: string };
+  speechInstalled: boolean;
+  shortcutRegistered: boolean;
+  startupError: string;
+  recording: boolean;
+  automation: boolean;
 }
 
 type Page = 'welcome' | 'general' | 'microphone' | 'cleanup' | 'vocabulary' | 'history' | 'advanced';
 
 const PAGES: { id: Page; label: string; icon: string }[] = [
-  { id: 'welcome', label: 'Welcome', icon: '' },
-  { id: 'general', label: 'Hotkeys & output', icon: '' },
-  { id: 'microphone', label: 'Microphone', icon: '' },
-  { id: 'cleanup', label: 'Cleanup', icon: '' },
-  { id: 'vocabulary', label: 'Vocabulary', icon: '' },
-  { id: 'history', label: 'History', icon: '' },
-  { id: 'advanced', label: 'Advanced', icon: '' },
+  { id: 'welcome', label: 'Welcome', icon: '⌂' },
+  { id: 'general', label: 'Hotkeys & output', icon: '⌨' },
+  { id: 'microphone', label: 'Microphone', icon: '●' },
+  { id: 'cleanup', label: 'Cleanup', icon: '✦' },
+  { id: 'vocabulary', label: 'Vocabulary', icon: 'Aa' },
+  { id: 'history', label: 'History', icon: '◷' },
+  { id: 'advanced', label: 'Advanced', icon: '⚙' },
 ];
 
 let st: State;
 let page: Page = 'general';
+let actionError = '';
+const pasteKeys = () => st.platform.platform === 'darwin' ? 'Cmd+V' : 'Ctrl+V';
+const osName = () => ({win32:'Windows',darwin:'macOS',linux:'Linux'}[st.platform.platform] ?? st.platform.platform);
 const nav = h('nav.nav');
 const content = h('main.content');
-document.getElementById('root')!.append(h('header.titlebar', {}, h('span.appicon', {}, ''), h('span', {}, 'dictate')), h('div.shell', {}, nav, content));
+document.getElementById('root')!.append(h('header.titlebar', {}, h('span.appicon', {}, '●'), h('span', {}, 'dictate')), h('div.shell', {}, nav, content));
 
 async function refresh(next: Promise<State>): Promise<void> {
   st = await next;
@@ -238,7 +249,7 @@ function stopMeters(): void {
 
 async function startMeter(deviceId: string | null, label: string, el: HTMLElement): Promise<void> {
   const gen = meterGen;
-  if (document.hidden) return;
+  if (document.hidden || st.automation) return;
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { ...(deviceId ? { deviceId: { exact: deviceId } } : {}), echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
     // The page changed, or the window was hidden, while the mic was opening.
@@ -282,6 +293,43 @@ function meterEl(): HTMLElement {
   return h('div.meter', {}, h('div.meterfill'));
 }
 
+async function action(channel: string, ...args: unknown[]): Promise<void> {
+  actionError = '';
+  try { await dictate.invoke(channel, ...args); st = await dictate.invoke<State>('dictate:get-state'); }
+  catch (err) { actionError = (err as Error).message; }
+  render();
+}
+
+function modelCard(kind: 'speech' | 'cleanup'): HTMLElement {
+  const busy = st.setup.phase === 'downloading' || st.setup.phase === 'extracting';
+  const progress = st.setup.kind === kind ? st.setup.phase === 'downloading'
+    ? `Downloading ${st.setup.file}: ${Math.round((st.setup.received ?? 0) / 1048576)} / ${Math.round((st.setup.total ?? 0) / 1048576)} MB`
+    : st.setup.phase === 'extracting' ? 'Verifying and installing…'
+    : st.setup.phase === 'error' ? st.setup.message ?? 'Download failed. Try again.' : '' : '';
+  const title = kind === 'speech' ? 'Speech model' : 'Optional local cleanup';
+  const desc = kind === 'speech'
+    ? (st.speechInstalled ? 'Nemotron English streaming model is installed.' : 'Download 443 MB once to transcribe English locally. No account or API key needed.')
+    : 'Download Gemma, Emberon and llama.cpp (about 3.2 GB) for local text cleanup. Raw dictation works without these.';
+  const button = h('button.button', {disabled: busy || (kind === 'speech' && st.speechInstalled), onclick: () => void action('dictate:setup-models', kind)}, kind === 'speech' && st.speechInstalled ? 'Installed' : `Download ${kind === 'speech' ? 'speech model' : 'cleanup models'}`);
+  return card(title, h('span', {}, desc, progress ? h('div.warnline', {}, progress) : null), h('div.bindingrow', {}, button, busy && st.setup.kind === kind ? h('button.button.subtle', {onclick: () => void action('dictate:cancel-setup')}, 'Cancel') : null));
+}
+
+function platformCards(): Node[] {
+  const p = st.platform;
+  const rows: Node[] = [];
+  if (p.reason) rows.push(h('div.warning', {}, p.reason));
+  if (p.accessibilityRequired && (!p.accessibilityGranted || st.microphonePermission !== 'granted')) rows.push(card('Allow microphone and keyboard access', 'macOS needs Microphone, Accessibility and Input Monitoring permissions. Enable Dictate in System Settings → Privacy & Security, then restart Dictate.', h('button.button', {onclick: () => void action('dictate:permissions')}, 'Enable access')));
+  if (!p.canSwallowKeys && p.globalHotkeys) rows.push(card('Keyboard behavior', 'Hold and double-tap work globally. The desktop also receives keys; use an unused dictation key and avoid combinations already used by your apps. History opens in its own focused window.'));
+  if (p.displayServer === 'wayland') {
+    rows.push(card('Desktop toggle shortcut', st.shortcutRegistered ? 'Shortcut registered with the desktop. Use it to start and finish; output stays on the clipboard.' : 'Wayland can offer a toggle through its shortcut portal. Hold-to-talk and automatic paste are restricted by the desktop. You can always use Start / Finish here and paste copied text yourself.', h('button.button', {onclick: () => void action('dictate:enable-shortcut')}, st.shortcutRegistered ? 'Re-register' : 'Enable desktop shortcut'), select(st.settings.portableShortcut, [['CommandOrControl+Shift+Space','Ctrl+Shift+Space'],['CommandOrControl+Alt+D','Ctrl+Alt+D'],['','Disabled']], (v) => void set({portableShortcut:v}))));
+  }
+  return rows;
+}
+
+function setupCards(): Node[] {
+  return [...platformCards(), modelCard('speech'), actionError ? h('div.warning', {}, actionError) : null].filter(Boolean) as Node[];
+}
+
 // ---------- pages ----------
 
 function welcome(): Node[] {
@@ -290,7 +338,8 @@ function welcome(): Node[] {
   const mic = st.mic?.label ?? st.defaultMicLabel;
   void startMeter(st.mic?.deviceId ?? null, mic, meter);
   return [
-    h('div.hero', {}, h('div.heroicon', {}, ''), h('h1', {}, 'Welcome to dictate'), h('p.lead', {}, 'Speak anywhere you can type. Everything runs on this laptop: nothing you say leaves it.')),
+    h('div.hero', {}, h('div.heroicon', {}, '●'), h('h1', {}, 'Welcome to dictate'), h('p.lead', {}, 'Speak anywhere you can type. Everything runs on this laptop: nothing you say leaves it.')),
+    ...setupCards(),
     h(
       'div.steps',
       {},
@@ -305,7 +354,7 @@ function welcome(): Node[] {
       presets('hotkey'),
     ),
     card('Microphone', 'Say something: the bar should move into the middle.', micSelect(), meter),
-    card('Start with Windows', 'dictate waits quietly in the tray, using no CPU until you press the key.', toggle(startWin.on, (v) => (startWin.on = v))),
+    card('Start at login', 'dictate waits quietly in the tray, using no CPU until you press the key.', toggle(startWin.on, (v) => (startWin.on = v))),
     h(
       'div.actionsrow',
       {},
@@ -333,6 +382,9 @@ function general(): Node[] {
   const s = st.settings;
   return [
     h('h1', {}, 'Hotkeys & output'),
+    ...platformCards(),
+    card('Dictate now', 'Start here or from the tray. Click Finish after speaking. Clipboard mode lets you paste the result into any app.', h('button.button.accent', {disabled: st.stt !== 'ready', onclick: () => void action('dictate:toggle')}, st.recording ? 'Finish dictation' : 'Start dictation')),
+    card('History', 'Search, copy or reuse a previous dictation.', h('button.button', {onclick: () => void action('dictate:open-history')}, 'Open history')), 
     h('h2', {}, 'Hotkeys'),
     card(
       st.settings.hotkeys.length > 1 ? 'Dictation keys' : 'Dictation key',
@@ -342,7 +394,7 @@ function general(): Node[] {
     ),
     card(
       'Using a mouse button?',
-      'In Logitech Options+ or G HUB, map the button to F13 (or any of F13–F24), then add that key here. Hold the button to talk, or tap it once to start hands-free and again to finish. The app you’re typing in never sees the key.',
+      `In Logitech Options+ or G HUB, map the button to F13 (or any of F13–F24), then add that key here. Hold the button to talk, or tap it once to start hands-free and again to finish. ${st.platform.canSwallowKeys ? 'The app you type into never sees the key.' : 'Your desktop also receives this key, so use an unused key.'}`,
     ),
     card('History picker', 'Opens your dictation history at the cursor.', bindingControl('picker', true), presets('picker')),
     card('Toggle combo', 'Optional: a separate shortcut that starts and stops hands-free dictation.', bindingControl('toggle', true)),
@@ -352,8 +404,8 @@ function general(): Node[] {
       null,
       null,
       radios<OutputMode>('output', s.output, [
-        ['paste', 'Paste into the focused app', 'Your clipboard is put back afterwards.'],
-        ['clipboard', 'Copy to the clipboard only', 'Paste it yourself with Ctrl+V.'],
+        ['paste', 'Paste into the focused app', 'The clipboard is restored when the target can be confirmed. Otherwise your text stays copied.'],
+        ['clipboard', 'Copy to the clipboard only', `Paste it yourself with ${pasteKeys()}.`],
         ['both', 'Paste, and keep it on the clipboard', ''],
       ], (v) => set({ output: v })),
     ),
@@ -364,7 +416,7 @@ function general(): Node[] {
     ),
     card('Show what you say', 'The live words in the pill while you speak. Off leaves just the waveform.', toggle(s.pillText, (v) => set({ pillText: v }))),
     card('Sounds', 'A soft cue when dictation starts, stops or is cancelled.', toggle(s.sounds, (v) => set({ sounds: v }))),
-    card('Start with Windows', 'Start dictate in the tray when you sign in.', toggle(s.startWithWindows, (v) => set({ startWithWindows: v }))),
+    card('Start at login', st.startupError || `Start dictate in the tray when you sign in to ${osName()}.`, toggle(s.startAtLogin, (v) => set({ startAtLogin: v }))),
   ];
 }
 
@@ -401,7 +453,7 @@ function microphone(): Node[] {
         h(
           'div.cardrow',
           {},
-          h('label.radio', {}, h('input', { type: 'radio', name: 'mic', checked: active, onchange: () => void pickMic(d.deviceId) }), h('span.radiodot'), h('span.radiotext', {}, h('span', {}, d.name), h('span.radiodesc', {}, d.deviceId ? d.label : 'Follows the Windows default input'))),
+          h('label.radio', {}, h('input', { type: 'radio', name: 'mic', checked: active, onchange: () => void pickMic(d.deviceId) }), h('span.radiodot'), h('span.radiotext', {}, h('span', {}, d.name), h('span.radiodesc', {}, d.deviceId ? d.label : 'Follows the system default input'))),
         ),
         h('div.microw', {}, meter, h('div.gain', {}, h('span.muted', {}, 'Input gain'), slider, gainLabel)),
       ),
@@ -416,12 +468,12 @@ function microphone(): Node[] {
     ...rows,
     card('Preferred order', 'Picking a mic puts it at the top.', null, order),
     h('p.muted.small', {}, 'Input gain boosts quiet mics; loud peaks are softened instead of clipping. The built-in Microphone Array starts at +20 dB because it is very quiet.'),
-    card(
+    st.platform.platform === 'win32' ? card(
       'Keep the mic ready after a dictation',
       h(
         'span',
         {},
-        'A follow-up dictation then starts with no delay, and Windows shows the mic as in use for that time. A Bluetooth headset stays in call mode while its mic is open, which lowers music and call quality: leave this Off if you use one.',
+        'A follow-up dictation then starts with no delay, and the system shows the mic as in use for that time. A Bluetooth headset stays in call mode while its mic is open, which lowers music and call quality: leave this Off if you use one.',
         st.settings.micWarm !== 'off' && st.micBluetooth ? h('div.warnline', {}, 'Your mic is a Bluetooth headset: it stays in call mode while the mic is kept ready.') : null,
       ),
       select<Settings['micWarm']>(st.settings.micWarm, [
@@ -429,7 +481,7 @@ function microphone(): Node[] {
         ['30s', 'For 30 seconds'],
         ['always', 'Always, while plugged in'],
       ], (v) => void set({ micWarm: v })),
-    ),
+    ) : card('Microphone lifetime', 'The microphone opens for each recording and closes afterwards. The prepared audio worklet is reused without holding the microphone open.'),
   ];
 }
 
@@ -438,13 +490,14 @@ function cleanupPage(): Node[] {
   const status = (name: string, state: string) => h('span.status', { 'data-state': state }, h('span.dot'), `${name}: ${state === 'ready' ? 'ready' : state === 'starting' ? 'loading…' : state === 'crashed' ? 'restarting…' : 'not running'}`);
   return [
     h('h1', {}, 'Cleanup'),
+    modelCard('cleanup'),
     h('p.lead', {}, 'After transcription, small local language models fix punctuation, fillers and the names in your vocabulary. If a step fails or rewrites too much, its input is kept, so you never lose words.'),
     card(
       'Cleanup',
       h('span.statusrow', {}, status('Gemma 4 E2B', st.servers.gemma), status('Emberon-2', st.servers.emberon)),
       null,
       radios<CleanupChain>('chain', s.cleanup, [
-        ['gemma-emberon', 'Gemma, then Emberon', 'Best: names from your vocabulary, then a final polish. About 0.3 s.'],
+        ['gemma-emberon', 'Gemma, then Emberon', 'Names from your vocabulary, then a final polish. Speed depends on your computer.'],
         ['gemma', 'Gemma only', 'Vocabulary-aware; slightly less polish.'],
         ['emberon', 'Emberon only', 'Fastest; may misspell names.'],
         ['off', 'Off', 'Type exactly what the recognizer heard.'],
@@ -507,7 +560,7 @@ function vocabulary(): Node[] {
                   save();
                   draw();
                 },
-              }, ''),
+              }, '×'),
           ),
         ),
     );
@@ -548,11 +601,12 @@ function advanced(): Node[] {
     card(label, desc, h('input.textbox.num', { type: 'number', min: String(min), max: String(max), step: String(step), value: String(s[key]), onchange: (e: Event) => set({ [key]: Number((e.target as HTMLInputElement).value) } as Partial<Settings>) }));
   return [
     h('h1', {}, 'Advanced'),
+    ...setupCards(),
     h('h2', {}, 'Models'),
     path('modelsDir', 'Models folder', 'Holds the Nemotron speech model and the Gemma and Emberon GGUFs. DICTATE_MODELS_DIR overrides it.'),
-    path('llamaServer', 'llama-server.exe', 'llama.cpp b11700 Vulkan. DICTATE_LLAMA_SERVER overrides it.'),
+    path('llamaServer', 'llama-server', 'llama.cpp b11700 CPU (Windows/Linux) or Metal (macOS). DICTATE_LLAMA_SERVER overrides it.'),
     card('Speech model', st.stt === 'ready' ? 'Nemotron Speech Streaming 0.6B, 1120 ms chunks: loaded.' : st.stt === 'error' ? `Failed: ${st.sttError}` : 'Loading…'),
-    num('sttThreads', 'Recognizer threads', 'CPU threads for speech recognition. 4 is the measured sweet spot.', 1, 16, 1),
+    num('sttThreads', 'Recognizer threads', 'CPU threads for speech recognition. Reduce this if other work becomes less responsive.', 1, 16, 1),
     h('h2', {}, 'Timing'),
     num('tapMs', 'Tap threshold (ms)', 'A press shorter than this is a tap; longer is hold-to-talk.', 100, 800, 10),
     num('doubleTapMs', 'Double-tap window (ms)', 'How quickly the second tap must follow the first.', 150, 1000, 10),
@@ -586,7 +640,7 @@ function render(): void {
   );
   const build = { welcome, general, microphone, cleanup: cleanupPage, vocabulary, history: historyPage, advanced }[page];
   const scroll = content.scrollTop;
-  content.replaceChildren(h('div.page', {}, ...build()));
+  content.replaceChildren(h('div.page', {}, actionError ? h('div.warning', {}, actionError) : null, ...build()));
   content.scrollTop = scroll;
 }
 

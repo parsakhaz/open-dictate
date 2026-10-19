@@ -2,7 +2,11 @@
 import { MessageChannel, Worker } from 'node:worker_threads';
 import { WM_APP_WAKE, WM_QUIT } from '../native/constants';
 import type { FromHook, ToHook } from '../native/keyhook-worker';
-import { postThreadMessage } from '../native/win32';
+import { platformCapabilities, reportHookUnavailable } from '../native/platform';
+import { PortableKeyHook, type PortableHookSource } from '../native/portable-keyhook';
+
+const postThreadMessage = (tid: number, message: number): boolean =>
+  (require('../native/win32') as typeof import('../native/win32')).postThreadMessage(tid, message);
 
 export class KeyHook {
   private worker?: Worker;
@@ -11,6 +15,8 @@ export class KeyHook {
   private stopping = false;
   private last: ToHook[] = [];
   private restarts = 0;
+  private portable?: PortableKeyHook;
+  private restartTimer?: ReturnType<typeof setTimeout>;
 
   constructor(
     private readonly script: string,
@@ -19,7 +25,32 @@ export class KeyHook {
   ) {}
 
   start(): void {
+    if (this.worker || this.portable) return;
     this.stopping = false;
+    if (process.platform !== 'win32') {
+      const capabilities = platformCapabilities();
+      if (!capabilities.globalHotkeys) {
+        const message = capabilities.reason ?? 'Global keyboard input is unavailable. Use Dictate’s Start/Stop controls.';
+        this.log('warn', message);
+        this.onEvent({ type: 'error', message });
+        return;
+      }
+      try {
+        const { uIOhook } = require('uiohook-napi') as { uIOhook: PortableHookSource };
+        this.portable = new PortableKeyHook(uIOhook, this.onEvent);
+        this.portable.start();
+        reportHookUnavailable();
+        for (const message of this.last) this.portable.send(message);
+        this.log('info', 'global keyboard input ready (keys are observed, not swallowed)');
+      } catch (err) {
+        this.portable = undefined;
+        const message = `Global keyboard input unavailable: ${(err as Error).message}`;
+        reportHookUnavailable(message);
+        this.log('warn', message);
+        this.onEvent({ type: 'error', message });
+      }
+      return;
+    }
     const { port1, port2 } = new MessageChannel();
     this.port = port1;
     const w = new Worker(this.script, { workerData: { port: port2 }, transferList: [port2] });
@@ -38,17 +69,20 @@ export class KeyHook {
     w.on('exit', (code) => {
       if (this.worker !== w) return;
       this.worker = undefined;
+      this.port?.close();
+      this.port = undefined;
       this.tid = 0;
       if (this.stopping) return;
       const delay = Math.min(10_000, 500 * 2 ** this.restarts++);
       this.log('warn', `keyboard hook exited (${code}); restarting in ${delay} ms`);
-      setTimeout(() => !this.stopping && this.start(), delay);
+      this.restartTimer = setTimeout(() => !this.stopping && this.start(), delay);
     });
   }
 
   /** Sends config to the hook thread and wakes it to read it. Config is remembered across restarts. */
   send(m: ToHook, remember = true): void {
     if (remember) this.last = [...this.last.filter((c) => c.type !== m.type), m];
+    if (this.portable) { this.portable.send(m); return; }
     if (!this.port || !this.tid) return;
     this.port.postMessage(m);
     postThreadMessage(this.tid, WM_APP_WAKE);
@@ -56,9 +90,14 @@ export class KeyHook {
 
   stop(): void {
     this.stopping = true;
+    clearTimeout(this.restartTimer);
+    this.portable?.stop();
+    this.portable = undefined;
     if (this.tid) postThreadMessage(this.tid, WM_QUIT);
     const w = this.worker;
     this.worker = undefined;
+    this.port?.close();
+    this.port = undefined;
     // The thread leaves GetMessage on WM_QUIT; terminate as a backstop.
     setTimeout(() => void w?.terminate(), 500);
   }

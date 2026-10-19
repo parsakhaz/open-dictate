@@ -4,12 +4,13 @@
 import type { SherpaModule } from './sherpaTypes';
 import { Stt } from './stt';
 
-export type MainToStt = { type: 'init'; modelDir: string; threads: number } | { type: 'attach' };
+export type MainToStt = { type: 'init'; modelDir: string; threads: number } | { type: 'attach' } | { type: 'probe' };
 
 /** On the audio port, from the capture renderer. */
 export type AudioToStt = { type: 'begin'; id: number } | { type: 'frame'; id: number; samples: Float32Array } | { type: 'end'; id: number } | { type: 'cancel'; id: number };
 
 export type SttToMain =
+  | { type: 'probed'; sherpa: boolean }
   | { type: 'ready'; loadMs: number }
   | { type: 'error'; message: string }
   | { type: 'partial'; id: number; text: string }
@@ -52,7 +53,12 @@ function onAudio(m: AudioToStt): void {
 
 parentPort.on('message', (ev) => {
   const m = ev.data;
-  if (m.type === 'init') {
+  if (m.type === 'probe') {
+    try {
+      const sherpa: SherpaModule = require('sherpa-onnx-node');
+      send({ type: 'probed', sherpa: typeof sherpa.OnlineRecognizer === 'function' });
+    } catch (err) { send({ type: 'error', message: (err as Error).message }); }
+  } else if (m.type === 'init') {
     try {
       const sherpa: SherpaModule = require('sherpa-onnx-node');
       stt = new Stt(sherpa, m.modelDir, m.threads);

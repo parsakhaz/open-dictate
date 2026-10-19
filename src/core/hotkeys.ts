@@ -188,6 +188,16 @@ export class HotkeyMachine {
     return this.state !== 'idle';
   }
 
+  /** App buttons and desktop shortcut portals have no key-up event; they share the normal toggle state. */
+  toggle(): void {
+    if (this.state !== 'idle') { this.end({ type: 'stop' }); return; }
+    this.active = -1;
+    this.tapToggleUntil = 0;
+    this.state = 'toggle';
+    this.emit({ type: 'start' });
+    this.emit({ type: 'mode', mode: 'toggle', via: 'combo' });
+  }
+
   modifiersDown(): boolean {
     return [...this.downKeys].some(isModifier);
   }

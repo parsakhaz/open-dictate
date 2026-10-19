@@ -3,7 +3,7 @@
 import { type HistoryEntry, HistoryStore, relativeTime } from '../core/history';
 import { dictate, h } from './bridge';
 
-const ICON = { copy: '', pin: '', unpin: '', del: '', search: '', mic: '' };
+const ICON = { copy: '⧉', pin: '●', unpin: '○', del: '×', search: '⌕', mic: '●' };
 
 const root = document.getElementById('root')!;
 const query = h('span.query');
@@ -20,6 +20,7 @@ let hotkey = 'the dictation key';
 let shown: HistoryEntry[] = [];
 let selected = 0;
 let q = '';
+let localKeys = false;
 let now = Date.now();
 const rawOpen = new Set<string>();
 
@@ -117,7 +118,7 @@ function mark(): void {
 
 const CHARS: Record<number, string> = { 32: ' ', 189: '-', 190: '.', 188: ',', 222: "'", 191: '/' };
 
-dictate.on('dictate:picker-key', (k: { vk: number; shift: boolean }) => {
+function onPickerKey(k: { vk: number; shift: boolean }): void {
   const cur = shown[selected];
   switch (k.vk) {
     case 0x1b:
@@ -131,26 +132,26 @@ dictate.on('dictate:picker-key', (k: { vk: number; shift: boolean }) => {
       return;
     case 0x26:
       selected = Math.max(0, selected - 1);
-      return mark();
+      return void mark();
     case 0x28:
       selected = Math.min(shown.length - 1, selected + 1);
-      return mark();
+      return void mark();
     case 0x21:
       selected = Math.max(0, selected - 4);
-      return mark();
+      return void mark();
     case 0x22:
       selected = Math.min(shown.length - 1, selected + 4);
-      return mark();
+      return void mark();
     case 0x24:
       selected = 0;
-      return mark();
+      return void mark();
     case 0x23:
       selected = shown.length - 1;
-      return mark();
+      return void mark();
     case 0x08:
       q = q.slice(0, -1);
       selected = 0;
-      return render();
+      return void render();
   }
   let ch = '';
   if ((k.vk >= 0x41 && k.vk <= 0x5a) || (k.vk >= 0x30 && k.vk <= 0x39)) ch = String.fromCharCode(k.vk).toLowerCase();
@@ -160,12 +161,23 @@ dictate.on('dictate:picker-key', (k: { vk: number; shift: boolean }) => {
     selected = 0;
     render();
   }
+}
+
+dictate.on('dictate:picker-key', onPickerKey);
+const LOCAL_KEYS: Record<string, number> = { Escape: 0x1b, Enter: 0x0d, Tab: 0x09, ArrowUp: 0x26, ArrowDown: 0x28, PageUp: 0x21, PageDown: 0x22, Home: 0x24, End: 0x23, Backspace: 0x08 };
+document.addEventListener('keydown', (e) => {
+  if (!localKeys) return;
+  if (LOCAL_KEYS[e.key]) { e.preventDefault(); onPickerKey({ vk: LOCAL_KEYS[e.key], shift: e.shiftKey }); }
+  else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && !(e.key === ' ' && !q)) {
+    e.preventDefault(); q += e.key; selected = 0; render();
+  }
 });
 
-dictate.on('dictate:picker-open', (a: { items: HistoryEntry[]; now: number; hotkey: string }) => {
+dictate.on('dictate:picker-open', (a: { items: HistoryEntry[]; now: number; hotkey: string; localKeys?: boolean }) => {
   items = a.items;
   hotkey = a.hotkey;
   now = a.now;
+  localKeys = !!a.localKeys;
   q = '';
   selected = 0;
   rawOpen.clear();

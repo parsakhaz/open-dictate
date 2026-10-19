@@ -6,10 +6,13 @@ import { parseMicPrefs } from './mics';
 import type { Binding, CleanupChain, KeySpec, OutputMode, Settings, VocabTerm } from './types';
 import { normalizeVocabulary } from './vocabulary';
 
-export const DEFAULT_MODELS_DIR = 'C:\\repos\\experiments\\worktrees\\voice-lab\\voice-lab\\models';
-/** A junction to the same files; used when the default folder is missing. */
+/** Relative defaults for non-app callers; main resolves these under Electron's userData directory. */
+export const DEFAULT_MODELS_DIR = 'models';
+export const DEFAULT_LLAMA_SERVER = 'llama-server';
+/** Old developer defaults are recognized only for backwards-compatible migration. */
+export const LEGACY_MODELS_DIR = 'C:\\repos\\experiments\\worktrees\\voice-lab\\voice-lab\\models';
 export const ALT_MODELS_DIR = 'C:\\repos\\voice-lab-app\\models';
-export const DEFAULT_LLAMA_SERVER = 'C:\\repos\\experiments\\worktrees\\voice-lab\\voice-lab\\bin\\llama-b11700-vulkan\\llama-server.exe';
+export const LEGACY_LLAMA_SERVER = 'C:\\repos\\experiments\\worktrees\\voice-lab\\voice-lab\\bin\\llama-b11700-vulkan\\llama-server.exe';
 
 export const STT_MODEL = 'sherpa-onnx-nemotron-speech-streaming-en-0.6b-1120ms-int8-2026-04-25';
 export const GEMMA_GGUF = 'gemma-4-E2B-it-Q4_K_M.gguf';
@@ -21,6 +24,7 @@ export function defaultSettings(vocabulary: VocabTerm[] = []): Settings {
     hotkeys: [{ keys: [VK.RCtrl] }],
     toggle: null,
     picker: { keys: [VK.RCtrl, VK.V] },
+    portableShortcut: 'CommandOrControl+Shift+Space',
     tapMs: DEFAULT_TIMING.tapMs,
     doubleTapMs: DEFAULT_TIMING.doubleTapMs,
     micOrder: [],
@@ -38,6 +42,7 @@ export function defaultSettings(vocabulary: VocabTerm[] = []): Settings {
     modelsDir: DEFAULT_MODELS_DIR,
     llamaServer: DEFAULT_LLAMA_SERVER,
     sttThreads: 4,
+    startAtLogin: false,
     startWithWindows: false,
     batteryUnloadMinutes: 60,
     batteryEmberonOnly: false,
@@ -98,6 +103,7 @@ export function parseSettings(data: unknown, defaults: Settings): Settings {
     hotkeys: hotkeys(d, defaults.hotkeys),
     toggle: binding(d.toggle, defaults.toggle),
     picker: binding(d.picker, defaults.picker),
+    portableShortcut: typeof d.portableShortcut === 'string' && d.portableShortcut.length < 120 ? d.portableShortcut : defaults.portableShortcut,
     tapMs: Math.round(num(d.tapMs, defaults.tapMs, 100, 800)),
     doubleTapMs: Math.round(num(d.doubleTapMs, defaults.doubleTapMs, 150, 1000)),
     micOrder,
@@ -116,7 +122,8 @@ export function parseSettings(data: unknown, defaults: Settings): Settings {
     modelsDir: str(d.modelsDir, defaults.modelsDir),
     llamaServer: str(d.llamaServer, defaults.llamaServer),
     sttThreads: Math.round(num(d.sttThreads, defaults.sttThreads, 1, 16)),
-    startWithWindows: bool(d.startWithWindows, defaults.startWithWindows),
+    startAtLogin: bool(d.startAtLogin, bool(d.startWithWindows, defaults.startAtLogin)),
+    startWithWindows: bool(d.startAtLogin, bool(d.startWithWindows, defaults.startAtLogin)),
     batteryUnloadMinutes: unloadMinutes(d, defaults),
     batteryEmberonOnly: bool(d.batteryEmberonOnly, defaults.batteryEmberonOnly),
     onboarded: bool(d.onboarded, defaults.onboarded),
@@ -133,9 +140,9 @@ export function applyEnv(s: Settings, env: Record<string, string | undefined>): 
   };
 }
 
-/** The models folder to use: the configured one if it exists, else the voice-lab-app junction. */
+/** Preserve the old Windows fallback, without probing a personal folder on a fresh install. */
 export function resolveModelsDir(configured: string, exists: (p: string) => boolean): string {
   if (exists(configured)) return configured;
-  if (configured === DEFAULT_MODELS_DIR && exists(ALT_MODELS_DIR)) return ALT_MODELS_DIR;
+  if (configured === LEGACY_MODELS_DIR && exists(ALT_MODELS_DIR)) return ALT_MODELS_DIR;
   return configured;
 }

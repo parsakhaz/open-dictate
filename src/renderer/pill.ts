@@ -29,7 +29,7 @@ export interface PillConfig {
 
 const BARS = 9;
 /** Segoe Fluent Icons: check, copy, warning, info, microphone. */
-const GLYPHS: Partial<Record<PillState['kind'], string>> = { done: '', copied: '', error: '', info: '', toast: '' };
+const GLYPHS: Partial<Record<PillState['kind'], string>> = { done: '✓', copied: '⧉', error: '⚠', info: 'ⓘ', toast: '●' };
 
 const root = document.getElementById('root')!;
 const bars = Array.from({ length: BARS }, () => h('span.bar'));

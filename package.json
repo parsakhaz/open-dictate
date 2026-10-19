@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@11.10.0",
-  "description": "Local Windows dictation: hold a hotkey, speak, and cleaned text is typed into the focused app. Nemotron streaming STT + local llama.cpp cleanup.",
+  "description": "Local dictation for Windows, macOS and Linux: hold a shortcut, speak, and insert cleaned text into the focused app.",
   "license": "AGPL-3.0-or-later",
   "main": "out/main/main.js",
   "scripts": {
@@ -11,11 +11,18 @@
     "start": "node build.mjs && electron .",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "lint": "biome lint src test"
+    "lint": "biome lint src test",
+    "test:scripts": "node --test scripts/*.test.mjs",
+    "package": "node build.mjs && electron-builder --publish never",
+    "package:dir": "node build.mjs && electron-builder --dir --publish never",
+    "smoke:package": "node scripts/smoke-package.mjs",
+    "release:check": "node scripts/release.mjs validate",
+    "release:checksums": "node scripts/release.mjs checksums"
   },
   "dependencies": {
     "koffi": "3.3.3",
-    "sherpa-onnx-node": "1.13.8"
+    "sherpa-onnx-node": "1.13.8",
+    "uiohook-napi": "1.5.5"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
@@ -23,6 +30,14 @@
     "electron": "44.7.2",
     "esbuild": "0.28.2",
     "typescript": "6.0.3",
-    "vitest": "5.0.5"
-  }
+    "vitest": "5.0.5",
+    "electron-builder": "26.17.0"
+  },
+  "author": "parsakhaz",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/parsakhaz/experiments.git",
+    "directory": "dictate"
+  },
+  "desktopName": "org.dictate.Dictate.desktop"
 }

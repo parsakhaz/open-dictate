@@ -56,6 +56,7 @@ export class Cleanup {
   }
 
   missingFiles(): string[] {
+    if (!this.needed().length) return [];
     const out: string[] = [];
     if (!fs.existsSync(this.settings.llamaServer)) out.push(this.settings.llamaServer);
     for (const m of this.needed()) {
@@ -69,7 +70,8 @@ export class Cleanup {
   sync(): void {
     const need = this.needed();
     for (const [m, s] of Object.entries(this.servers) as [CleanupModel, LlamaServer][]) {
-      if (need.includes(m)) void s.start().catch(() => undefined);
+      const gguf = path.join(this.settings.modelsDir, m === 'gemma' ? GEMMA_GGUF : EMBERON_GGUF);
+      if (need.includes(m) && fs.existsSync(this.settings.llamaServer) && fs.existsSync(gguf)) void s.start().catch(() => undefined);
       else if (s.state !== 'stopped') s.stop();
     }
     this.armIdle();

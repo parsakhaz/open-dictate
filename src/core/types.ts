@@ -50,6 +50,8 @@ export interface Settings {
   toggle: Binding | null;
   /** Opens the history picker. */
   picker: Binding | null;
+  /** Toggle accelerator offered by the desktop portal on Wayland. */
+  portableShortcut: string;
   tapMs: number;
   doubleTapMs: number;
   /** Preferred microphones, most preferred first; empty = the system default. */
@@ -75,6 +77,9 @@ export interface Settings {
   modelsDir: string;
   llamaServer: string;
   sttThreads: number;
+  /** Start when the person signs in on the current OS. */
+  startAtLogin: boolean;
+  /** Legacy field retained for settings saved by the Windows-only app. */
   startWithWindows: boolean;
   /** On battery: unload the LLMs after this many idle minutes; 0 = never. */
   batteryUnloadMinutes: number;

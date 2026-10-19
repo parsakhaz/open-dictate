@@ -54,6 +54,20 @@ const ptt = { type: 'mode', mode: 'push-to-talk', key: 0 } as const;
 const toggle = { type: 'mode', mode: 'toggle', key: 0 } as const;
 const stop = { type: 'stop' } as const;
 
+describe('app and desktop portal toggle', () => {
+  it('can start from the app and finish with the physical dictation key or Escape', () => {
+    const { m, actions, down, up } = machine();
+    m.toggle();
+    expect(actions).toEqual([start, { type: 'mode', mode: 'toggle', via: 'combo' }]);
+    down(VK.RCtrl, 1000);
+    up(VK.RCtrl, 1100);
+    expect(actions.at(-1)).toEqual(stop);
+    m.toggle();
+    down(VK.Escape, 2000);
+    expect(actions.at(-1)).toEqual({ type: 'cancel', reason: 'escape' });
+  });
+});
+
 describe('hold: push-to-talk', () => {
   it('starts capture at key down, becomes push-to-talk at 250 ms, stops on release', () => {
     const { actions, down, up, advance } = machine();

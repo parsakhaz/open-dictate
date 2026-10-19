@@ -1,228 +1,135 @@
 # dictate
 
 [![Dictate CI](https://github.com/parsakhaz/experiments/actions/workflows/dictate.yml/badge.svg)](https://github.com/parsakhaz/experiments/actions/workflows/dictate.yml)
-[![licence](https://img.shields.io/badge/licence-AGPL--3.0-blue)](LICENSE)
-![platform](https://img.shields.io/badge/platform-Windows%2011%20x64-0078D4?logo=windows&logoColor=white)
-![node](https://img.shields.io/badge/node-24-339933?logo=node.js&logoColor=white)
-![electron](https://img.shields.io/badge/electron-44.7-47848F?logo=electron&logoColor=white)
-![sherpa-onnx](https://img.shields.io/badge/sherpa--onnx-1.13.8-6f42c1)
-![llama.cpp](https://img.shields.io/badge/llama.cpp-b11700%20Vulkan-orange)
 
-**Hold Right Ctrl, speak, let go: your words are typed where the cursor is. Everything runs on this laptop.**
+Local English dictation for **Windows, macOS and Linux**. Hold a dictation key, speak, and release to transcribe. Optional local cleanup fixes punctuation and vocabulary. Audio and transcripts stay on your computer; setup downloads the models once.
 
-dictate is a tray app in the style of Superwhisper and Willow Voice. Speech is transcribed while you talk by Nemotron Speech Streaming 0.6B, cleaned by two small local LLMs (Gemma 4 E2B, then Emberon-2), and pasted into the focused app. Your clipboard is put back afterwards. Nothing you say leaves the machine.
+## Install and test
 
-## Contents
+This branch adds native build artifacts to [Dictate CI](https://github.com/parsakhaz/experiments/actions/workflows/dictate.yml). Until a `dictate-v…` release is published, open the successful run for PR #19 and download the artifact for your computer:
 
-- [Quick start](#quick-start)
-- [Using it](#using-it)
-- [Settings](#settings)
-- [How it works](#how-it-works)
-- [Speed and battery](#speed-and-battery)
-- [Troubleshooting](#troubleshooting)
-- [Development](#development)
-- [Licence](#licence)
+| Computer | Build | Install |
+| --- | --- | --- |
+| Windows 10/11 x64 | `dictate-windows-x64-…` | Run the NSIS `.exe`. Windows ARM can use x64 emulation; there is no native ARM64 Windows build. |
+| Apple Silicon Mac | `dictate-macos-arm64-…` | Open the DMG and drag Dictate to Applications, or unzip the application. |
+| Intel Mac | `dictate-macos-x64-…` | Same installation, using the Intel artifact. |
+| Linux x64 or ARM64 | `dictate-linux-<arch>-…` | Install the `.deb`, or make the AppImage executable and run it. X11 requires `xdotool`, `libXtst`, GTK3 and a desktop session. |
 
-## Quick start
+macOS test builds are unsigned unless signing credentials are configured. Open the application through Finder's **Open** action and approve it in **System Settings → Privacy & Security** when macOS asks. Microphone, Accessibility and Input Monitoring permissions are required for global dictation and paste. Restart Dictate after changing keyboard permissions. Signing/notarization is separate from native build verification.
 
-dictate reuses voice-lab's models and llama.cpp build; it downloads nothing.
+1. Open Dictate. **Welcome → Download speech model** installs the 443 MB English streaming model into your own application-data folder. Downloads check the pinned byte count and SHA-256 before installation. `tar` must be available (standard on Windows 10+, macOS and supported Linux distributions).
+2. On Mac, use **Enable access** to request microphone/keyboard permissions. Enable Dictate in the permissions settings indicated above.
+3. Select a microphone and verify that its meter moves. Press **Get started**. **Start at login** is optional and can be changed later.
+4. In another application's text field, hold **Right Ctrl** on Windows/Linux X11 or **Right Option** on Mac, speak, then release. Wait for the live meter/start sound before speaking if your microphone wakes slowly.
+5. Optional: **Cleanup → Download cleanup models** installs Gemma, Emberon and the appropriate pinned llama.cpp binary (about 3.2 GB). New installations start with raw transcription; existing Windows cleanup settings are preserved.
 
-1. Make sure these exist (voice-lab's `models/` and `bin/` folders):
-   - `C:\repos\experiments\worktrees\voice-lab\voice-lab\models\` with `sherpa-onnx-nemotron-speech-streaming-en-0.6b-1120ms-int8-2026-04-25\`, `gemma-4-E2B-it-Q4_K_M.gguf` and `Emberon-2-Q4_K_M.gguf`
-   - `C:\repos\experiments\worktrees\voice-lab\voice-lab\bin\llama-b11700-vulkan\llama-server.exe`
+Use **Start dictation / Finish dictation** in the tray or **Hotkeys & output** if your keyboard shortcut is unavailable. **Clipboard only** output works without permission to type into another application.
 
-   If the models folder is missing, dictate also looks in `C:\repos\voice-lab-app\models` (a junction to the same files). Other locations: set them in **Settings → Advanced**, or with `DICTATE_MODELS_DIR` and `DICTATE_LLAMA_SERVER`.
-2. Install and start:
+## Platform behavior
 
-   ```powershell
-   cd dictate
-   pnpm install
-   pnpm start
-   ```
+| Capability | Windows x64 | macOS x64 / ARM64 | Linux X11 x64 / ARM64 | Linux Wayland |
+| --- | --- | --- | --- | --- |
+| Streaming microphone capture | Native WASAPI, WebAudio fallback | WebAudio | WebAudio | WebAudio |
+| Hold / double-tap dictation key | Native keyboard hook | With keyboard permissions | With X11 input access | Desktop does not expose raw key-up events |
+| Start / finish from app or tray | Yes | Yes | Yes | Yes |
+| Desktop toggle shortcut | Configurable hook binding | Configurable hook binding | Configurable hook binding | **Enable desktop shortcut** requests the compositor's portal; availability depends on the desktop |
+| Automatic paste | Ctrl+V / SendInput | Cmd+V / Quartz with Accessibility | XTest through `xdotool`; terminals use Ctrl+Shift+V | Clipboard only; paste manually |
+| Consume dictation/picker keys | Yes | Listener observes keys without consuming them | Listener observes keys without consuming them | Not available |
+| History picker | Does not take focus | Focused window with local keys | Focused window with local keys | Focused window; copy from history |
+| Start at login | Native login item | Native login item | XDG autostart | XDG autostart |
 
-3. A microphone icon appears in the tray (check the overflow arrow `^` if you don't see it), and the welcome page opens on first run. Pick your mic there, check the meter moves when you speak, and press **Get started**. That also turns on **Start with Windows**, unless you switch it off.
-4. The speech model loads in about 2.5 s and the cleanup models in about 5 s. The icon is grey while loading and turns white when it is ready. Then hold Right Ctrl in any text field and speak.
+On Mac/Linux X11, choose an unused dictation key: other applications also receive the key. The Windows-only default history shortcut Right Ctrl+V is disabled on fresh Mac/Linux installs so it cannot also trigger another application's paste. Open history through the tray or **Hotkeys & output**. Custom global combinations also reach the focused app on these platforms.
 
-**To quit:** right-click the tray icon → **Quit dictate**. Closing the settings window only hides it; dictate keeps running in the tray. Quitting also stops the two llama-servers. They are tied to dictate's process, so they go away even if dictate is killed.
+Wayland's isolation is intentional: Dictate does not pretend XWayland grants access to native Wayland apps. The settings page explains copy-only output and offers an explicit portal toggle registration. If the compositor has no working global-shortcut portal, use the app/tray controls. A successful X11 CI run does not prove a particular Wayland compositor's portal.
+
+The clipboard is restored only when the target can be confirmed. On X11, or a Mac control that does not expose a text role, the text remains copied after the paste attempt so it is recoverable. A key-injection success cannot prove the target accepted text. Every transcript also goes to local history. Windows privacy formats exclude transient text from Windows cloud/history; Mac uses concealed/transient pasteboard hints. Linux clipboard managers and Mac Universal Clipboard may retain ordinary copied text according to their own settings.
 
 ## Using it
 
-| Do this | And |
+- **Hold** the dictation key for push-to-talk; **double-tap** for hands-free and tap again to finish. A lone tap or an early shortcut cancels speculative capture.
+- **Esc** cancels a recording or cleanup. On Mac/Linux the focused application can also receive Esc.
+- Add up to four dictation bindings in **Hotkeys & output**. For a programmable mouse, map a button to F13–F24, then add that key. A dedicated key's single tap toggles dictation.
+- **History** lets you search, pin, copy, paste or use the raw transcript. Arrow keys navigate, Enter pastes, Shift+Enter uses raw text, Tab expands the raw view, and Esc closes.
+- **Say “press enter” to send** is off by default. When enabled, a final “press enter” requests Enter after confirmed delivery. It does not send Enter on an unconfirmed target.
+- Closing Settings keeps Dictate in the tray/menu bar. **Quit dictate** also stops its recognizer and cleanup servers.
+
+Microphones are remembered in preference order. Unplugging one falls back to another or to system default; returning devices offer an Undo notice. A recording does not switch to a better device midway. If its mic disappears, captured audio is kept and Dictate tries the default input. Input gain is per microphone name.
+
+**Keep the mic ready** is a Windows native-capture feature; WebAudio releases its stream after each recording on Mac/Linux. Warm Bluetooth headset capture can reduce playback quality, so leave it off unless needed.
+
+## Configuration and models
+
+| OS | Default settings/history/log/models location |
 | --- | --- |
-| **Hold Right Ctrl**, speak, release | The text is typed into the focused app. |
-| **Double-tap Right Ctrl** | Hands-free: keep talking. Tap Right Ctrl again to finish. |
-| **Esc** while recording, transcribing or cleaning | Cancels; nothing is typed. |
-| **Right Ctrl + V** | Opens your dictation history at the cursor, like Win + V. |
-| A single tap of Right Ctrl, or Right Ctrl + any key | Nothing: Right Ctrl keeps working in shortcuts. (If you were already dictating for more than 1.5 s, the dictation is finished and kept instead.) |
-| End with the words **"press enter"** | With **Say "press enter" to send** on (off by default), Enter is pressed after the text, to send a chat message. |
+| Windows | `%APPDATA%\dictate\` |
+| macOS | `~/Library/Application Support/dictate/` |
+| Linux | `$XDG_CONFIG_HOME/dictate/` (normally `~/.config/dictate/`) |
 
-**Several dictation keys.** Up to four keys work side by side, for example Right Alt on the keyboard and F13 on a mouse button. Add them in **Hotkeys & output**.
+The folder contains `settings.json`, `history.json`, `logs/dictate.log`, `models/` and downloaded `bin/` tools. Upgrades keep it. Uninstalling the application does not delete your dictations or multi-gigabyte model downloads.
 
-**Mouse buttons and other dedicated keys.** Map a mouse button to F13 (or any of F13–F24) in Logitech Options+ or G HUB, then add F13 as a dictation key. F13–F24, Pause, Scroll Lock, Insert and Menu are *dedicated keys*: dictate keeps them from the app you're typing in, and one tap starts hands-free (the next tap finishes), since mouse software may only send taps. Holding still means push-to-talk. Keys you type with (letters, digits, Space, Enter, Tab, Backspace) can't be a dictation key on their own.
+**Advanced** accepts custom model and llama-server paths. `DICTATE_DATA_DIR`, `DICTATE_MODELS_DIR` and `DICTATE_LLAMA_SERVER` override paths for isolated testing. The old voice-lab developer paths are recognized only to migrate old settings; a new installation does not depend on them. The legacy `startWithWindows` preference is migrated to `startAtLogin`.
 
-**The pill.** A small pill at the bottom of the screen shows what is happening. It doesn't take focus from your app.
+Pinned setup sources and digests live in [`src/main/downloads.ts`](src/main/downloads.ts):
 
-- **Listening:** a live level meter and the words as they are recognised.
-- **Transcribing**, then **Cleaning…**
-- **Pasted**, after which it fades out.
+- [sherpa-onnx Nemotron streaming model](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models): 0.6B int8, 1120 ms chunks, CPU recognizer.
+- [Gemma 4 E2B GGUF](https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF) and its [model license](https://ai.google.dev/gemma/docs/gemma_4_license).
+- [Emberon-2](https://huggingface.co/PromethicLabs/Emberon-2) and its [model license](https://huggingface.co/PromethicLabs/Emberon-2/blob/main/LICENSE).
+- [llama.cpp b11700](https://github.com/ggml-org/llama.cpp/releases/tag/b11700): portable CPU binaries on Windows/Linux and Metal-enabled binaries on Mac, with adjacent native libraries preserved. Custom Vulkan/GPU builds remain usable through the configured path.
 
-If there is no text field to paste into (the desktop, the taskbar), the text stays on the clipboard and the pill says **Copied — press Ctrl+V**. In a classic Windows app that shows no text caret (a list, a toolbar), dictate still pastes, but leaves the text on the clipboard too: **Pasted — also on the clipboard**. Browsers, Electron apps and terminals never show a Windows caret, even in a text field, so there dictate always pastes and restores your clipboard; if nothing was focused, the words are in the history (Right Ctrl + V). If the mic hears nothing for 2 s, the pill says so. Every dictation is saved to history before it is pasted.
+Model licenses are separate from Dictate's application license. Setup contacts GitHub and Hugging Face to retrieve the pinned files; runtime transcription and cleanup use local processes.
 
-**History picker** (Right Ctrl + V):
+## Release system
 
-- Type to filter, use ↑/↓ to move, and press Enter to paste. Shift + Enter pastes the raw transcript, and Tab shows it.
-- Each card has hover buttons to copy without pasting, pin, and delete. Pinned items stay at the top.
-- The picker doesn't take focus. Your app keeps it, and the pick is pasted there.
+The [workflow](../.github/workflows/dictate.yml) checks, builds and smoke-launches the real application on native Windows x64, Mac ARM64/Intel and Linux x64/ARM64 runners. Each artifact contains installers plus SHA-256 checksums and a startup report/screenshot. Native dependencies are unpacked from Electron's ASAR archive; the recognizer binding is also probed in its actual utility process. Startup smoke does not grant OS permissions or exercise a physical microphone.
 
-**Tray menu:** copy the last dictation, open history, switch microphone, cleanup mode and output mode, turn sounds on or off, clear history, open the log, open settings, and quit.
+PRs and ordinary branch pushes always use `--publish never`. A release requires a `dictate-v<package version>` tag, or explicit authorized dispatch, and all native jobs must succeed before publication. Checksums are generated after builds. No feature branch becomes a stable release merely because CI passed.
 
-## Settings
+After releases exist, the portable installers in [`scripts/install.sh`](scripts/install.sh) and [`scripts/install.ps1`](scripts/install.ps1) select the correct OS/architecture and verify the release checksum. They select Dictate releases rather than unrelated experiments releases. See their help for an exact version, a custom location and private-repository authentication. Re-running the installer upgrades the application and preserves its data.
 
-Open **Settings** from the tray (or click the tray icon).
+## Development and validation
 
-| Page | What you can change |
-| --- | --- |
-| Hotkeys & output | Dictation keys (default Right Ctrl; up to four, with Right Ctrl, Right Alt and F13 quick picks), history picker key (Right Ctrl + V), optional toggle combo (off), output mode (paste / clipboard only / both), "press enter" to send (off), sounds, start with Windows. |
-| Microphone | Pick the mic, with a live meter for every input. Set input gain per mic: +30 dB by default for the quiet built-in *Microphone Array (AMD Audio Device)*, 0 dB for the others; a gain you set wins. Loud peaks are softened instead of clipping. **Keep the mic ready after a dictation**: Off (default), 30 seconds, or always while plugged in. A ready mic starts a follow-up in about 15 ms instead of up to 0.9 s, but Windows shows the mic as in use, and a Bluetooth headset stays in call mode (lower music and call quality) for that time. |
-| Cleanup | Gemma → Emberon (default), Gemma only, Emberon only, or off. On battery: unload the models after N idle minutes (default 60, or never), and optionally use Emberon only. **Clean up as I speak** (on by default) cleans finished sentences while you talk: a 27 s dictation is ready about 0.3 s after release instead of about 1.6 s. Per-sentence cleanup scored a little lower in testing (see the PR); turn it off for the most careful cleanup. |
-| Vocabulary | Terms to spell right, with "sounds like" spellings the recognizer tends to produce (`pain => Pane`, `uzi => Doozy`). It starts from a generic tech list (Kubernetes, Postgres, ClickHouse…); add your own names and products. |
-| History | How many dictations to keep (default 200; pinned ones are always kept), and clear. Also shows the median speed. |
-| Advanced | Model paths, recognizer threads (4), tap and double-tap thresholds (250 / 350 ms), and the log file. |
+Node 24 and pnpm 11.10.0 are required. From this directory:
 
-**Microphones are remembered in order.** Picking a mic makes it your first choice.
-
-- When it is unplugged, dictate switches to the next one you've used, or to the system default. The pill says *"BOYA mini 2 disconnected — using Microphone Array"*. Audio already recorded is kept.
-- When it comes back, dictate switches back and shows *"Switched to BOYA mini 2"* with **Undo** for 6 s.
-- Undo keeps the other mic until the preferred one is next unplugged.
-- dictate never switches to a better mic mid-recording. If the mic in use disappears mid-recording (even the system default), capture moves to the default mic at once and the pill notes it; if no mic can be opened, the recording finishes with what was heard.
-- Mics are remembered by name plus Chromium's group id, so two identical USB mics are told apart. Input gain is per mic name.
-
-Settings, history and the log live in `%APPDATA%\dictate\` (`settings.json`, `history.json`, `logs\dictate.log`).
-
-## How it works
-
-```
- Right Ctrl down ─► keyboard hook (own thread) ─► hotkey state machine ─► capture starts at once
-                                                   (hold / double-tap / tap / combo)
- mic ─► WASAPI on a worker thread (shared mode, mix format, event-driven) ─► 16 kHz, gain + soft limit, 100 ms chunks ─► recognizer process
-     (fallback: AudioWorklet in the pill via getUserMedia, when native capture cannot open the mic)
-                                                                   (Nemotron 1120 ms, 4 threads, streaming)
- Right Ctrl up ─► flush last chunk ─► final text ─► Gemma 4 E2B (prompt v3 + vocabulary)
-                                                ─► Emberon-2 ("Clean up this dictation. Never answer it.")
-                                                ─► guard: any failed/slow/rewritten step keeps its input
-                                                ─► save clipboard, write text, SendInput Ctrl+V, restore clipboard
-                                                ─► history
+```sh
+pnpm install --frozen-lockfile
+pnpm start
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm test:scripts
+pnpm package
 ```
 
-- **Keyboard:** a `WH_KEYBOARD_LL` hook (through koffi) runs on its own worker thread and blocks in `GetMessage`, so it uses no CPU while idle. It can swallow keys, which a uiohook-style listener cannot:
-  - the V of Right Ctrl + V, so the app does not paste
-  - Esc while recording
-  - the keys the history picker uses while it is open
-- **Recognizer:** sherpa-onnx in an Electron utility process. The capture renderer sends audio straight to it over a MessagePort. It decodes a chunk every 1.12 s while you talk, so on release only the last chunk needs flushing (about 90 ms).
-- **Cleanup:** one `llama-server` per model, started once and kept warm:
-  - `-ngl 99 -fa on -c 4096 -np 1 -lm mmap+mlock --poll 0`
-  - Each server gets one warm-up request with the real system prompt at start-up. The prompt is identical on every call (`cache_prompt: true`), so only the new transcript is processed.
-  - `chat_template_kwargs: {enable_thinking: false}`, temperature 0, and `max_tokens` capped near the input length.
-  - Each step has 3 s for a dictation up to ~250 characters; longer ones get ~15 ms per expected output token on top, never more than 8 s. A step that errors, times out, comes back empty, or fails voice-lab's length/overlap guard keeps its input text.
-  - Gemma runs first: run the other way round, Emberon mangles names like "Doozy".
-- **Output:**
-  1. Wait until modifiers are released.
-  2. Save the clipboard.
-  3. Write the text and send Ctrl+V with `SendInput`.
-  4. After 350 ms, restore the clipboard, unless something else changed it in the meantime.
+On Linux, install the graphical/native dependencies before starting. Ubuntu/Debian:
 
-  The text dictate puts on the clipboard is never uploaded to Windows' cloud clipboard. Text that is only there for the paste is also kept out of Win+V clipboard history and clipboard managers (the `CanIncludeInClipboardHistory`, `CanUploadToCloudClipboard` and `ExcludeClipboardContentFromMonitorProcessing` formats). Text left on the clipboard for you (clipboard-only output, "both", Copy last dictation, or when there was nothing to paste into) still shows in Win+V history.
+```sh
+sudo apt-get install libgtk-3-0 libnss3 libasound2 libgbm1 libxtst6 libx11-6 xdotool
+```
 
-  If the clipboard cannot be read (so it could not be put back) or written, dictate never overwrites it: the text is typed as Unicode key events instead. If the focused control shows no caret, the paste may have landed nowhere, so the text stays on the clipboard rather than being restored over. That rule applies only where a caret means something: Chromium and Electron windows, Firefox and terminals never show one (desktop QA found an Edge textarea and a page body look the same), so there the paste is trusted and the clipboard restored.
-- **Robustness:**
-  - single instance
-  - llama-servers restart after a crash (1 s, 2 s, 4 s … backoff), and so do the recognizer and the hook
-  - the servers sit in a kill-on-close Job object, so they die with dictate even if it is killed
-  - log file at `%APPDATA%\dictate\logs\dictate.log`
+`src/core/` holds shared hotkey, capture, cleanup, history and settings logic. `src/native/` isolates Windows hooks/WASAPI, Mac Quartz/Cocoa, X11 tools and desktop capabilities. `src/engine/` hosts recognition and llama-server lifecycle. `src/main/` owns tray, windows, model setup and output; `src/renderer/` is plain DOM plus AudioWorklet capture.
 
-## Speed and battery
+Real-model tests run when `DICTATE_MODELS_DIR` contains the model files. Set `DICTATE_LLAMA_SERVER` and `DICTATE_LLM_TESTS=1` to run real cleanup too. Their latency measurements originated on a Ryzen AI Max+ PRO 395/Vulkan Windows laptop; they are not cross-platform performance promises. CI's ordinary unit tests explicitly skip missing model prerequisites. See the PR's evidence for the actual model checks performed on this revision.
 
-Measured on the target laptop (Ryzen AI Max+ PRO 395, Radeon 8060S iGPU, 128 GB), on AC:
+For isolated application QA:
 
-| What | Measured |
-| --- | --- |
-| Speech model load | 2.4 s |
-| Gemma 4 E2B load + warm-up | 3.9–4.9 s + 0.35 s |
-| Emberon-2 load + warm-up | 0.5–1.1 s + 0.06 s |
-| Recognizer flush after release | ~90 ms |
-| Cleanup chain, warm, 1-sentence dictation | 280 ms (Gemma 230 ms + Emberon 47 ms) |
-| Fixture (14 s, 2 sentences) → STT flush → Gemma → Emberon → sink | 1085 ms |
-| Release-to-paste, median of 5 dictations into Notepad (desktop QA, 5 s fixture) | **718 ms** to the clipboard being restored; the text appears about 350 ms earlier, since the restore waits 350 ms for the app to read the paste |
-| Idle CPU, whole process tree, 60 s | 0.6 % of one core (375 ms CPU per minute) |
-| Memory, whole process tree | 4.7 GB working set (Gemma's mlocked weights are 3.2 GB) |
+- `DICTATE_DATA_DIR=<temporary folder>` isolates settings/history/logs.
+- `DICTATE_FAKE_MIC=<WAV>` with `DICTATE_CAPTURE=browser` plays the fixture through the real AudioWorklet path.
+- `DICTATE_QA_CONTROL=<file>` accepts appended `down` / `up` lines for a synthetic hotkey journey; this tests the app pipeline, not the native keyboard hook.
+- `DICTATE_QA_DEVICES=<JSON file>` simulates microphone hotplug.
+- `DICTATE_SMOKE_TEST=<report.json>` runs the complete startup with a fresh temporary data folder, checks all renderers/preload/IPC and native bindings, captures Settings, writes the report and quits.
 
-Before dictate's tuning, the same chain measured about 1.1 s + 0.23 s in voice-lab. Flash attention, `-np 1`, and a byte-identical cached system prompt bring it to about 0.3 s.
-
-What keeps the battery cost down:
-
-- Nothing runs in a loop while idle: no polling, and no idle decoding.
-- The mic is open only while the key is held.
-- The audio graph is suspended between dictations.
-- llama-server runs with `--poll 0`, so it does not busy-wait.
-- On battery, the models unload after 60 idle minutes (configurable, or never). Loaded but idle, they use memory and no CPU or GPU; reloading reads about 3 GB. They reload on the next key press, and the pill says *Warming up…*.
-- Optionally, cleanup is Emberon only on battery.
-- On AC, everything stays resident.
+The original Windows desktop driver `qa/qa.js` still covers Notepad, browser and terminal paste, toggle, cancel, history and mic events on an unlocked Windows desktop. It interacts with the actual keyboard/clipboard, so use an isolated test session and read its setup before running. Its previous 49/49 result predates this portability change; new per-OS evidence belongs to the current PR/CI run.
 
 ## Troubleshooting
 
-- **Nothing happens on Right Ctrl.**
-  - Is the tray icon grey? The speech model is still loading.
-  - Is it orange? Hover it for the error. Usually the models folder is wrong; fix it in **Settings → Advanced**.
-- **Text is not pasted into an app running as administrator.** Windows blocks input from normal apps into elevated ones. The text is still on the clipboard and in history.
-- **Words are cut at the start.** The mic opens when the key goes down. The laptop's AMD mic array takes about 0.9 s to wake from idle (its own hardware, whatever the capture API), about 150 ms if it was used in the last few seconds, and about 15 ms when kept ready. The pill's meter is grey until audio arrives and the start sound plays then, so speak when you hear it, or turn on **Keep the mic ready**.
-- **The mic is too quiet.** Raise its gain in **Settings → Microphone** until speech reaches the middle of the meter.
-- **The cleanup changed a word it shouldn't have.** Open history (Right Ctrl + V), press Tab to see what was heard, and Shift + Enter to paste the raw transcript. Add the word to **Vocabulary**.
-- **Logs:** tray → **Open log**.
-
-## Development
-
-```powershell
-pnpm start        # build and run
-pnpm test         # unit tests + integration tests (the integration tests skip without models)
-pnpm typecheck
-pnpm lint
-$env:DICTATE_LLM_TESTS = '1'; pnpm test   # also run cleanup on real llama-servers
-```
-
-- `src/core/`: pure logic, unit-tested:
-  - hotkey state machine
-  - cleanup chain and guard
-  - prompt templating
-  - mic preference resolver
-  - history store
-  - gain
-  - settings
-- `src/engine/`: the recognizer and llama-server management (Node, no Electron).
-- `src/native/`: Win32 through koffi (SendInput, the keyboard hook thread, the foreground window and caret, the Job object).
-- `src/main/`: the Electron main process (tray, windows, the dictation flow, output).
-- `src/renderer/`: the pill (and mic capture), the history picker, and settings. Plain DOM, no framework.
-
-For QA without a microphone, use `DICTATE_FAKE_MIC=path\to\file.wav`. It plays the WAV through the real capture path at every key press. `DICTATE_DATA_DIR` points settings, history and logs at a scratch folder. `DICTATE_QA_DEVICES=path\to\devices.json` replaces the mic list with a file you can edit, to simulate plugging and unplugging mics.
-
-### Desktop QA
-
-`qa/qa.js` drives the real app on an unlocked desktop. It injects key presses and opens and types into Notepad, an Edge window and a terminal, so don't use the machine while it runs (about 3 minutes). It saves your clipboard first and puts it back at the end, works in its own Notepad tab and closes only the windows and tabs it opened.
-
-Last run (2026-10-18, AC): **49/49 passed**, release-to-paste median 718 ms.
-
-```powershell
-pnpm build
-node qa/qa.js                 # every scenario
-node qa/qa.js ptt picker      # some: ptt toggle esc escclean tap single second picker altgr browser body terminal crash mic
-node qa/qa.js --key=ralt      # Right Alt as the dictation key
-node qa/qa.js --key=f13       # F13 injected like mouse software sends it, with Right Alt as a second key
-```
-
-`escclean` (Esc while the words are being cleaned) was added after that run, as were `single` and `second`, which run only with `--key=f13`.
-
-To look at the settings pages without starting dictate (no tray, hook or models, so it is safe while dictate runs): `node_modules\electron\dist\electron.exe qa/settingsshots.js "Hotkeys & output"`. Shots go to `tmp/settings-shots/`.
-
-It covers hold-to-talk five times (with release-to-paste timing and the clipboard restored), double-tap toggle, Esc, a lone tap and Right Ctrl shortcuts, the history picker, an Edge text field, an Edge page with no field, a terminal, a Gemma crash, and a simulated mic unplug. It also logs which targets show a Win32 caret (Notepad does; Edge and Windows Terminal don't). Results go to `tmp/qa/out/summary.json` with screenshots, and its app data goes to `tmp/qa-data`, not your settings.
+- **Missing speech model:** use the download button or correct **Advanced → Models folder**. A failed checksum leaves prior files intact; retry after checking available disk space and network access.
+- **Mac shortcut does nothing:** enable Dictate under Accessibility and Input Monitoring, enable Microphone, then restart. Use **Start dictation** to separate shortcut permissions from microphone/model problems.
+- **Linux shortcut or paste unavailable:** check the displayed capability reason. X11 needs `xdotool` and XTest; Wayland uses portal toggle/copy-only. A headless shell is not a desktop session.
+- **Windows elevated application:** Windows may block injected input. The text stays in clipboard/history.
+- **Silent or slow-starting mic:** check the meter/gain and wait for the start cue. Reconnect the device or select system default.
+- **Cleanup changes too much or cannot run:** select **Off** to keep raw text, use history's raw view and add spellings under Vocabulary. CPU cleanup can be slower than a GPU build.
+- **No tray icon:** your Linux desktop may need a tray/AppIndicator extension. Launch Dictate again to reopen Settings without starting a second instance.
+- **Diagnosis:** tray → **Open log**. Startup failures and denied native features are logged instead of silently claiming success.
 
 ## Licence
 

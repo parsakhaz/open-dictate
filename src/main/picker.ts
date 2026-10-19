@@ -28,6 +28,8 @@ export interface PickerDeps {
   readyTimeoutMs?: number;
   /** How often to check that the target app still has focus while the picker is open. */
   watchMs?: number;
+  /** Portable hooks cannot suppress keys, so the picker receives normal window focus instead. */
+  takesFocus?: boolean;
   setTimeout?: (fn: () => void, ms: number) => unknown;
   clearTimeout?: (h: unknown) => void;
   setInterval?: (fn: () => void, ms: number) => unknown;
@@ -116,16 +118,18 @@ export class PickerController {
     if (token !== this.token || !inst || inst.gone) return;
     this.target = target;
     inst.win.place(caret);
-    inst.win.send('dictate:picker-open', { items: this.deps.items(), now: Date.now(), hotkey: this.deps.hotkey?.() ?? 'the dictation key' });
+    inst.win.send('dictate:picker-open', { items: this.deps.items(), now: Date.now(), hotkey: this.deps.hotkey?.() ?? 'the dictation key', localKeys: !!this.deps.takesFocus });
     inst.win.showInactive();
     this.open_ = true;
     // Keys go to the picker only once it is on screen and listening.
     this.deps.capture(true);
     // If focus moves elsewhere (a click, Alt+Tab, a notification), close at once so typing there is never eaten.
     this.t.clearInterval(this.watch);
-    this.watch = this.t.setInterval(() => {
-      if (this.deps.foreground() !== this.target) this.close();
-    }, this.deps.watchMs ?? 200);
+    if (!this.deps.takesFocus) {
+      this.watch = this.t.setInterval(() => {
+        if (this.deps.foreground() !== this.target) this.close();
+      }, this.deps.watchMs ?? 200);
+    }
     this.deps.log('info', 'history picker opened');
   }
 

@@ -1,6 +1,9 @@
+nodeLinker: hoisted
 allowBuilds:
   electron: true
+  electron-winstaller: true
   esbuild: true
   koffi: true
+  uiohook-napi: true
 overrides:
   sherpa-onnx-win-x64: 1.13.8
