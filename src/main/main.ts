@@ -133,6 +133,8 @@ interface Session {
   final?: (text: string) => void;
   /** Esc after release (transcribing or cleaning): stops the cleanup, and nothing is pasted. */
   abort: AbortController;
+  /** This dictation answers an agent's card instead of pasting (the key went down over the card, or Reply). */
+  reply?: { cardId: string; to: string };
 }
 
 let nextId = 1;
@@ -145,7 +147,39 @@ const cancellable = new Set<Session>();
 
 /** The hook swallows Esc while it cancels something: a recording, or a dictation still transcribing or cleaning. */
 function syncEsc(): void {
-  hook.send({ type: 'recording', on: !!rec || cancellable.size > 0 });
+  hook.send({ type: 'recording', on: !!rec || cancellable.size > 0 || !!replyPreview });
+}
+
+/** The 2 s look at a reply before it goes to an agent; Esc cancels it. */
+let replyPreview: { cancel: () => void } | null = null;
+
+function previewReply(to: string, text: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const end = (send: boolean) => {
+      clearTimeout(timer);
+      replyPreview = null;
+      syncEsc();
+      resolve(send);
+    };
+    const timer = setTimeout(() => end(true), 2000);
+    replyPreview = { cancel: () => end(false) };
+    syncEsc();
+    // A leading / ! # @ may read as a command to the agent.
+    pillSend('dictate:pill', { kind: 'reply-preview', message: text, to, warn: /^[/!#@]/.test(text) });
+    showPill(pill);
+  });
+}
+
+/** Where the top card sits in the pill window (CSS pixels), from the renderer. */
+let cardRect: { x: number; y: number; width: number; height: number } | null = null;
+
+function pointerOverCard(): boolean {
+  if (!cardsShown || !cardRect || pill.isDestroyed()) return false;
+  const p = screen.getCursorScreenPoint();
+  const b = pill.getBounds();
+  const x = p.x - b.x;
+  const y = p.y - b.y;
+  return x >= cardRect.x && x <= cardRect.x + cardRect.width && y >= cardRect.y && y <= cardRect.y + cardRect.height;
 }
 
 /** Esc after release: every dictation still transcribing or cleaning stops, and nothing of it is pasted. */
@@ -235,6 +269,8 @@ function onHotkey(a: HotkeyAction): void {
         return;
       }
       rec = { id: nextId++, mode: null, shown: false, releasedAt: 0, partial: '', live: false, abort: new AbortController() };
+      // The pointer over a card at key down (or Reply) sends this one dictation to it.
+      rec.reply = agents?.replyTarget(pointerOverCard()) ?? undefined;
       agents?.setDictating(true);
       cleanup.touch();
       // Capture starts at key down so the first word is not lost; the pill waits until this is a hold or a double-tap.
@@ -259,7 +295,7 @@ function onHotkey(a: HotkeyAction): void {
       }
       // Until the mic delivers audio the meter is grey and flat, and the start cue waits for it.
       const finish = finishHint(a.mode, a.via, { hotkey: hotkeyLabel(a.key), toggle: bindingLabel(settings.toggle) });
-      pillSend('dictate:pill', cleanup.warming() ? { kind: 'warming', finish } : { kind: 'listening', mode: a.mode, finish, starting: !rec.live });
+      pillSend('dictate:pill', cleanup.warming() ? { kind: 'warming', finish } : { kind: 'listening', mode: a.mode, finish, starting: !rec.live, replyTo: rec.reply?.to });
       showPill(pill);
       rec.shown = true;
       if (first && rec.live) sound('start');
@@ -343,7 +379,18 @@ async function stopRecording(): Promise<void> {
       }
     : undefined;
   const practice = practicing && !!settingsWin && !settingsWin.isDestroyed() && settingsWin.isFocused();
-  const deps = { chain: cleanup.deps(), sink: practice ? practiceSink : sink, history, saveHistory: () => saveHistory.now(), log, clean, pressEnter: settings.pressEnter, signal: s.abort.signal };
+  const reply = !practice ? s.reply : undefined;
+  let replied: { ok: boolean; message: string } | undefined;
+  // A reply: cleaned and kept in history as usual, then previewed, then sent to the card instead of pasted.
+  const replySink: OutputSink = {
+    deliver: async (text): Promise<Delivery> => {
+      const t = text.trim();
+      if (!reply || !agents || !(await previewReply(reply.to, t))) return { pasted: false, copied: false, reason: 'reply cancelled' };
+      replied = await agents.reply(reply.cardId, t, raw);
+      return replied.ok ? { pasted: true, copied: false, confirmed: true } : { pasted: false, copied: true, reason: replied.message };
+    },
+  };
+  const deps = { chain: cleanup.deps(), sink: practice ? practiceSink : reply ? replySink : sink, history, saveHistory: () => saveHistory.now(), log, clean, pressEnter: settings.pressEnter, signal: s.abort.signal };
   const result = await finishDictation(raw, cleanup.steps(), settings.output, s.releasedAt, deps, (phase) => {
     if (phase === 'cleaning') pillSend('dictate:pill', { kind: 'cleaning' });
     else {
@@ -361,6 +408,13 @@ async function stopRecording(): Promise<void> {
   }
   log('info', `dictation ${s.id}: final after ${sttMs.toFixed(0)} ms`);
   const d = result.delivery;
+  if (reply) {
+    if (replied) pillSend('dictate:pill', replied.ok ? { kind: 'done', message: replied.message } : { kind: 'copied', message: replied.message });
+    else pillSend('dictate:pill', { kind: 'info', message: 'Cancelled · nothing sent' });
+    pushState();
+    rebuildTrayMenu();
+    return idleTray();
+  }
   if (d?.pasted && d.confirmed === false) pillSend('dictate:pill', { kind: 'copied', message: 'Pasted — also on the clipboard' });
   else if (d?.pasted) pillSend('dictate:pill', { kind: 'done', message: `${settings.output === 'both' ? 'Pasted and copied' : 'Pasted'}${d.entered ? ' · Enter' : ''}` });
   else if (d?.copied) pillSend('dictate:pill', { kind: 'copied', message: settings.output === 'clipboard' ? 'Copied' : `Copied — press ${pasteKeys}` });
@@ -778,6 +832,11 @@ function onHook(e: FromHook): void {
     }
     return;
   }
+  // Esc during a reply's preview: nothing is sent.
+  if (e.down && e.vk === VK.Escape && !rec && replyPreview) {
+    replyPreview.cancel();
+    return;
+  }
   // Esc after release cancels a dictation still transcribing or cleaning (the hook swallowed it).
   if (e.down && e.vk === VK.Escape && !rec && cancellable.size) {
     cancelAfterRelease();
@@ -1190,6 +1249,9 @@ function registerIpc(): void {
     if (!pill.isDestroyed()) pill.setIgnoreMouseEvents(!over, { forward: true });
   });
   ipcMain.handle('dictate:card-action', (_e, a: CardAction) => agents?.action(a));
+  ipcMain.on('dictate:card-rect', (_e, r: typeof cardRect) => {
+    cardRect = r && [r.x, r.y, r.width, r.height].every(Number.isFinite) ? r : null;
+  });
   ipcMain.on('dictate:devices', (_e, d: { list: MicDevice[]; defaultLabel: string }) => {
     if (process.env.DICTATE_QA_DEVICES) return;
     devicesCache = d.list;

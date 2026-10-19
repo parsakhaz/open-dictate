@@ -92,7 +92,8 @@ body {
 [data-kind='copied'] .glyph,
 [data-kind='error'] .glyph,
 [data-kind='info'] .glyph,
-[data-kind='toast'] .glyph {
+[data-kind='toast'] .glyph,
+[data-kind='reply-preview'] .glyph {
   opacity: 1;
 }
 [data-starting='true'] .dot {
@@ -104,7 +105,8 @@ body {
 }
 [data-kind='copied'] .glyph,
 [data-kind='info'] .glyph,
-[data-kind='toast'] .glyph {
+[data-kind='toast'] .glyph,
+[data-kind='reply-preview'] .glyph {
   color: var(--accent);
 }
 [data-kind='error'] .glyph {
@@ -185,7 +187,8 @@ body {
 [data-kind='copied'] .wave,
 [data-kind='error'] .wave,
 [data-kind='info'] .wave,
-[data-kind='toast'] .wave {
+[data-kind='toast'] .wave,
+[data-kind='reply-preview'] .wave {
   display: none;
 }
 
@@ -220,7 +223,8 @@ body {
 [data-kind='copied'] .text,
 [data-kind='error'] .text,
 [data-kind='info'] .text,
-[data-kind='toast'] .text {
+[data-kind='toast'] .text,
+[data-kind='reply-preview'] .text {
   color: var(--text);
 }
 [data-kind='cleaning'] .text {

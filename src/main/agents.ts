@@ -217,6 +217,19 @@ export class Agents {
     this.host.trayChanged();
   }
 
+  /**
+   * Where this dictation goes, decided at key down: the card Reply was clicked on, or the top card when the
+   * pointer is over it. Null means the usual paste.
+   */
+  replyTarget(pointerOverCard: boolean): { cardId: string; to: string } | null {
+    const armed = this.armed;
+    this.armed = null;
+    const v = this.hub.queue.view(Date.now());
+    const card = (armed && this.hub.queue.get(armed)) || (pointerOverCard ? v.top : null);
+    if (!card || !(card.target || card.kind === 'ask')) return null;
+    return { cardId: card.id, to: card.source.split(' · ').pop() || 'the agent' };
+  }
+
   setDictating(on: boolean): void {
     this.hub.setDictating(on);
   }
