@@ -96,8 +96,9 @@ async function connect() {
   return { evaluate, until, shot, click, close: () => ws.close() };
 }
 
-const heading = `document.querySelector('main h1')?.textContent ?? ''`;
-const text = `document.querySelector('main')?.innerText ?? ''`;
+// Parenthesised: they are spliced into larger expressions (`${text}.includes(...)`).
+const heading = `(document.querySelector('main h1')?.textContent ?? '')`;
+const text = `(document.querySelector('main')?.innerText ?? '')`;
 const percent = `Number(/Downloading… (\\d+)%/.exec(document.querySelector('main')?.innerText ?? '')?.[1] ?? -1)`;
 const bytes = `(/([\\d.]+) (MB|GB) of/.exec(document.querySelector('[data-download-detail]')?.textContent ?? '') ?? []).slice(1).join(' ')`;
 
@@ -148,7 +149,9 @@ try {
   const hold = wavSeconds(wav) * 1000 + 800;
   // The practice box takes a dictation only while Settings is in front, as a person clicking into it would.
   fs.appendFileSync(control, 'focus\n');
-  await sleep(500);
+  // macOS ignores focus requests from an app launched outside the GUI session; LaunchServices does not.
+  if (process.platform === 'darwin') spawn('open', ['-a', appExe.replace(/\/Contents\/MacOS\/[^/]+$/, '')]);
+  await sleep(1500);
   fs.appendFileSync(control, 'down\n');
   await sleep(hold);
   fs.appendFileSync(control, 'up\n');
