@@ -1,6 +1,7 @@
 // The settings window, in the style of Windows 11 Settings: a welcome page on first run, then pages for
 // hotkeys, microphone, cleanup, vocabulary, history and advanced paths.
 import { dbfs, defaultGainDb } from '../core/audio';
+import { bindingLabel, dictationKeyProblem } from '../core/hotkeys';
 import type { MicDevice } from '../core/mics';
 import { micKey, micName } from '../core/mics';
 import type { Binding, CleanupChain, OutputMode, Settings, VocabTerm } from '../core/types';
@@ -8,7 +9,7 @@ import { dictate, h } from './bridge';
 
 interface State {
   settings: Settings;
-  labels: { hotkey: string; toggle: string; picker: string };
+  labels: { hotkey: string; hotkeys: string[]; toggle: string; picker: string };
   devices: MicDevice[];
   mic: MicDevice | null;
   defaultMicLabel: string;
@@ -81,7 +82,7 @@ function keycap(label: string): HTMLElement {
   return h('span.keys', {}, ...label.split(' + ').map((k) => h('kbd', {}, k)));
 }
 
-function bindingControl(which: 'hotkey' | 'toggle' | 'picker', canClear: boolean): HTMLElement {
+function bindingControl(which: 'toggle' | 'picker', canClear: boolean): HTMLElement {
   const label = st.labels[which];
   const box = h('div.binding', {}, label === 'Off' ? h('span.muted', {}, 'Off') : keycap(label));
   const change = h(
@@ -104,7 +105,9 @@ function bindingControl(which: 'hotkey' | 'toggle' | 'picker', canClear: boolean
 
 const R_CTRL = 0xa3;
 const R_ALT = 0xa5;
+const F13 = 0x7c;
 const V = 0x56;
+const MAX_KEYS = 4;
 const same = (a: Binding | null, b: Binding) => !!a && a.keys.length === b.keys.length && a.keys.every((k, i) => k === b.keys[i]);
 
 /**
@@ -115,7 +118,76 @@ function useKey(key: number): Promise<void> {
   const other = key === R_ALT ? R_CTRL : R_ALT;
   const picker = st.settings.picker;
   const follow = !picker || same(picker, { keys: [other, V] });
-  return set({ hotkey: { keys: [key] }, ...(follow ? { picker: { keys: [key, V] } } : {}) });
+  return set({ hotkeys: [{ keys: [key] }], ...(follow ? { picker: { keys: [key, V] } } : {}) });
+}
+
+const hasKey = (b: Binding) => st.settings.hotkeys.some((k) => same(k, b));
+
+/** Records a dictation key; null if cancelled, a duplicate, or refused (the reason is shown in `note`). */
+async function recordDictationKey(note: HTMLElement): Promise<Binding | null> {
+  const b = await dictate.invoke<Binding | null>('dictate:record-binding');
+  if (!b) return null;
+  const problem = dictationKeyProblem(b);
+  note.textContent = problem ?? (hasKey(b) ? `${bindingLabel(b)} is already a dictation key.` : '');
+  return problem || hasKey(b) ? null : b;
+}
+
+/** Every dictation key (B2): change or remove each, add another, or add/remove a quick pick. */
+function dictationKeys(): HTMLElement {
+  const keys = st.settings.hotkeys;
+  const note = h('div.warnline');
+  const setKeys = (next: Binding[]) => set({ hotkeys: next });
+  const rows = keys.map((b, i) => {
+    const box = h('div.binding', {}, keycap(st.labels.hotkeys[i] ?? bindingLabel(b)));
+    const change = h(
+      'button.button',
+      {
+        onclick: async () => {
+          box.replaceChildren(h('span.recording', {}, 'Press the keys, then release…'));
+          change.disabled = true;
+          const nb = await recordDictationKey(note);
+          change.disabled = false;
+          if (nb) await setKeys(keys.map((k, j) => (j === i ? nb : k)));
+          else box.replaceChildren(keycap(st.labels.hotkeys[i] ?? bindingLabel(b)));
+        },
+      },
+      'Change',
+    );
+    const remove = keys.length > 1 ? h('button.button.subtle', { onclick: () => setKeys(keys.filter((_, j) => j !== i)) }, 'Remove') : null;
+    return h('div.bindingrow', {}, box, change, remove);
+  });
+  const add =
+    keys.length < MAX_KEYS
+      ? h(
+          'button.button',
+          {
+            onclick: async (e: Event) => {
+              const btn = e.currentTarget as HTMLButtonElement;
+              btn.textContent = 'Press the keys, then release…';
+              btn.disabled = true;
+              const nb = await recordDictationKey(note);
+              if (nb) await setKeys([...keys, nb]);
+              else {
+                btn.textContent = 'Add another key';
+                btn.disabled = false;
+              }
+            },
+          },
+          'Add another key',
+        )
+      : null;
+  const chips: [string, Binding][] = [['Right Ctrl', { keys: [R_CTRL] }], ['Right Alt', { keys: [R_ALT] }], ['F13', { keys: [F13] }]];
+  const quick = h(
+    'div.presets',
+    {},
+    h('span.muted', {}, 'Quick pick:'),
+    ...chips.map(([label, b]) => {
+      const on = hasKey(b);
+      const click = () => (on ? keys.length > 1 && setKeys(keys.filter((k) => !same(k, b))) : keys.length < MAX_KEYS && setKeys([...keys, b]));
+      return h('button.chip', { 'data-active': String(on), onclick: click }, label);
+    }),
+  );
+  return h('div.keylist', {}, ...rows, add, note, quick);
 }
 
 function presets(which: 'hotkey' | 'picker'): HTMLElement {
@@ -130,7 +202,7 @@ function presets(which: 'hotkey' | 'picker'): HTMLElement {
     ...options.map(([label, b]) =>
       h(
         'button.chip',
-        { 'data-active': String(same(st.settings[which], b)), onclick: () => (which === 'hotkey' ? useKey(b.keys[0] as number) : set({ picker: b })) },
+        { 'data-active': String(same(which === 'hotkey' ? (st.settings.hotkeys.length === 1 ? st.settings.hotkeys[0] : null) : st.settings.picker, b)), onclick: () => (which === 'hotkey' ? useKey(b.keys[0] as number) : set({ picker: b })) },
         label,
       ),
     ),
@@ -228,7 +300,7 @@ function welcome(): Node[] {
     ),
     card(
       'Your dictation key',
-      st.settings.hotkey && same(st.settings.hotkey, { keys: [R_ALT] }) ? 'Right Alt it is. You can change it any time in Hotkeys & output.' : 'No Right Ctrl on your keyboard? Use Right Alt.',
+      st.settings.hotkeys[0] && same(st.settings.hotkeys[0], { keys: [R_ALT] }) ? 'Right Alt it is. You can change it any time in Hotkeys & output.' : 'No Right Ctrl on your keyboard? Use Right Alt.',
       h('div.bindingrow', {}, keycap(st.labels.hotkey)),
       presets('hotkey'),
     ),
@@ -262,7 +334,16 @@ function general(): Node[] {
   return [
     h('h1', {}, 'Hotkeys & output'),
     h('h2', {}, 'Hotkeys'),
-    card('Dictation key', 'Hold to talk, release to finish. Double-tap to keep listening hands-free; tap again to finish. No Right Ctrl on your keyboard? Use Right Alt.', bindingControl('hotkey', false), presets('hotkey')),
+    card(
+      st.settings.hotkeys.length > 1 ? 'Dictation keys' : 'Dictation key',
+      'Hold to talk, release to finish. Double-tap to keep listening hands-free; tap again to finish. No Right Ctrl on your keyboard? Use Right Alt. Up to four keys work side by side.',
+      null,
+      dictationKeys(),
+    ),
+    card(
+      'Using a mouse button?',
+      'In Logitech Options+ or G HUB, map the button to F13 (or any of F13–F24), then add that key here. Hold the button to talk, or tap it once to start hands-free and again to finish. The app you’re typing in never sees the key.',
+    ),
     card('History picker', 'Opens your dictation history at the cursor.', bindingControl('picker', true), presets('picker')),
     card('Toggle combo', 'Optional: a separate shortcut that starts and stops hands-free dictation.', bindingControl('toggle', true)),
     h('h2', {}, 'Output'),
@@ -275,6 +356,11 @@ function general(): Node[] {
         ['clipboard', 'Copy to the clipboard only', 'Paste it yourself with Ctrl+V.'],
         ['both', 'Paste, and keep it on the clipboard', ''],
       ], (v) => set({ output: v })),
+    ),
+    card(
+      'Say “press enter” to send',
+      'End a dictation with the words “press enter” and dictate presses Enter after the text, to send a chat message hands-free. Only as the very last words.',
+      toggle(s.pressEnter, (v) => set({ pressEnter: v })),
     ),
     card('Show what you say', 'The live words in the pill while you speak. Off leaves just the waveform.', toggle(s.pillText, (v) => set({ pillText: v }))),
     card('Sounds', 'A soft cue when dictation starts, stops or is cancelled.', toggle(s.sounds, (v) => set({ sounds: v }))),

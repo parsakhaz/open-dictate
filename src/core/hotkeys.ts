@@ -8,8 +8,11 @@ export type HotkeyAction =
   /** Capture starts at key down, before we know whether this is a hold or the first of a double-tap. */
   | { type: 'start' }
   /** The press is a hold (push-to-talk) or a double-tap (toggle): show the pill and keep recording. */
-  /** `via: 'combo'`: hands-free started from the toggle combo, which also ends it (not the dictation key). */
-  | { type: 'mode'; mode: RecordMode; via?: 'combo' }
+  /**
+   * `key`: which dictation key (its index in `hotkeys`) started it. `via: 'combo'`: hands-free started from the
+   * toggle combo, which also ends it (not a dictation key).
+   */
+  | { type: 'mode'; mode: RecordMode; key?: number; via?: 'combo' }
   | { type: 'stop' }
   /** `tap`: a lone tap, nothing to type; the pill was never shown. */
   | { type: 'cancel'; reason: 'tap' | 'shortcut' | 'escape' }
@@ -64,6 +67,35 @@ export const DEFAULT_TIMING: Timing = { tapMs: 250, doubleTapMs: 350 };
  */
 export const KEEP_WORDS_MS = 1500;
 
+/**
+ * Keys nobody types with or uses in shortcuts: F13-F24 (what Logitech Options+ and G HUB can map a mouse button
+ * to), Pause, Scroll Lock, Insert and Menu. As a dictation key alone, the app never sees them, and one tap starts
+ * hands-free (mouse software may only ever send taps).
+ */
+const DEDICATED = new Set<number>([0x13, 0x91, 0x2d, 0x5d, ...Array.from({ length: 12 }, (_, i) => 0x7c + i)]);
+
+export function isDedicated(b: Binding | null): boolean {
+  return !!b && b.keys.length === 1 && typeof b.keys[0] === 'number' && DEDICATED.has(b.keys[0]);
+}
+
+/** Keys that alone would take a key you type with: letters, digits, Space, Enter, Tab, Backspace, and Esc. */
+const TYPING = new Set<number>([VK.Space, VK.Enter, VK.Tab, VK.Back, VK.Escape, ...Array.from({ length: 10 }, (_, i) => 0x30 + i), ...Array.from({ length: 26 }, (_, i) => 0x41 + i)]);
+
+/** Why `b` can't be a dictation key, or null if it can. */
+export function dictationKeyProblem(b: Binding): string | null {
+  if (b.keys.length !== 1 || typeof b.keys[0] !== 'number' || !TYPING.has(b.keys[0])) return null;
+  if (b.keys[0] === VK.Escape) return 'Esc cancels a dictation, so it can’t start one.';
+  return `${keyName(b.keys[0])} alone would stop you typing it. Pick a key you don’t type with, such as Right Alt or F13, or hold a modifier with it.`;
+}
+
+/**
+ * Bindings whose last key the hook swallows, so the app never sees it: the picker and toggle combos (Right
+ * Ctrl+V must not paste), and dedicated dictation keys. Right Ctrl and Right Alt pass through, so shortcuts work.
+ */
+export function swallowBindings(b: Bindings): Binding[] {
+  return [b.picker, b.toggle, ...b.hotkeys.filter(isDedicated)].filter((x): x is Binding => !!x);
+}
+
 function specMatches(spec: KeySpec, code: number): boolean {
   return typeof spec === 'number' ? spec === code : MODIFIERS[spec].includes(code);
 }
@@ -84,8 +116,8 @@ export function isModifier(code: number): boolean {
 }
 
 export interface Bindings {
-  /** Hold for push-to-talk, double-tap to toggle. */
-  hotkey: Binding | null;
+  /** Dictation keys (up to 4): hold for push-to-talk, double-tap to toggle. */
+  hotkeys: Binding[];
   /** Optional extra combo that toggles recording on and off. */
   toggle: Binding | null;
   /** Opens the history picker. */
@@ -129,6 +161,10 @@ export class HotkeyMachine {
   private timer: unknown;
   /** Presses of the hotkey before this time are ignored: the tail of the double-tap that stopped a toggle. */
   private quietUntil = 0;
+  /** The dictation key (index in `hotkeys`) of this recording; -1 when the toggle combo started it. */
+  private active = -1;
+  /** A dedicated key's tap started hands-free: its presses before this time are the double-tap's second tap. */
+  private tapToggleUntil = 0;
 
   constructor(
     private bindings: Bindings,
@@ -174,20 +210,26 @@ export class HotkeyMachine {
       this.end({ type: 'cancel', reason: 'escape' });
       return;
     }
-    const { hotkey, toggle, picker } = this.bindings;
+    const { toggle, picker } = this.bindings;
+    const hotkey = this.hotkey;
     switch (this.state) {
-      case 'idle':
+      case 'idle': {
         if (bindingMatches(picker, this.downKeys)) {
           this.emit({ type: 'picker' });
           return;
         }
         if (bindingMatches(toggle, this.downKeys)) {
+          this.active = -1;
+          this.tapToggleUntil = 0;
           this.emit({ type: 'start' });
           this.state = 'toggle';
           this.emit({ type: 'mode', mode: 'toggle', via: 'combo' });
           return;
         }
-        if (bindingMatches(hotkey, this.downKeys) && t >= this.quietUntil) {
+        const key = this.bindings.hotkeys.findIndex((b) => bindingMatches(b, this.downKeys));
+        if (key >= 0 && t >= this.quietUntil) {
+          this.active = key;
+          this.tapToggleUntil = 0;
           this.state = 'press1';
           this.pressedAt = t;
           this.armHold();
@@ -195,6 +237,7 @@ export class HotkeyMachine {
           return;
         }
         return;
+      }
       case 'tapped':
         if (bindingMatches(hotkey, this.downKeys)) {
           this.state = 'press2';
@@ -223,7 +266,8 @@ export class HotkeyMachine {
         } else this.end({ type: 'stop' });
         return;
       case 'toggle':
-        if (bindingMatches(hotkey, this.downKeys) || bindingMatches(toggle, this.downKeys)) {
+        if (bindingMatches(hotkey, this.downKeys) && t < this.tapToggleUntil) return;
+        if (this.bindings.hotkeys.some((b) => bindingMatches(b, this.downKeys)) || bindingMatches(toggle, this.downKeys)) {
           this.quietUntil = t + this.timing.doubleTapMs;
           this.end({ type: 'stop' });
         }
@@ -239,13 +283,20 @@ export class HotkeyMachine {
 
   up(code: number, t: number): void {
     this.downKeys.delete(code);
-    if (!inBinding(this.bindings.hotkey, code)) return;
+    if (!inBinding(this.hotkey, code)) return;
     const tap = t - this.pressedAt < this.timing.tapMs;
     switch (this.state) {
       case 'press1':
         this.clearTimer();
         if (!tap) {
           this.end({ type: 'stop' });
+          return;
+        }
+        if (isDedicated(this.hotkey)) {
+          // Not a shortcut key, so one tap means hands-free; a second tap soon after is a double-tap, not a stop.
+          this.state = 'toggle';
+          this.tapToggleUntil = t + this.timing.doubleTapMs;
+          this.emit({ type: 'mode', mode: 'toggle', key: this.active });
           return;
         }
         this.state = 'tapped';
@@ -255,7 +306,7 @@ export class HotkeyMachine {
         this.clearTimer();
         if (tap) {
           this.state = 'toggle';
-          this.emit({ type: 'mode', mode: 'toggle' });
+          this.emit({ type: 'mode', mode: 'toggle', key: this.active });
           return;
         }
         this.end({ type: 'stop' });
@@ -273,9 +324,14 @@ export class HotkeyMachine {
       this.timer = undefined;
       if (this.state === 'press1' || this.state === 'press2') {
         this.state = 'push-to-talk';
-        this.emit({ type: 'mode', mode: 'push-to-talk' });
+        this.emit({ type: 'mode', mode: 'push-to-talk', key: this.active });
       }
     }, this.timing.tapMs);
+  }
+
+  /** The dictation key of the recording in progress (or the last one). */
+  private get hotkey(): Binding | null {
+    return this.bindings.hotkeys[this.active] ?? null;
   }
 
   private clearTimer(): void {
@@ -299,7 +355,7 @@ export class HotkeyMachine {
 export function menuMaskKeys(b: Bindings): number[] {
   const masked = new Set([VK.LAlt, VK.RAlt, VK.LWin, VK.RWin] as number[]);
   const out = new Set<number>();
-  for (const x of [b.hotkey, b.toggle, b.picker]) for (const k of x?.keys ?? []) if (typeof k === 'number' && masked.has(k)) out.add(k);
+  for (const x of [...b.hotkeys, b.toggle, b.picker]) for (const k of x?.keys ?? []) if (typeof k === 'number' && masked.has(k)) out.add(k);
   return [...out];
 }
 

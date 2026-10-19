@@ -87,6 +87,10 @@ export function sendCtrlV(): number {
   return sendKeys([{ vk: VK_CONTROL }, { vk: VK_V }, { vk: VK_V, up: true }, { vk: VK_CONTROL, up: true }]);
 }
 
+export function sendEnter(): boolean {
+  return sendKeys([{ vk: 0x0d }, { vk: 0x0d, up: true }]) === 2;
+}
+
 export function foregroundWindow(): number {
   return Number(GetForegroundWindow());
 }

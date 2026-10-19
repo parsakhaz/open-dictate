@@ -572,3 +572,18 @@ code {
   margin-top: 6px;
   color: var(--amber);
 }
+
+.keylist {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+}
+.keylist .binding {
+  min-width: 140px;
+  text-align: left;
+}
+.keylist .warnline:empty {
+  display: none;
+}

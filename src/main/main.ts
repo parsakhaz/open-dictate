@@ -7,7 +7,7 @@ import { dbfs, defaultGainDb } from '../core/audio';
 import { CaptureController, type CaptureEvents } from '../core/capture';
 import { runChain } from '../core/chain';
 import { HistoryStore } from '../core/history';
-import { type Bindings, bindingFromKeys, bindingLabel, type HotkeyAction, HotkeyMachine, isModifier, menuMaskKeys, type RecordMode } from '../core/hotkeys';
+import { type Bindings, bindingFromKeys, bindingLabel, type HotkeyAction, HotkeyMachine, isModifier, menuMaskKeys, type RecordMode, swallowBindings, VK } from '../core/hotkeys';
 import { DEFAULT_SEGMENTER, LiveCleanup, Segmenter } from '../core/live';
 import { type MicDevice, type MicEvent, MicSelector, micKey, micName } from '../core/mics';
 import { finishHint } from '../core/pillhint';
@@ -94,6 +94,8 @@ interface Session {
   segmenter?: Segmenter;
   cleaner?: LiveCleanup;
   final?: (text: string) => void;
+  /** Esc after release (transcribing or cleaning): stops the cleanup, and nothing is pasted. */
+  abort: AbortController;
 }
 
 let nextId = 1;
@@ -101,6 +103,24 @@ let nextId = 1;
 let rec: Session | null = null;
 /** Sessions past key release, waiting on their final. */
 const finishing = new Map<number, Session>();
+/** Sessions past key release that Esc can still cancel: until their text starts going out. */
+const cancellable = new Set<Session>();
+
+/** The hook swallows Esc while it cancels something: a recording, or a dictation still transcribing or cleaning. */
+function syncEsc(): void {
+  hook.send({ type: 'recording', on: !!rec || cancellable.size > 0 });
+}
+
+/** Esc after release: every dictation still transcribing or cleaning stops, and nothing of it is pasted. */
+function cancelAfterRelease(): void {
+  for (const s of cancellable) {
+    s.abort.abort();
+    s.cleaner?.cancel();
+    s.final?.('');
+  }
+  cancellable.clear();
+  syncEsc();
+}
 let trayState: TrayState = 'loading';
 
 function setTray(s: TrayState): void {
@@ -114,7 +134,12 @@ function trayTooltip(): string {
   if (trayState === 'recording') return 'listening';
   if (trayState === 'processing') return 'transcribing';
   if (trayState === 'error') return sttError || 'error';
-  return `hold ${bindingLabel(settings.hotkey)} to dictate`;
+  return `hold ${hotkeyLabel()} to dictate`;
+}
+
+/** The first dictation key's name, or another one's: what the tray, the welcome page and the hints call it. */
+function hotkeyLabel(i = 0): string {
+  return bindingLabel(settings.hotkeys[i] ?? null);
 }
 
 function idleTray(): void {
@@ -166,17 +191,17 @@ function onHotkey(a: HotkeyAction): void {
       if (rec) return;
       if (!sttReady) {
         // Show why nothing happens, but only for a real press (mode), not a tap.
-        rec = { id: nextId++, mode: null, shown: false, releasedAt: 0, partial: '', live: false };
+        rec = { id: nextId++, mode: null, shown: false, releasedAt: 0, partial: '', live: false, abort: new AbortController() };
         return;
       }
-      rec = { id: nextId++, mode: null, shown: false, releasedAt: 0, partial: '', live: false };
+      rec = { id: nextId++, mode: null, shown: false, releasedAt: 0, partial: '', live: false, abort: new AbortController() };
       cleanup.touch();
       // Capture starts at key down so the first word is not lost; the pill waits until this is a hold or a double-tap.
       keyDownAt = performance.timeOrigin + performance.now();
       router.start(rec.id, micDevice()?.deviceId ?? null, gainFor(micDevice()));
       startLiveCleanup(rec);
       pillSend('dictate:enumerate');
-      hook.send({ type: 'recording', on: true });
+      syncEsc();
       return;
     }
     case 'mode': {
@@ -188,11 +213,11 @@ function onHotkey(a: HotkeyAction): void {
         showPill(pill);
         rec = null;
         machine.reset();
-        hook.send({ type: 'recording', on: false });
+        syncEsc();
         return;
       }
       // Until the mic delivers audio the meter is grey and flat, and the start cue waits for it.
-      const finish = finishHint(a.mode, a.via, { hotkey: bindingLabel(settings.hotkey), toggle: bindingLabel(settings.toggle) });
+      const finish = finishHint(a.mode, a.via, { hotkey: hotkeyLabel(a.key), toggle: bindingLabel(settings.toggle) });
       pillSend('dictate:pill', cleanup.warming() ? { kind: 'warming', finish } : { kind: 'listening', mode: a.mode, finish, starting: !rec.live });
       showPill(pill);
       rec.shown = true;
@@ -205,7 +230,7 @@ function onHotkey(a: HotkeyAction): void {
     case 'cancel': {
       const s = rec;
       rec = null;
-      hook.send({ type: 'recording', on: false });
+      syncEsc();
       if (!s) return;
       router.cancel(s.id);
       stopLiveCleanup(s, true);
@@ -223,14 +248,22 @@ function onHotkey(a: HotkeyAction): void {
   }
 }
 
+/** Esc after release: the session ends quietly, with nothing pasted. */
+function cancelled(s: Session, when: string): void {
+  log('info', `dictation ${s.id}: cancelled with Esc while ${when}`);
+  sound('cancel');
+  pillSend('dictate:pill', { kind: 'info', message: 'Cancelled' });
+  idleTray();
+}
+
 async function stopRecording(): Promise<void> {
   const s = rec;
   rec = null;
-  hook.send({ type: 'recording', on: false });
-  if (!s) return;
-  if (!sttReady) return;
+  if (!s || !sttReady) return syncEsc();
   s.releasedAt = performance.now();
   finishing.set(s.id, s);
+  cancellable.add(s);
+  syncEsc();
   sound('stop');
   setTray('processing');
   pillSend('dictate:pill', { kind: 'transcribing' });
@@ -245,7 +278,10 @@ async function stopRecording(): Promise<void> {
   finishing.delete(s.id);
   applyPendingMicSwitch();
   const sttMs = performance.now() - s.releasedAt;
+  if (s.abort.signal.aborted) return cancelled(s, 'transcribing');
   if (!raw.trim()) {
+    cancellable.delete(s);
+    syncEsc();
     log('info', `dictation ${s.id}: nothing heard (${sttMs.toFixed(0)} ms)`);
     pillSend('dictate:pill', { kind: 'info', message: 'Didn’t catch that' });
     return idleTray();
@@ -259,18 +295,28 @@ async function stopRecording(): Promise<void> {
           log('info', `live cleanup ${s.id}: ${r.early} sentence${r.early === 1 ? '' : 's'} cleaned while speaking, ${r.redone} redone after a revision`);
           return r;
         } catch (err) {
+          if (s.abort.signal.aborted) return { text: heard, steps: [] };
           log('warn', `live cleanup ${s.id} failed (${(err as Error).message}); cleaning the whole dictation`);
-          return runChain(heard, cleanup.steps(), cleanup.deps());
+          return runChain(heard, cleanup.steps(), cleanup.deps(), { signal: s.abort.signal });
         }
       }
     : undefined;
-  const result = await finishDictation(raw, cleanup.steps(), settings.output, s.releasedAt, { chain: cleanup.deps(), sink, history, saveHistory: () => saveHistory.now(), log, clean }, (phase) => {
+  const deps = { chain: cleanup.deps(), sink, history, saveHistory: () => saveHistory.now(), log, clean, pressEnter: settings.pressEnter, signal: s.abort.signal };
+  const result = await finishDictation(raw, cleanup.steps(), settings.output, s.releasedAt, deps, (phase) => {
     if (phase === 'cleaning') pillSend('dictate:pill', { kind: 'cleaning' });
+    else {
+      // The text is going out: too late for Esc.
+      cancellable.delete(s);
+      syncEsc();
+    }
   });
+  cancellable.delete(s);
+  syncEsc();
+  if (result.cancelled) return cancelled(s, 'cleaning');
   log('info', `dictation ${s.id}: final after ${sttMs.toFixed(0)} ms`);
   const d = result.delivery;
   if (d?.pasted && d.confirmed === false) pillSend('dictate:pill', { kind: 'copied', message: 'Pasted — also on the clipboard' });
-  else if (d?.pasted) pillSend('dictate:pill', { kind: 'done', message: settings.output === 'both' ? 'Pasted and copied' : 'Pasted' });
+  else if (d?.pasted) pillSend('dictate:pill', { kind: 'done', message: `${settings.output === 'both' ? 'Pasted and copied' : 'Pasted'}${d.entered ? ' · Enter' : ''}` });
   else if (d?.copied) pillSend('dictate:pill', { kind: 'copied', message: settings.output === 'clipboard' ? 'Copied' : 'Copied — press Ctrl+V' });
   else pillSend('dictate:pill', { kind: 'error', message: `Could not paste — it’s in History (${bindingLabel(settings.picker)})` });
   pushState();
@@ -674,6 +720,11 @@ function onHook(e: FromHook): void {
     }
     return;
   }
+  // Esc after release cancels a dictation still transcribing or cleaning (the hook swallowed it).
+  if (e.down && e.vk === VK.Escape && !rec && cancellable.size) {
+    cancelAfterRelease();
+    return;
+  }
   if (picker.isOpen) {
     // Alt and Win combos (Alt+Tab, Win+D) are the person leaving: let them through and close.
     if (e.down && [0xa4, 0xa5, 0x5b, 0x5c].includes(e.vk)) closePicker();
@@ -685,14 +736,14 @@ function onHook(e: FromHook): void {
 }
 
 function bindings(): Bindings {
-  return { hotkey: settings.hotkey, toggle: settings.toggle, picker: settings.picker };
+  return { hotkeys: settings.hotkeys, toggle: settings.toggle, picker: settings.picker };
 }
 
 function applyBindings(): void {
   machine.configure(bindings(), { tapMs: settings.tapMs, doubleTapMs: settings.doubleTapMs });
-  // Swallow the last key of each combo so the app never sees it: Right Ctrl+V must not paste. Mask lone Alt/Win
-  // presses of the bindings, so dictating with Right Alt never opens a menu bar.
-  hook.send({ type: 'config', swallow: [settings.picker, settings.toggle].filter((b): b is Binding => !!b), mask: menuMaskKeys(bindings()) });
+  // Swallow the last key of each combo so the app never sees it (Right Ctrl+V must not paste), and dedicated
+  // dictation keys (F13). Mask lone Alt/Win presses of the bindings, so dictating with Right Alt never opens a menu bar.
+  hook.send({ type: 'config', swallow: swallowBindings(bindings()), mask: menuMaskKeys(bindings()) });
 }
 
 // ---------- tray ----------
@@ -710,7 +761,7 @@ function rebuildTrayMenu(): void {
   const out = (o: Settings['output'], label: string): Electron.MenuItemConstructorOptions => ({ label, type: 'radio', checked: settings.output === o, click: () => updateSettings({ output: o }) });
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: `Hold ${bindingLabel(settings.hotkey)} to dictate · double-tap to toggle`, enabled: false },
+      { label: `Hold ${hotkeyLabel()} to dictate · double-tap to toggle`, enabled: false },
       { type: 'separator' },
       { label: 'Copy last dictation', enabled: !!last, click: () => last && void writeClipboardText(last.text, { history: true }).catch(() => undefined) },
       { label: `History…   ${bindingLabel(settings.picker)}`, enabled: !!last, click: () => void picker.open() },
@@ -764,7 +815,7 @@ function stats() {
 function state() {
   return {
     settings,
-    labels: { hotkey: bindingLabel(settings.hotkey), toggle: bindingLabel(settings.toggle), picker: bindingLabel(settings.picker) },
+    labels: { hotkey: hotkeyLabel(), hotkeys: settings.hotkeys.map((b) => bindingLabel(b)), toggle: bindingLabel(settings.toggle), picker: bindingLabel(settings.picker) },
     devices: lastDevices(),
     mic: mics.current,
     defaultMicLabel,
@@ -792,7 +843,7 @@ function updateSettings(patch: Partial<Settings>): void {
   if (patch.liveCleanup !== undefined) patch = { ...patch, liveCleanupSet: true };
   settings = parseSettings({ ...settings, ...patch }, defaultSettings(settings.vocabulary));
   saveSettings.save();
-  if (patch.hotkey !== undefined || patch.toggle !== undefined || patch.picker !== undefined || patch.tapMs !== undefined || patch.doubleTapMs !== undefined) applyBindings();
+  if (patch.hotkeys !== undefined || patch.toggle !== undefined || patch.picker !== undefined || patch.tapMs !== undefined || patch.doubleTapMs !== undefined) applyBindings();
   if (patch.historyLimit !== undefined) history.setLimit(settings.historyLimit);
   if (patch.micWarm !== undefined) warm?.settingChanged();
   if (patch.pillText !== undefined) pillConfig();
@@ -980,7 +1031,7 @@ async function main(): Promise<void> {
     foreground: foregroundWindow,
     caret: caretRect,
     items: pickerItems,
-    hotkey: () => bindingLabel(settings.hotkey),
+    hotkey: () => hotkeyLabel(),
     log,
   });
   void picker.ensure();
@@ -1001,7 +1052,8 @@ async function main(): Promise<void> {
     fs.writeFileSync(qaControl, '');
     fs.watchFile(qaControl, { interval: 20 }, () => {
       const lines = fs.readFileSync(qaControl, 'utf8').split('\n').filter(Boolean);
-      const key = typeof settings.hotkey?.keys[0] === 'number' ? settings.hotkey.keys[0] : 0xa3;
+      const first = settings.hotkeys[0]?.keys[0];
+      const key = typeof first === 'number' ? first : 0xa3;
       for (const line of lines.slice(seen)) {
         const t = performance.now();
         if (line === 'down') machine.down(key, t);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { AltGrFilter, type Bindings, bindingFromKeys, bindingLabel, type HotkeyAction, HotkeyMachine, menuMaskKeys, type Timers, VK } from '../src/core/hotkeys';
+import type { Binding } from '../src/core/types';
+import { AltGrFilter, type Bindings, bindingFromKeys, bindingLabel, dictationKeyProblem, type HotkeyAction, HotkeyMachine, isDedicated, menuMaskKeys, swallowBindings, type Timers, VK } from '../src/core/hotkeys';
 
 const C = 0x43;
 
@@ -31,7 +32,7 @@ function fakeClock() {
   return { timers, advance };
 }
 
-const DEFAULTS: Bindings = { hotkey: { keys: [VK.RCtrl] }, toggle: null, picker: { keys: [VK.RCtrl, VK.V] } };
+const DEFAULTS: Bindings = { hotkeys: [{ keys: [VK.RCtrl] }], toggle: null, picker: { keys: [VK.RCtrl, VK.V] } };
 
 function machine(b: Bindings = DEFAULTS) {
   const actions: HotkeyAction[] = [];
@@ -49,8 +50,8 @@ function machine(b: Bindings = DEFAULTS) {
 }
 
 const start = { type: 'start' } as const;
-const ptt = { type: 'mode', mode: 'push-to-talk' } as const;
-const toggle = { type: 'mode', mode: 'toggle' } as const;
+const ptt = { type: 'mode', mode: 'push-to-talk', key: 0 } as const;
+const toggle = { type: 'mode', mode: 'toggle', key: 0 } as const;
 const stop = { type: 'stop' } as const;
 
 describe('hold: push-to-talk', () => {
@@ -207,7 +208,7 @@ describe('Ctrl+key combos', () => {
     down(VK.Space, 20);
     for (const k of [VK.Space, VK.LShift, VK.LCtrl]) up(k, 100);
     // via: the combo, so the pill says that combo finishes it, not the dictation key
-    const viaCombo = { ...toggle, via: 'combo' };
+    const viaCombo = { type: 'mode', mode: 'toggle', via: 'combo' };
     expect(actions).toEqual([start, viaCombo]);
     down(VK.LCtrl, 5000);
     down(VK.LShift, 5010);
@@ -215,11 +216,11 @@ describe('Ctrl+key combos', () => {
     expect(actions).toEqual([start, viaCombo, stop]);
   });
 
-  it('Right Alt alone as the toggle combo, with Shift + Right Alt as the dictation key (a real setup)', () => {
-    const { actions, down, up } = machine({ hotkey: { keys: [VK.LShift, VK.RAlt] }, toggle: { keys: [VK.RAlt] }, picker: null });
+  it('Right Alt alone as the toggle combo, with Shift + Right Alt as the dictation key', () => {
+    const { actions, down, up } = machine({ hotkeys: [{ keys: [VK.LShift, VK.RAlt] }], toggle: { keys: [VK.RAlt] }, picker: null });
     down(VK.RAlt, 0);
     up(VK.RAlt, 80);
-    expect(actions).toEqual([start, { ...toggle, via: 'combo' }]);
+    expect(actions).toEqual([start, { type: 'mode', mode: 'toggle', via: 'combo' }]);
   });
 });
 
@@ -299,16 +300,16 @@ describe('labels and recording bindings', () => {
 
 describe('menuMaskKeys', () => {
   it('masks Right Alt when it is the dictation key or part of the picker combo', () => {
-    expect(menuMaskKeys({ hotkey: { keys: [VK.RAlt] }, toggle: null, picker: { keys: [VK.RAlt, VK.V] } })).toEqual([VK.RAlt]);
+    expect(menuMaskKeys({ hotkeys: [{ keys: [VK.RAlt] }], toggle: null, picker: { keys: [VK.RAlt, VK.V] } })).toEqual([VK.RAlt]);
   });
 
   it('masks the Win keys too (a lone Win release opens Start), and nothing for Ctrl', () => {
-    expect(menuMaskKeys({ hotkey: { keys: [VK.RCtrl] }, toggle: { keys: [VK.LWin, 0x20] }, picker: { keys: [VK.RCtrl, VK.V] } })).toEqual([VK.LWin]);
-    expect(menuMaskKeys({ hotkey: { keys: [VK.RCtrl] }, toggle: null, picker: null })).toEqual([]);
+    expect(menuMaskKeys({ hotkeys: [{ keys: [VK.RCtrl] }], toggle: { keys: [VK.LWin, 0x20] }, picker: { keys: [VK.RCtrl, VK.V] } })).toEqual([VK.LWin]);
+    expect(menuMaskKeys({ hotkeys: [{ keys: [VK.RCtrl] }], toggle: null, picker: null })).toEqual([]);
   });
 
   it('leaves either-side Alt alone, so Alt still opens menus', () => {
-    expect(menuMaskKeys({ hotkey: { keys: [VK.RCtrl] }, toggle: { keys: ['alt', 0x20] }, picker: null })).toEqual([]);
+    expect(menuMaskKeys({ hotkeys: [{ keys: [VK.RCtrl] }], toggle: { keys: ['alt', 0x20] }, picker: null })).toEqual([]);
   });
 });
 
@@ -340,7 +341,7 @@ describe('AltGrFilter', () => {
   it('with the filter, an AltGr press is a plain Right Alt hold to the machine', () => {
     const clock = fakeClock();
     const out: string[] = [];
-    const m = new HotkeyMachine({ hotkey: { keys: [VK.RAlt] }, toggle: null, picker: { keys: [VK.RAlt, VK.V] } }, (a) => out.push(a.type === 'mode' ? a.mode : a.type), undefined, clock.timers);
+    const m = new HotkeyMachine({ hotkeys: [{ keys: [VK.RAlt] }], toggle: null, picker: { keys: [VK.RAlt, VK.V] } }, (a) => out.push(a.type === 'mode' ? a.mode : a.type), undefined, clock.timers);
     const f = new AltGrFilter();
     const feed = (vk: number, down: boolean, t: number, scan = 0) => {
       clock.advance(t);
@@ -355,3 +356,114 @@ describe('AltGrFilter', () => {
   });
 });
 
+
+const F13 = 0x7c;
+
+describe('dedicated keys: F13-F24 and mouse-mapped buttons (A1)', () => {
+  const withF13: Bindings = { hotkeys: [{ keys: [F13] }], toggle: null, picker: { keys: [VK.RCtrl, VK.V] } };
+
+  it('hold is push-to-talk, with auto-repeat downs ignored', () => {
+    const { actions, down, up } = machine(withF13);
+    down(F13, 0);
+    down(F13, 300);
+    down(F13, 330);
+    up(F13, 2000);
+    expect(actions).toEqual([start, ptt, stop]);
+  });
+
+  it('a single tap starts hands-free at once, and the next tap stops it', () => {
+    const { actions, down, up, advance } = machine(withF13);
+    down(F13, 0);
+    up(F13, 80);
+    expect(actions).toEqual([start, toggle]);
+    advance(5000);
+    expect(actions).toEqual([start, toggle]);
+    down(F13, 6000);
+    up(F13, 6080);
+    expect(actions).toEqual([start, toggle, stop]);
+  });
+
+  it('a double-tap is hands-free too: its second tap does not stop it', () => {
+    const { actions, down, up } = machine(withF13);
+    down(F13, 0);
+    up(F13, 80);
+    down(F13, 200);
+    up(F13, 280);
+    expect(actions).toEqual([start, toggle]);
+    down(F13, 3000);
+    up(F13, 3080);
+    expect(actions).toEqual([start, toggle, stop]);
+  });
+
+  it('F13 while Ctrl is held does nothing', () => {
+    const { actions, down, up, advance } = machine(withF13);
+    down(VK.LCtrl, 0);
+    down(F13, 10);
+    up(F13, 60);
+    up(VK.LCtrl, 100);
+    advance(2000);
+    expect(actions).toEqual([]);
+  });
+
+  it('Esc cancels a hands-free recording started with a tap', () => {
+    const { actions, down, up } = machine(withF13);
+    down(F13, 0);
+    up(F13, 80);
+    down(VK.Escape, 1000);
+    expect(actions).toEqual([start, toggle, { type: 'cancel', reason: 'escape' }]);
+  });
+
+  it('is the class of keys nobody types with: F13-F24, Pause, Scroll Lock, Insert, Menu, alone', () => {
+    for (const k of [F13, 0x87, 0x13, 0x91, 0x2d, 0x5d]) expect(isDedicated({ keys: [k] })).toBe(true);
+    for (const b of [{ keys: [VK.RAlt] }, { keys: [VK.RCtrl] }, { keys: ['ctrl', F13] }, { keys: [0x70] }] as Binding[]) expect(isDedicated(b)).toBe(false);
+  });
+
+  it('the hook swallows a dedicated dictation key (down and up), but never Right Alt or Right Ctrl', () => {
+    const b: Bindings = { hotkeys: [{ keys: [VK.RAlt] }, { keys: [F13] }], toggle: null, picker: { keys: [VK.RAlt, VK.V] } };
+    expect(swallowBindings(b)).toEqual([{ keys: [VK.RAlt, VK.V] }, { keys: [F13] }]);
+  });
+});
+
+describe('the key recorder refuses keys you type with (A1)', () => {
+  it('refuses a lone letter, digit, Space, Enter, Tab, Backspace or Esc, saying why', () => {
+    for (const k of [0x41, 0x35, VK.Space, VK.Enter, VK.Tab, VK.Back, VK.Escape]) expect(dictationKeyProblem({ keys: [k] })).toMatch(/.+/);
+  });
+
+  it('accepts F13, Pause, Right Alt and Ctrl+F13', () => {
+    for (const b of [{ keys: [F13] }, { keys: [0x13] }, { keys: [VK.RAlt] }, { keys: ['ctrl', F13] }] as Binding[]) expect(dictationKeyProblem(b)).toBeNull();
+  });
+});
+
+describe('several dictation keys (B2)', () => {
+  const both: Bindings = { hotkeys: [{ keys: [VK.RAlt] }, { keys: [F13] }], toggle: null, picker: { keys: [VK.RAlt, VK.V] } };
+
+  it('Right Alt and F13 both dictate, and the mode says which key started it', () => {
+    const { actions, down, up } = machine(both);
+    down(VK.RAlt, 0);
+    up(VK.RAlt, 1000);
+    down(F13, 2000);
+    up(F13, 3000);
+    expect(actions).toEqual([start, ptt, stop, start, { type: 'mode', mode: 'push-to-talk', key: 1 }, stop]);
+  });
+
+  it('a lone Right Alt tap still does nothing (only dedicated keys toggle on one tap)', () => {
+    const { actions, down, up, advance } = machine(both);
+    down(VK.RAlt, 0);
+    up(VK.RAlt, 80);
+    advance(2000);
+    expect(actions).toEqual([start, { type: 'cancel', reason: 'tap' }]);
+  });
+
+  it('a tap of either key ends hands-free', () => {
+    const { actions, down, up } = machine(both);
+    down(F13, 0);
+    up(F13, 80);
+    down(VK.RAlt, 3000);
+    up(VK.RAlt, 3080);
+    expect(actions).toEqual([start, { type: 'mode', mode: 'toggle', key: 1 }, stop]);
+  });
+
+  it('menu masks cover every dictation key', () => {
+    expect(menuMaskKeys({ hotkeys: [{ keys: [F13] }, { keys: [VK.RAlt] }], toggle: null, picker: null })).toEqual([VK.RAlt]);
+  });
+});

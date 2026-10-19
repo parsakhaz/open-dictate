@@ -18,7 +18,7 @@ export const EMBERON_GGUF = 'Emberon-2-Q4_K_M.gguf';
 export function defaultSettings(vocabulary: VocabTerm[] = []): Settings {
   return {
     version: 2,
-    hotkey: { keys: [VK.RCtrl] },
+    hotkeys: [{ keys: [VK.RCtrl] }],
     toggle: null,
     picker: { keys: [VK.RCtrl, VK.V] },
     tapMs: DEFAULT_TIMING.tapMs,
@@ -28,6 +28,7 @@ export function defaultSettings(vocabulary: VocabTerm[] = []): Settings {
     cleanup: 'gemma-emberon',
     output: 'paste',
     sounds: true,
+    pressEnter: false,
     pillText: true,
     micWarm: 'off',
     liveCleanup: true,
@@ -60,6 +61,19 @@ function binding(x: unknown, fallback: Binding | null): Binding | null {
   return Array.isArray(keys) && keys.length > 0 && keys.every(isKeySpec) ? { keys } : fallback;
 }
 
+export const MAX_HOTKEYS = 4;
+
+/** `hotkeys`, or a file from before several keys (a single `hotkey`, possibly null). */
+function hotkeys(d: Record<string, unknown>, fallback: Binding[]): Binding[] {
+  if (Array.isArray(d.hotkeys)) {
+    const good = d.hotkeys.map((x) => binding(x, null)).filter((b): b is Binding => !!b);
+    return d.hotkeys.length && !good.length ? fallback : good.slice(0, MAX_HOTKEYS);
+  }
+  if (!('hotkey' in d)) return fallback;
+  const one = binding(d.hotkey, fallback[0] ?? null);
+  return one ? [one] : [];
+}
+
 const str = (x: unknown, d: string) => (typeof x === 'string' && x.trim() ? x : d);
 const bool = (x: unknown, d: boolean) => (typeof x === 'boolean' ? x : d);
 const num = (x: unknown, d: number, lo: number, hi: number) => (typeof x === 'number' && Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : d);
@@ -81,7 +95,7 @@ export function parseSettings(data: unknown, defaults: Settings): Settings {
   const micOrder = Array.isArray(d.micOrder) ? parseMicPrefs(d.micOrder) : defaults.micOrder;
   return {
     version: 2,
-    hotkey: binding(d.hotkey, defaults.hotkey),
+    hotkeys: hotkeys(d, defaults.hotkeys),
     toggle: binding(d.toggle, defaults.toggle),
     picker: binding(d.picker, defaults.picker),
     tapMs: Math.round(num(d.tapMs, defaults.tapMs, 100, 800)),
@@ -91,6 +105,7 @@ export function parseSettings(data: unknown, defaults: Settings): Settings {
     cleanup: CHAINS.includes(d.cleanup as CleanupChain) ? (d.cleanup as CleanupChain) : defaults.cleanup,
     output: OUTPUTS.includes(d.output as OutputMode) ? (d.output as OutputMode) : defaults.output,
     sounds: bool(d.sounds, defaults.sounds),
+    pressEnter: bool(d.pressEnter, defaults.pressEnter),
     pillText: bool(d.pillText, defaults.pillText),
     micWarm: (['off', '30s', 'always'] as const).find((w) => w === d.micWarm) ?? defaults.micWarm,
     // A saved value the person never chose was just the default of its day: it follows today's default.

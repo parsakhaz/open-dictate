@@ -51,9 +51,14 @@ dictate reuses voice-lab's models and llama.cpp build; it downloads nothing.
 | --- | --- |
 | **Hold Right Ctrl**, speak, release | The text is typed into the focused app. |
 | **Double-tap Right Ctrl** | Hands-free: keep talking. Tap Right Ctrl again to finish. |
-| **Esc** while recording | Cancels; nothing is typed. |
+| **Esc** while recording, transcribing or cleaning | Cancels; nothing is typed. |
 | **Right Ctrl + V** | Opens your dictation history at the cursor, like Win + V. |
 | A single tap of Right Ctrl, or Right Ctrl + any key | Nothing: Right Ctrl keeps working in shortcuts. (If you were already dictating for more than 1.5 s, the dictation is finished and kept instead.) |
+| End with the words **"press enter"** | With **Say "press enter" to send** on (off by default), Enter is pressed after the text, to send a chat message. |
+
+**Several dictation keys.** Up to four keys work side by side, for example Right Alt on the keyboard and F13 on a mouse button. Add them in **Hotkeys & output**.
+
+**Mouse buttons and other dedicated keys.** Map a mouse button to F13 (or any of F13–F24) in Logitech Options+ or G HUB, then add F13 as a dictation key. F13–F24, Pause, Scroll Lock, Insert and Menu are *dedicated keys*: dictate keeps them from the app you're typing in, and one tap starts hands-free (the next tap finishes), since mouse software may only send taps. Holding still means push-to-talk. Keys you type with (letters, digits, Space, Enter, Tab, Backspace) can't be a dictation key on their own.
 
 **The pill.** A small pill at the bottom of the screen shows what is happening. It doesn't take focus from your app.
 
@@ -77,7 +82,7 @@ Open **Settings** from the tray (or click the tray icon).
 
 | Page | What you can change |
 | --- | --- |
-| Hotkeys & output | Dictation key (default Right Ctrl), history picker key (Right Ctrl + V), optional toggle combo (off), output mode (paste / clipboard only / both), sounds, start with Windows. |
+| Hotkeys & output | Dictation keys (default Right Ctrl; up to four, with Right Ctrl, Right Alt and F13 quick picks), history picker key (Right Ctrl + V), optional toggle combo (off), output mode (paste / clipboard only / both), "press enter" to send (off), sounds, start with Windows. |
 | Microphone | Pick the mic, with a live meter for every input. Set input gain per mic: +30 dB by default for the quiet built-in *Microphone Array (AMD Audio Device)*, 0 dB for the others; a gain you set wins. Loud peaks are softened instead of clipping. **Keep the mic ready after a dictation**: Off (default), 30 seconds, or always while plugged in. A ready mic starts a follow-up in about 15 ms instead of up to 0.9 s, but Windows shows the mic as in use, and a Bluetooth headset stays in call mode (lower music and call quality) for that time. |
 | Cleanup | Gemma → Emberon (default), Gemma only, Emberon only, or off. On battery: unload the models after N idle minutes (default 60, or never), and optionally use Emberon only. **Clean up as I speak** (on by default) cleans finished sentences while you talk: a 27 s dictation is ready about 0.3 s after release instead of about 1.6 s. Per-sentence cleanup scored a little lower in testing (see the PR); turn it off for the most careful cleanup. |
 | Vocabulary | Terms to spell right, with "sounds like" spellings the recognizer tends to produce (`pain => Pane`, `uzi => Doozy`). It starts from voice-lab's list plus Pane, Doozy, Conductor, Claude Code, Codex, Opus and Grain. |
@@ -208,8 +213,14 @@ Last run (2026-10-18, AC): **49/49 passed**, release-to-paste median 718 ms.
 ```powershell
 pnpm build
 node qa/qa.js                 # every scenario
-node qa/qa.js ptt picker      # some: ptt toggle esc tap picker browser body terminal crash mic
+node qa/qa.js ptt picker      # some: ptt toggle esc escclean tap single second picker altgr browser body terminal crash mic
+node qa/qa.js --key=ralt      # Right Alt as the dictation key
+node qa/qa.js --key=f13       # F13 injected like mouse software sends it, with Right Alt as a second key
 ```
+
+`escclean` (Esc while the words are being cleaned) was added after that run, as were `single` and `second`, which run only with `--key=f13`.
+
+To look at the settings pages without starting dictate (no tray, hook or models, so it is safe while dictate runs): `node_modules\electron\dist\electron.exe qa/settingsshots.js "Hotkeys & output"`. Shots go to `tmp/settings-shots/`.
 
 It covers hold-to-talk five times (with release-to-paste timing and the clipboard restored), double-tap toggle, Esc, a lone tap and Right Ctrl shortcuts, the history picker, an Edge text field, an Edge page with no field, a terminal, a Gemma crash, and a simulated mic unplug. It also logs which targets show a Win32 caret (Notepad does; Edge and Windows Terminal don't). Results go to `tmp/qa/out/summary.json` with screenshots, and its app data goes to `tmp/qa-data`, not your settings.
 

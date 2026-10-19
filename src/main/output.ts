@@ -1,6 +1,6 @@
 // Wires the paste rules (paste.ts) to the real clipboard, SendInput and the foreground window.
 import { ClipboardItem, clipboard } from 'electron';
-import { caretRect, foregroundWindow, looksLikeNoTextTarget, sendCtrlV, typeText, windowClass, windowPid, writeClipboardText } from '../native/win32';
+import { caretRect, foregroundWindow, looksLikeNoTextTarget, sendCtrlV, sendEnter, typeText, windowClass, windowPid, writeClipboardText } from '../native/win32';
 import { type ClipboardPort, PasteSink } from './paste';
 
 /** Clipboard calls that take longer than this are treated as failed: another app has it locked. */
@@ -56,7 +56,7 @@ const hidesCaret = (hwnd: number) => NO_WIN32_CARET.test(windowClass(hwnd));
 export function realPasteSink(opts: { modifiersDown: () => boolean; ownPid: number; log: (level: 'info' | 'warn' | 'error', msg: string) => void }): PasteSink {
   return new PasteSink({
     clipboard: electronClipboard,
-    input: { sendCtrlV, typeText },
+    input: { sendCtrlV, typeText, sendEnter },
     target: {
       foreground: foregroundWindow,
       noTextField: (hwnd) => looksLikeNoTextTarget(hwnd) || windowPid(hwnd) === opts.ownPid,

@@ -9,7 +9,7 @@ describe('parseSettings', () => {
   });
 
   it('defaults to Right Ctrl (hold or double-tap), no toggle combo, Right Ctrl+V picker, Gemma then Emberon, paste', () => {
-    expect(d.hotkey).toEqual({ keys: [0xa3] });
+    expect(d.hotkeys).toEqual([{ keys: [0xa3] }]);
     expect(d.toggle).toBeNull();
     expect(d.picker).toEqual({ keys: [0xa3, 0x56] });
     expect([d.tapMs, d.doubleTapMs]).toEqual([250, 350]);
@@ -18,6 +18,7 @@ describe('parseSettings', () => {
     expect(d.sttThreads).toBe(4);
     expect(d.micWarm).toBe('off');
     expect(d.pillText).toBe(true);
+    expect(d.pressEnter).toBe(false);
   });
 
   it('unloads the models after 60 idle minutes on battery by default', () => {
@@ -64,15 +65,24 @@ describe('parseSettings', () => {
 
   it('accepts a binding written as a plain key list, as people write it by hand', () => {
     const s = parseSettings({ hotkey: [165], picker: [165, 86] }, d);
-    expect(s.hotkey).toEqual({ keys: [165] });
+    expect(s.hotkeys).toEqual([{ keys: [165] }]);
     expect(s.picker).toEqual({ keys: [165, 86] });
+  });
+
+  it('reads several dictation keys (B2), keeping up to 4 good ones; an old single "hotkey" becomes the list', () => {
+    expect(parseSettings({ hotkey: { keys: [165] } }, d).hotkeys).toEqual([{ keys: [165] }]);
+    expect(parseSettings({ hotkeys: [[165], { keys: [0x7c] }, { keys: ['hyper'] }] }, d).hotkeys).toEqual([{ keys: [165] }, { keys: [0x7c] }]);
+    expect(parseSettings({ hotkeys: [[1], [2], [3], [4], [5]] }, d).hotkeys).toHaveLength(4);
+    expect(parseSettings({ hotkeys: [] }, d).hotkeys).toEqual([]);
+    expect(parseSettings({ hotkeys: 'x' }, d).hotkeys).toEqual(d.hotkeys);
+    expect(parseSettings({ hotkey: null }, d).hotkeys).toEqual([]);
   });
 
   it('replaces malformed fields with defaults and keeps good ones', () => {
     const s = parseSettings({ cleanup: 'bogus', output: 'both', hotkey: { keys: ['hyper'] }, toggle: { keys: ['ctrl', 0x20] }, sttThreads: 99, gainDb: { a: 6, b: 'x' } }, d);
     expect(s.cleanup).toBe('gemma-emberon');
     expect(s.output).toBe('both');
-    expect(s.hotkey).toEqual(d.hotkey);
+    expect(s.hotkeys).toEqual(d.hotkeys);
     expect(s.toggle).toEqual({ keys: ['ctrl', 0x20] });
     expect(s.sttThreads).toBe(16);
     expect(s.gainDb).toEqual({ a: 6 });

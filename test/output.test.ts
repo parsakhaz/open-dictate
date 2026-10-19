@@ -56,6 +56,7 @@ vi.mock('../src/native/win32', () => ({
   looksLikeNoTextTarget: () => false,
   windowPid: () => 1,
   sendCtrlV: () => 4,
+  sendEnter: () => true,
   typeText: (t: string) => {
     board.typed.push(t);
     return true;

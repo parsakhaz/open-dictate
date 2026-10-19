@@ -1,6 +1,7 @@
 // After the recognizer's final: cleanup chain, then the output sink, then history. No Electron imports, so the
 // integration test drives it with a fake sink.
 import { type ChainDeps, type ChainStep, runChain } from '../core/chain';
+import { splitPressEnter } from '../core/commands';
 import type { HistoryEntry, HistoryStore } from '../core/history';
 import type { OutputMode, StepResult } from '../core/types';
 
@@ -13,10 +14,17 @@ export interface Delivery {
   confirmed?: boolean;
   /** Why it was not pasted, for the log. */
   reason?: string;
+  /** Enter was pressed after the text ("press enter"). */
+  entered?: boolean;
+}
+
+export interface DeliverOptions {
+  /** Press Enter once the text has landed, to send a chat message ("press enter"). */
+  enter?: boolean;
 }
 
 export interface OutputSink {
-  deliver(text: string, mode: OutputMode): Promise<Delivery>;
+  deliver(text: string, mode: OutputMode, opts?: DeliverOptions): Promise<Delivery>;
 }
 
 export type Phase = 'cleaning' | 'delivering';
@@ -32,12 +40,18 @@ export interface PipelineDeps {
   stepTimeoutMs?: number;
   /** Replaces the whole-dictation chain: live cleanup, which cleaned most sentences while the person spoke. */
   clean?: (heard: string) => Promise<{ text: string; steps: StepResult[] }>;
+  /** "press enter" as the last words presses Enter after the text (the setting, off by default). */
+  pressEnter?: boolean;
+  /** Esc after release: the cleanup stops and nothing is delivered or saved. */
+  signal?: AbortSignal;
 }
 
 export interface DictationResult {
   entry?: HistoryEntry;
   delivery?: Delivery;
   steps: StepResult[];
+  /** Esc was pressed before the text was delivered. */
+  cancelled?: boolean;
 }
 
 function persist(deps: PipelineDeps): void {
@@ -65,19 +79,24 @@ export function withTrailingSpace(text: string): string {
 
 /** Cleans `raw` and delivers it. `releasedAt` (performance.now() at key release) times the whole trip. */
 export async function finishDictation(raw: string, steps: ChainStep[], mode: OutputMode, releasedAt: number, deps: PipelineDeps, onPhase: (p: Phase) => void = () => undefined): Promise<DictationResult> {
-  const heard = raw.trim();
-  if (!heard) return { steps: [] };
+  const said = raw.trim();
+  if (!said) return { steps: [] };
+  const { text: heard, enter } = deps.pressEnter ? splitPressEnter(said) : { text: said, enter: false };
   if (steps.length) onPhase('cleaning');
-  const cleaned = deps.clean ? await deps.clean(heard) : await runChain(heard, steps, deps.chain, { timeoutMs: deps.stepTimeoutMs ?? 3000 });
+  const cleaned = deps.clean ? await deps.clean(heard) : await runChain(heard, steps, deps.chain, { timeoutMs: deps.stepTimeoutMs ?? 3000, signal: deps.signal });
+  if (deps.signal?.aborted) return { steps: cleaned.steps, cancelled: true };
   for (const s of cleaned.steps) if (s.status !== 'ok') deps.log('warn', `cleanup ${s.model} ${s.status}${s.reason ? `: ${s.reason}` : ''}`);
+  // The cleanup may have kept the command as words ("Press Enter."): it never reaches the app as text.
+  const text = enter ? splitPressEnter(cleaned.text).text : cleaned.text;
   onPhase('delivering');
   // Into history, on disk, before delivery: if delivery hangs or the app quits mid-paste, the words are kept.
-  const entry: HistoryEntry = { id: newId(), at: new Date().toISOString(), raw: heard, text: cleaned.text };
+  const entry: HistoryEntry = { id: newId(), at: new Date().toISOString(), raw: heard, text };
   deps.history.add(entry);
   persist(deps);
   let delivery: Delivery;
   try {
-    delivery = await deps.sink.deliver(withTrailingSpace(cleaned.text), mode);
+    // Before Enter, no trailing space: it would be sent with the message.
+    delivery = enter ? await deps.sink.deliver(text, mode, { enter }) : await deps.sink.deliver(withTrailingSpace(text), mode);
   } catch (err) {
     delivery = { pasted: false, copied: false, reason: (err as Error).message };
     deps.log('error', `delivery failed: ${(err as Error).message}`);
@@ -86,7 +105,7 @@ export async function finishDictation(raw: string, steps: ChainStep[], mode: Out
   persist(deps);
   deps.log(
     'info',
-    `dictation ${entry.ms} ms release-to-output · ${cleaned.steps.map((s) => `${s.model} ${s.status} ${s.ms.toFixed(0)} ms`).join(' · ') || 'no cleanup'} · ${delivery.pasted ? 'pasted' : delivery.copied ? 'copied' : 'not delivered'}${delivery.reason ? ` (${delivery.reason})` : ''}`,
+    `dictation ${entry.ms} ms release-to-output · ${cleaned.steps.map((s) => `${s.model} ${s.status} ${s.ms.toFixed(0)} ms`).join(' · ') || 'no cleanup'} · ${delivery.pasted ? 'pasted' : delivery.copied ? 'copied' : 'not delivered'}${delivery.entered ? ' + Enter' : ''}${delivery.reason ? ` (${delivery.reason})` : ''}`,
   );
   return { entry, delivery, steps: cleaned.steps };
 }

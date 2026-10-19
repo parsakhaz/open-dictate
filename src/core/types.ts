@@ -44,8 +44,8 @@ export type OutputMode = 'paste' | 'clipboard' | 'both';
 export interface Settings {
   /** 2: batteryUnloadMinutes defaults to 60 (a version-1 file's 15 was the old default and is migrated). */
   version: 2;
-  /** Hold for push-to-talk, double-tap to toggle. */
-  hotkey: Binding | null;
+  /** Dictation keys, up to 4 (Right Alt on the keyboard, F13 on a mouse): hold for push-to-talk, double-tap to toggle. */
+  hotkeys: Binding[];
   /** Optional extra combo that toggles recording; off by default. */
   toggle: Binding | null;
   /** Opens the history picker. */
@@ -59,6 +59,8 @@ export interface Settings {
   cleanup: CleanupChain;
   output: OutputMode;
   sounds: boolean;
+  /** "press enter" as the last words of a dictation presses Enter after the text; off by default. */
+  pressEnter: boolean;
   /** Show the live words in the pill; off leaves just the waveform. */
   pillText: boolean;
   /** How long the mic stays open after a dictation, so a follow-up starts instantly. */

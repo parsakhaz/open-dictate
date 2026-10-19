@@ -2,7 +2,7 @@
 // it when the clipboard cannot be used safely. No Electron or Win32 imports: the ports are injected, so the
 // rules are unit-tested and output.ts only wires the real clipboard and SendInput.
 import type { OutputMode } from '../core/types';
-import type { Delivery, OutputSink } from './pipeline';
+import type { DeliverOptions, Delivery, OutputSink } from './pipeline';
 
 /** How long the target app gets to read the clipboard before the old contents go back. */
 export const RESTORE_MS = 350;
@@ -24,6 +24,8 @@ export interface InputPort {
   sendCtrlV(): number;
   /** Types the text as Unicode key events; false if Windows blocked them. */
   typeText(text: string): boolean;
+  /** Presses Enter; false if Windows blocked it. */
+  sendEnter(): boolean;
 }
 
 export interface TargetPort {
@@ -56,8 +58,8 @@ export class PasteSink implements OutputSink {
     this.sleep = deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   }
 
-  deliver(text: string, mode: OutputMode): Promise<Delivery> {
-    const run = this.queue.then(() => this.run(text, mode));
+  deliver(text: string, mode: OutputMode, opts: DeliverOptions = {}): Promise<Delivery> {
+    const run = this.queue.then(() => this.run(text, mode, !!opts.enter));
     this.queue = run.catch(() => undefined);
     return run;
   }
@@ -72,12 +74,12 @@ export class PasteSink implements OutputSink {
     }
   }
 
-  private type(text: string, why: string): Delivery {
-    const typed = this.deps.input.typeText(text);
-    return { pasted: typed, copied: false, confirmed: typed, reason: typed ? `typed (${why})` : `${why}, and typing was blocked` };
+  private type(text: string, why: string, enter: boolean): Delivery {
+    const typed = this.deps.input.typeText(enter ? `${text}\n` : text);
+    return { pasted: typed, copied: false, confirmed: typed, reason: typed ? `typed (${why})` : `${why}, and typing was blocked`, ...(enter ? { entered: typed } : {}) };
   }
 
-  private async run(text: string, mode: OutputMode): Promise<Delivery> {
+  private async run(text: string, mode: OutputMode, enter: boolean): Promise<Delivery> {
     if (mode === 'clipboard') {
       const copied = await this.copy(text);
       return { pasted: false, copied, reason: copied ? undefined : 'clipboard busy' };
@@ -96,10 +98,10 @@ export class PasteSink implements OutputSink {
       } catch (err) {
         // The clipboard cannot be saved, so it must not be overwritten.
         this.deps.log('warn', `clipboard read failed (${(err as Error).message})`);
-        return this.type(text, 'clipboard unreadable');
+        return this.type(text, 'clipboard unreadable', enter);
       }
     }
-    if (!(await this.copy(text, mode === 'paste'))) return this.type(text, 'clipboard busy');
+    if (!(await this.copy(text, mode === 'paste'))) return this.type(text, 'clipboard busy', enter);
     const sent = this.deps.input.sendCtrlV();
     if (sent !== 4) {
       // Blocked (an elevated window, the secure desktop): the text stays on the clipboard.
@@ -119,6 +121,9 @@ export class PasteSink implements OutputSink {
         this.deps.log('warn', `clipboard restore failed: ${(err as Error).message}`);
       }
     }
-    return { pasted: true, copied: mode === 'both', confirmed: true };
+    if (!enter) return { pasted: true, copied: mode === 'both', confirmed: true };
+    // Enter only once the app has had time to take the paste, or it could send half a message.
+    if (mode !== 'paste') await this.sleep(RESTORE_MS);
+    return { pasted: true, copied: mode === 'both', confirmed: true, entered: this.deps.input.sendEnter() };
   }
 }
