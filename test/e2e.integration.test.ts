@@ -4,12 +4,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { testVocabulary } from './vocab';
 import { type ChainDeps, stepsFor } from '../src/core/chain';
 import { HistoryStore } from '../src/core/history';
 import { DEFAULT_LLAMA_SERVER, DEFAULT_MODELS_DIR, EMBERON_GGUF, GEMMA_GGUF, resolveModelsDir, STT_MODEL } from '../src/core/settings';
 import { chatRequest } from '../src/core/templating';
 import type { OutputMode } from '../src/core/types';
-import { parseVocabularyFile } from '../src/core/vocabulary';
 import { LlamaServer } from '../src/engine/llama';
 import type { SherpaModule } from '../src/engine/sherpaTypes';
 import { Stt } from '../src/engine/stt';
@@ -41,7 +41,7 @@ const stubChain: ChainDeps = {
 };
 
 describe.skipIf(!fs.existsSync(sttDir))('WAV fixture -> STT -> cleanup -> output sink -> history picker', () => {
-  const vocab = parseVocabularyFile(fs.readFileSync(path.join(root, 'defaults/vocabulary.json'), 'utf8')).terms;
+  const vocab = testVocabulary();
   const steps = stepsFor('gemma-emberon', fs.readFileSync(path.join(root, 'defaults/prompt-v3.txt'), 'utf8'), vocab);
   const servers = realLlm
     ? {

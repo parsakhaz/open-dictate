@@ -2,219 +2,60 @@
   "version": 1,
   "seed": 2,
   "terms": [
-    {
-      "term": "Kubernetes"
-    },
-    {
-      "term": "Postgres"
-    },
-    {
-      "term": "PostgreSQL"
-    },
-    {
-      "term": "useState"
-    },
-    {
-      "term": "useEffect"
-    },
-    {
-      "term": "useMemo"
-    },
-    {
-      "term": "useCallback"
-    },
-    {
-      "term": "useRef"
-    },
-    {
-      "term": "Next.js"
-    },
-    {
-      "term": "Node.js"
-    },
-    {
-      "term": "TypeScript"
-    },
-    {
-      "term": "JavaScript"
-    },
-    {
-      "term": "Tailwind"
-    },
-    {
-      "term": "shadcn/ui"
-    },
-    {
-      "term": "Supabase"
-    },
-    {
-      "term": "Vercel"
-    },
-    {
-      "term": "Anthropic"
-    },
-    {
-      "term": "Claude"
-    },
-    {
-      "term": "Sonnet"
-    },
-    {
-      "term": "Opus",
-      "aliases": [
-        "opera",
-        "opus"
-      ]
-    },
-    {
-      "term": "Haiku"
-    },
-    {
-      "term": "GPT"
-    },
-    {
-      "term": "GPT-5.5"
-    },
-    {
-      "term": "GPT-5.5 low"
-    },
-    {
-      "term": "GPT-5.5 medium"
-    },
-    {
-      "term": "GPT-5.5 medium-high"
-    },
-    {
-      "term": "Gemini"
-    },
-    {
-      "term": "Gemini 3.1 Flash Lite"
-    },
-    {
-      "term": "Composio"
-    },
-    {
-      "term": "n8n"
-    },
-    {
-      "term": "Cursor"
-    },
-    {
-      "term": "Aider"
-    },
-    {
-      "term": "Codex",
-      "aliases": [
-        "codex",
-        "code x"
-      ]
-    },
-    {
-      "term": "Doozy",
-      "aliases": [
-        "UZ",
-        "uzi",
-        "do see",
-        "doozie"
-      ]
-    },
-    {
-      "term": "Pane",
-      "aliases": [
-        "pain",
-        "paint",
-        "pane",
-        "the pain"
-      ]
-    },
-    {
-      "term": "Dcouple"
-    },
-    {
-      "term": "fal.ai"
-    },
-    {
-      "term": "Wizper"
-    },
-    {
-      "term": "OpenRouter"
-    },
-    {
-      "term": "Groq"
-    },
-    {
-      "term": "gRPC"
-    },
-    {
-      "term": "GraphQL"
-    },
-    {
-      "term": "OAuth"
-    },
-    {
-      "term": "JWT"
-    },
-    {
-      "term": "Redis"
-    },
-    {
-      "term": "MongoDB"
-    },
-    {
-      "term": "ClickHouse"
-    },
-    {
-      "term": "DuckDB"
-    },
-    {
-      "term": "BM25"
-    },
-    {
-      "term": "RAG"
-    },
-    {
-      "term": "embeddings"
-    },
-    {
-      "term": "Cohere"
-    },
-    {
-      "term": "SWE-bench"
-    },
-    {
-      "term": "NIAH"
-    },
-    {
-      "term": "Whisper"
-    },
-    {
-      "term": "Parakeet"
-    },
-    {
-      "term": "Deepgram"
-    },
-    {
-      "term": "Claude Opus"
-    },
-    {
-      "term": "Claude Sonnet"
-    },
-    {
-      "term": "Conductor"
-    },
-    {
-      "term": "Claude Code",
-      "aliases": [
-        "tri clod",
-        "triclod",
-        "claude code",
-        "club code",
-        "clark code",
-        "clock code"
-      ]
-    },
-    {
-      "term": "Grain"
-    }
+    {"term": "Kubernetes"},
+    {"term": "Postgres"},
+    {"term": "PostgreSQL"},
+    {"term": "useState"},
+    {"term": "useEffect"},
+    {"term": "useMemo"},
+    {"term": "useCallback"},
+    {"term": "useRef"},
+    {"term": "Next.js"},
+    {"term": "Node.js"},
+    {"term": "TypeScript"},
+    {"term": "JavaScript"},
+    {"term": "Tailwind"},
+    {"term": "shadcn/ui"},
+    {"term": "Supabase"},
+    {"term": "Vercel"},
+    {"term": "Anthropic"},
+    {"term": "Claude"},
+    {"term": "Sonnet"},
+    {"term": "Haiku"},
+    {"term": "GPT"},
+    {"term": "GPT-5.5"},
+    {"term": "GPT-5.5 low"},
+    {"term": "GPT-5.5 medium"},
+    {"term": "GPT-5.5 medium-high"},
+    {"term": "Gemini"},
+    {"term": "Gemini 3.1 Flash Lite"},
+    {"term": "Composio"},
+    {"term": "n8n"},
+    {"term": "Cursor"},
+    {"term": "Aider"},
+    {"term": "Dcouple"},
+    {"term": "fal.ai"},
+    {"term": "Wizper"},
+    {"term": "OpenRouter"},
+    {"term": "Groq"},
+    {"term": "gRPC"},
+    {"term": "GraphQL"},
+    {"term": "OAuth"},
+    {"term": "JWT"},
+    {"term": "Redis"},
+    {"term": "MongoDB"},
+    {"term": "ClickHouse"},
+    {"term": "DuckDB"},
+    {"term": "BM25"},
+    {"term": "RAG"},
+    {"term": "embeddings"},
+    {"term": "Cohere"},
+    {"term": "SWE-bench"},
+    {"term": "NIAH"},
+    {"term": "Whisper"},
+    {"term": "Parakeet"},
+    {"term": "Deepgram"},
+    {"term": "Claude Opus"},
+    {"term": "Claude Sonnet"}
   ]
 }

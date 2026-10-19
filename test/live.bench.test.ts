@@ -5,13 +5,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { testVocabulary } from './vocab';
 import { dbfs } from '../src/core/audio';
 import { type ChainDeps, runChain, stepsFor } from '../src/core/chain';
 import { DEFAULT_SEGMENTER, LiveCleanup, Segmenter } from '../src/core/live';
 import { DEFAULT_LLAMA_SERVER, DEFAULT_MODELS_DIR, EMBERON_GGUF, GEMMA_GGUF, resolveModelsDir, STT_MODEL } from '../src/core/settings';
 import { chatRequest } from '../src/core/templating';
 import type { StepResult, VocabTerm } from '../src/core/types';
-import { parseVocabularyFile } from '../src/core/vocabulary';
 import { LlamaServer } from '../src/engine/llama';
 import type { SherpaModule } from '../src/engine/sherpaTypes';
 import { Stt } from '../src/engine/stt';
@@ -52,7 +52,7 @@ function spans(raw: string): { raw: string; start: number; end: number }[] {
 }
 
 describe.skipIf(!on)('live cleanup benchmark', () => {
-  const vocab = parseVocabularyFile(fs.readFileSync(path.join(root, 'defaults/vocabulary.json'), 'utf8')).terms;
+  const vocab = testVocabulary();
   const steps = stepsFor('gemma-emberon', fs.readFileSync(path.join(root, 'defaults/prompt-v3.txt'), 'utf8'), vocab);
   const servers = {
     gemma: new LlamaServer('gemma', { exe, gguf: path.join(models, GEMMA_GGUF), log: () => undefined, warmup: () => chatRequest(steps[0].system, 'okay so this is a quick warm up sentence') }),

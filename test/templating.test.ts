@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { testVocabulary } from './vocab';
 import { chatRequest, cleanupMaxTokens, fillTemplate, plainText, responseContent } from '../src/core/templating';
 import { parseVocabularyFile } from '../src/core/vocabulary';
 
@@ -28,9 +29,16 @@ describe('fillTemplate', () => {
     expect(fillTemplate('[{{VOCAB_INLINE}}]', [{ term: "$& $1 $'" }])).toBe("[$& $1 $']");
   });
 
-  it('v3 with the default vocabulary carries the user additions and their sounds-like pairs', () => {
+  it('the default vocabulary is the generic tech list, without one person’s own terms (D12)', () => {
     const { terms, error } = parseVocabularyFile(read('defaults/vocabulary.json'));
     expect(error).toBeUndefined();
+    const names = terms.map((t) => t.term);
+    expect(names).toContain('Kubernetes');
+    for (const t of ['Pane', 'Doozy', 'Conductor', 'Claude Code', 'Codex', 'Opus', 'Grain']) expect(names).not.toContain(t);
+  });
+
+  it('v3 with added terms carries them and their sounds-like pairs', () => {
+    const terms = testVocabulary();
     const filled = fillTemplate(read('defaults/prompt-v3.txt'), terms);
     expect(filled).toContain('UZ, uzi, do see, doozie => Doozy');
     expect(filled).toContain('tri clod, triclod, claude code, club code, clark code, clock code => Claude Code');

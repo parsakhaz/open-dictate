@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { testVocabulary } from './vocab';
 import { type ChainDeps, runChain, stepsFor } from '../src/core/chain';
 import { DEFAULT_LLAMA_SERVER, DEFAULT_MODELS_DIR, EMBERON_GGUF, GEMMA_GGUF, resolveModelsDir } from '../src/core/settings';
 import { chatRequest } from '../src/core/templating';
-import { parseVocabularyFile } from '../src/core/vocabulary';
 import { LlamaServer } from '../src/engine/llama';
 
 const models = resolveModelsDir(process.env.DICTATE_MODELS_DIR || DEFAULT_MODELS_DIR, fs.existsSync);
@@ -14,7 +14,7 @@ const root = path.join(__dirname, '..');
 
 describe.skipIf(!have || !process.env.DICTATE_LLM_TESTS)('cleanup chain on real llama-servers', () => {
   it('cleans names with Gemma v3 then Emberon on every warm run, deterministically, each under 1.5 s', async () => {
-    const vocab = parseVocabularyFile(fs.readFileSync(path.join(root, 'defaults/vocabulary.json'), 'utf8')).terms;
+    const vocab = testVocabulary();
     const steps = stepsFor('gemma-emberon', fs.readFileSync(path.join(root, 'defaults/prompt-v3.txt'), 'utf8'), vocab);
     const log = (l: string, m: string) => console.log(l, m);
     const servers = {

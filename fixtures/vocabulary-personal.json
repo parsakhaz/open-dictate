@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "terms": [
+    {"term": "Opus", "aliases": ["opera", "opus"]},
+    {"term": "Codex", "aliases": ["codex", "code x"]},
+    {"term": "Doozy", "aliases": ["UZ", "uzi", "do see", "doozie"]},
+    {"term": "Pane", "aliases": ["pain", "paint", "pane", "the pain"]},
+    {"term": "Conductor"},
+    {"term": "Claude Code", "aliases": ["tri clod", "triclod", "claude code", "club code", "clark code", "clock code"]},
+    {"term": "Grain"}
+  ]
+}
