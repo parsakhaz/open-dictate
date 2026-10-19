@@ -21,6 +21,7 @@
     "postinstall": "node qa/prepare-native.mjs --report tmp/package-smoke/native-install.json"
   },
   "dependencies": {
+    "electron-updater": "6.8.10",
     "koffi": "3.3.3",
     "sherpa-onnx-node": "1.13.8",
     "uiohook-napi": "1.5.5"
@@ -29,11 +30,11 @@
     "@biomejs/biome": "2.5.15",
     "@types/node": "24.19.2",
     "electron": "44.7.2",
-    "esbuild": "0.28.2",
-    "typescript": "6.0.3",
-    "vitest": "5.0.5",
     "electron-builder": "26.17.0",
-    "node-gyp": "12.2.0"
+    "esbuild": "0.28.2",
+    "node-gyp": "12.2.0",
+    "typescript": "6.0.3",
+    "vitest": "5.0.5"
   },
   "author": "parsakhaz",
   "repository": {

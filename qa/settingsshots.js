@@ -66,7 +66,7 @@ app.whenReady().then(async () => {
     platform: { platform: process.platform, displayServer: process.platform === 'win32' ? 'win32' : process.platform === 'darwin' ? 'macos' : 'x11', globalHotkeys: true, canSwallowKeys: process.platform === 'win32', automaticPaste: true, accessibilityRequired: process.platform === 'darwin', accessibilityGranted: true },
     microphonePermission: 'granted',
     setup: {phase:'idle'}, speechInstalled:true, shortcutRegistered:false, shortcutRequested:false, startupError:'', recording:false, automation:true,
-    essentialsReady: true, gemmaInstalled: false, sizes: { essentials: 683e6, gemma: 3106738272 }, hardwareRunning: false, hardwareError: '', dataDir: String.raw`C:\Users\you\AppData\Roaming\dictate`,
+    essentialsReady: true, gemmaInstalled: false, sizes: { essentials: 683e6, gemma: 3106738272 }, hardwareRunning: false, hardwareError: '', update: { status: 'up-to-date', mode: 'install', checkedAt: '2026-10-18T21:00:00.000Z' }, dataDir: String.raw`C:\Users\you\AppData\Roaming\dictate`,
     ...extra,
   });
   let extra = {};

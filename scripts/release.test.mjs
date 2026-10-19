@@ -71,6 +71,7 @@ test('complete native artifacts assemble once with installers and an aggregate c
     `Dictate-${version}-macos-arm64.zip`, `Dictate-${version}-macos-arm64.dmg`,
     `Dictate-${version}-linux-x64.AppImage`, `Dictate-${version}-linux-x64.deb`,
     `Dictate-${version}-linux-arm64.AppImage`, `Dictate-${version}-linux-arm64.deb`,
+    'latest.yml', `Dictate-${version}-windows-x64-setup.exe.blockmap`, 'latest-linux.yml', 'latest-linux-arm64.yml',
   ];
   try {
     const source = join(dir, 'artifacts'); mkdirSync(source);
