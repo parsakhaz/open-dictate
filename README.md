@@ -49,7 +49,7 @@ Getting started is always one click away: **Settings → Getting started**, or *
 
 ## Why open-dictate exists
 
-Dictation apps are great until you notice where your voice goes. Willow and Superwhisper are polished, but they are paid, closed, and most of their cleanup runs on someone else's server.
+Dictation apps are great until you notice where your voice goes. Willow and Superwhisper are polished, but they are paid, closed, and most of their cleanup runs on someone else's server. [Handy](https://handy.computer/) is free, open and local, and a good choice if you need many languages; open-dictate goes further on cleanup, which runs locally while you speak, so the text that lands is already finished.
 
 open-dictate runs the whole thing on your computer: a streaming speech model writes your words while you talk, a small local language model fixes the punctuation, the fillers and the names you care about, and the result is pasted into whatever app you're in. No account, no subscription, no upload. Once the models are downloaded it works offline.
 
@@ -93,17 +93,32 @@ On first run the speed check times a cleanup on your computer and picks Gemma th
 
 ## How it compares
 
+[Handy](https://handy.computer/) is the closest relative: free, open source and fully local too. Both show your words while you speak (Handy with its streaming models), take custom vocabulary and keep a history. They differ like this:
+
+| | open-dictate | [Handy](https://github.com/cjpais/Handy) 0.9.8 |
+| --- | --- | --- |
+| Licence · price | AGPL-3.0 · free | MIT · free |
+| Platforms | Windows x64, macOS, Linux | Windows x64 and Arm, macOS, Linux |
+| Speech models | One, picked for streaming: Nemotron 0.6B, English | About 70 to choose from (Whisper, Parakeet, Nemotron Streaming, Canary…), many languages |
+| Cleanup by a language model | **Local and on by default.** The first-run speed check picks Gemma → Emberon, Emberon only, or none for your computer. | Optional and off by default. It runs after you stop, through a cloud provider or a local endpoint you set up (Ollama-style, or Apple Intelligence). |
+| Cleanup while you speak | **Yes.** Each finished sentence is cleaned while you keep talking, so little is left at release. | No |
+| Vocabulary | Fed to the cleanup, which spells your names right | Whisper prompt, or fuzzy correction for other models |
+| History | **A picker at the cursor** (Right Ctrl+V): search, pin, paste again, raw transcript one Tab away | Kept in the app, the last 5 by default |
+| Download | 127 MB installer, then about 0.7 GB of models (Gemma, 3.1 GB, optional) | About 20 MB installer, then the model you pick (46 MB and up; the recommended ones are 0.2–1.8 GB) |
+
+Where Handy is ahead: a much smaller app, many more models and languages, Windows on Arm, and a large community. If you dictate in a language other than English, use Handy.
+
+The paid apps, for completeness:
+
 | | open-dictate | Willow Voice | Superwhisper |
 | --- | --- | --- | --- |
-| Where your speech is processed | **On your computer, always** | In the cloud (an offline mode exists on some plans and platforms) | Local models, or cloud engines |
-| Price | **Free** | Subscription, with a limited free tier | Free tier with small local models; subscription or lifetime licence for the rest |
+| Where your speech is processed | **On your computer, always** | Not stated on its site; it offers an offline mode that runs on the device | Local models, or cloud engines |
+| Price | **Free** | Subscription, with a limited free tier | Free tier with local models; subscription or lifetime licence for the rest |
 | Windows · macOS · Linux | **Yes · Yes · Yes** | Yes · Yes · No | Yes · Yes · No |
-| Phones | No | iOS, Android | iOS |
-| Source code | **Open (AGPL-3.0)** | Closed | Closed |
-| Live words, custom vocabulary, history | Yes | Yes | Yes |
-| Languages | English only, for now | Many | Many |
+| Phones | No | iPhone | iOS, Android |
+| Source code | **Open (AGPL-3.0)** | No public code | No public code |
 
-Compiled in October 2026 from public product pages and reviews; plans change, so check their sites. Corrections welcome.
+Checked on 2026-10-19: Handy from its v0.9.8 release and source, the others from their own product pages. Plans change, so check their sites; corrections welcome.
 
 ## Models and licences
 
