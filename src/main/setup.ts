@@ -64,10 +64,19 @@ export function speechInstalled(modelsDir: string): boolean {
   } catch { return false; }
 }
 
+export function archiveTar(platform: NodeJS.Platform = process.platform, env: Record<string, string | undefined> = process.env): string {
+  if (platform !== 'win32') return 'tar';
+  // Git Bash can put GNU tar first in PATH, where D:\\file is parsed as a remote host. Native bsdtar also
+  // handles the llama.cpp ZIP archives, and is installed with supported Windows versions.
+  const systemRoot = env.SystemRoot || env.SYSTEMROOT || env.windir || env.WINDIR;
+  if (!systemRoot || !path.win32.isAbsolute(systemRoot)) throw new Error('SystemRoot must identify the native Windows directory to extract model archives');
+  return path.win32.join(systemRoot, 'System32', 'tar.exe');
+}
+
 async function extract(archive: string, directory: string, signal?: AbortSignal): Promise<void> {
   fs.mkdirSync(directory, { recursive: true });
   // Windows 10+, macOS and supported Linux distributions ship tar; argv never goes through a shell.
-  await exec('tar', ['--no-same-owner', '-xf', archive, '-C', directory], { timeout: 5 * 60_000, signal, windowsHide: true });
+  await exec(archiveTar(), ['--no-same-owner', '-xf', archive, '-C', directory], { timeout: 5 * 60_000, signal, windowsHide: true });
 }
 
 function findExecutable(directory: string, name: string): string | undefined {

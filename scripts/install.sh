@@ -96,6 +96,7 @@ else
   mv -f "$launcher" "$bins/dictate"
   # Desktop entry Exec follows freedesktop escaping, which differs from shell escaping.
   exec_path="${bins//\\/\\\\}/dictate"; exec_path="${exec_path//\"/\\\"}"; exec_path="${exec_path//\$/\\\$}"; exec_path="${exec_path//\`/\\\`}"
+  exec_path="${exec_path//%/%%}"
   printf '[Desktop Entry]\nType=Application\nName=Dictate\nComment=Local speech-to-text dictation\nExec="%s"\nTerminal=false\nCategories=Utility;\nStartupWMClass=org.dictate.Dictate\n' "$exec_path" > "$data/applications/org.dictate.Dictate.desktop"
   printf 'Installed Dictate %s: %s\nLaunch Dictate from your applications menu or run "%s/dictate".\n' "$version" "$target" "$bins"
   printf '%s\n' 'Linux requires a desktop session and Electron system libraries; Ubuntu/Debian users can use the .deb package for system integration.'

@@ -4,7 +4,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { downloadVerified, type DownloadAsset, llamaAssetFor } from '../src/main/setup';
+import { archiveTar, downloadVerified, type DownloadAsset, llamaAssetFor } from '../src/main/setup';
 
 const temporary: string[] = [];
 afterEach(() => { for (const p of temporary.splice(0)) fs.rmSync(p, { recursive: true, force: true }); });
@@ -20,6 +20,11 @@ async function downloadCase(bytes: string, mutate: Partial<DownloadAsset> = {}) 
 }
 
 describe('verified model setup', () => {
+  it('uses native Windows bsdtar even when a GNU tar appears earlier in Git Bash PATH', () => {
+    expect(archiveTar('win32', { SystemRoot: 'C:\\Windows', PATH: 'C:\\Program Files\\Git\\usr\\bin' })).toBe('C:\\Windows\\System32\\tar.exe');
+    expect(archiveTar('linux', { SystemRoot: 'C:\\Windows' })).toBe('tar');
+    expect(() => archiveTar('win32', {})).toThrow(/SystemRoot/);
+  });
   it('installs exactly the pinned bytes with progress and no partial file left over', async () => {
     const c = await downloadCase('known model bytes');
     const seen: number[] = [];

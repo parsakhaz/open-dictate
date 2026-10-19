@@ -10,7 +10,7 @@ const installer = resolve('scripts/install.sh');
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'dictate-installer-'));
   const release = join(root, 'release with spaces'); mkdirSync(release);
-  const bins = join(root, 'bin $value "quotes"');
+  const bins = join(root, 'bin $value "quotes" %literal');
   const data = join(root, 'data with spaces');
   const name = `Dictate-0.1.0-linux-${process.arch}.AppImage`;
   const payload = '#!/usr/bin/env bash\nprintf "fixture app: %s\\n" "$1"\n';
@@ -29,7 +29,9 @@ test('Linux user install verifies checksum and preserves arguments through paths
     const launched = spawnSync(join(f.bins, 'dictate'), ['words with spaces'], { encoding: 'utf8' });
     assert.equal(launched.status, 0, launched.stderr);
     assert.equal(launched.stdout, 'fixture app: words with spaces\n');
-    assert.match(readFileSync(join(f.data, 'applications/org.dictate.Dictate.desktop'), 'utf8'), /StartupWMClass=org.dictate.Dictate/);
+    const desktop = readFileSync(join(f.data, 'applications/org.dictate.Dictate.desktop'), 'utf8');
+    assert.match(desktop, /StartupWMClass=org.dictate.Dictate/);
+    assert.match(desktop, /%%literal/, 'desktop entry must escape literal percent field codes');
   } finally { rmSync(f.root, { recursive: true, force: true }); }
 });
 
