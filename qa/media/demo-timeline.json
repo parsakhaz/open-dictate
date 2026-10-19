@@ -1,0 +1,62 @@
+{
+  "wav": "two-sentences.wav",
+  "seconds": 14.17,
+  "partials": [
+    {
+      "t": 1.3,
+      "text": "Deploy the"
+    },
+    {
+      "t": 2.4,
+      "text": "Deploy the Kubernetes cluster with"
+    },
+    {
+      "t": 3.5,
+      "text": "Deploy the Kubernetes cluster with Terraform and"
+    },
+    {
+      "t": 4.6,
+      "text": "Deploy the Kubernetes cluster with Terraform and send the logs to Click"
+    },
+    {
+      "t": 5.8,
+      "text": "Deploy the Kubernetes cluster with Terraform and send the logs to Click House"
+    },
+    {
+      "t": 8,
+      "text": "Deploy the Kubernetes cluster with Terraform and send the logs to Click House. We switched from"
+    },
+    {
+      "t": 9.1,
+      "text": "Deploy the Kubernetes cluster with Terraform and send the logs to Click House. We switched from Deep Gram to"
+    },
+    {
+      "t": 10.2,
+      "text": "Deploy the Kubernetes cluster with Terraform and send the logs to Click House. We switched from Deep Gram to Sherpa on X with parake"
+    },
+    {
+      "t": 11.4,
+      "text": "Deploy the Kubernetes cluster with Terraform and send the logs to Click House. We switched from Deep Gram to Sherpa on X with parakeet and Nemotron"
+    },
+    {
+      "t": 12.5,
+      "text": "Deploy the Kubernetes cluster with Terraform and send the logs to Click House. We switched from Deep Gram to Sherpa on X with parakeet and Nemotron streaming models"
+    }
+  ],
+  "raw": "Deploy the Kubernetes cluster with Terraform and send the logs to Click House. We switched from Deep Gram to Sherpa on X with parakeet and Nemotron streaming models",
+  "flushMs": 176,
+  "addedVocabulary": [
+    {
+      "term": "sherpa-onnx",
+      "aliases": [
+        "sherpa on x"
+      ]
+    }
+  ],
+  "cleaned": "Deploy the Kubernetes cluster with Terraform and send the logs to ClickHouse. We switched from Deepgram to sherpa-onnx with Parakeet and Nemotron streaming models.",
+  "cleanupMs": 856,
+  "steps": [
+    "gemma ok",
+    "emberon ok"
+  ]
+}

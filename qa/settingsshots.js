@@ -17,6 +17,9 @@ const pages = args.filter((a) => !a.startsWith('--') && a !== '.' && !a.endsWith
 const patch = JSON.parse((args.find((a) => a.startsWith('--set=')) ?? '--set={}').slice(6));
 const walk = (args.find((a) => a.startsWith('--walkthrough=')) ?? '').slice(14).split(',').filter(Boolean);
 const scale = Number((args.find((a) => a.startsWith('--scale=')) ?? '--scale=1').slice(8)) || 1;
+// --fixed keeps every shot at the window's 900 x 680, for media with consistent framing.
+const fixed = args.includes('--fixed');
+const OUTDIR = (args.find((a) => a.startsWith('--out=')) ?? '').slice(6) || OUT;
 
 const HARDWARE = { summary: 'No GPU found, 32 GB RAM. Emberon cleaned the sample in 0.41 s.', chain: 'emberon', emberonMs: 410, gemmaChainMs: null, offerGemma: true, measuredAt: '2026-10-18T22:00:00.000Z' };
 /** Each walkthrough shot: the saved step plus the made-up state that step shows. */
@@ -45,7 +48,9 @@ app.disableHardwareAcceleration();
 app.whenReady().then(async () => {
   const { defaultSettings } = load('src/core/settings.ts');
   const { bindingLabel } = load('src/core/hotkeys.ts');
-  let settings = { ...defaultSettings([{ term: 'Kubernetes' }]), onboarded: true, ...patch };
+  // The shipped starting vocabulary, so the Vocabulary page looks as it does after install.
+  const vocab = JSON.parse(fs.readFileSync(path.join(ROOT, 'defaults', 'vocabulary.json'), 'utf8'));
+  let settings = { ...defaultSettings(vocab.terms ?? vocab), onboarded: true, ...patch };
   const state = () => ({
     settings,
     labels: { hotkey: bindingLabel(settings.hotkeys[0] ?? null), hotkeys: settings.hotkeys.map((b) => bindingLabel(b)), toggle: bindingLabel(settings.toggle), picker: bindingLabel(settings.picker) },
@@ -80,15 +85,15 @@ app.whenReady().then(async () => {
   ipcMain.handle('dictate:take-page', () => null);
   ipcMain.on('dictate:renderer-error', (_e, page, msg) => console.error(`renderer ${page}: ${msg}`));
 
-  const w = new BrowserWindow({ width: 900 * scale, height: 680 * scale, show: false, backgroundColor: '#202020', webPreferences: { preload: path.join(ROOT, 'out', 'main', 'preload.js'), offscreen: true, contextIsolation: true, sandbox: false } });
+  const w = new BrowserWindow({ width: 900 * scale, height: 680 * scale, show: false, enableLargerThanScreen: true, backgroundColor: '#202020', webPreferences: { preload: path.join(ROOT, 'out', 'main', 'preload.js'), offscreen: true, contextIsolation: true, sandbox: false } });
   const html = path.join(ROOT, 'out', 'renderer', 'settings.html');
-  fs.mkdirSync(OUT, { recursive: true });
+  fs.mkdirSync(OUTDIR, { recursive: true });
   const shoot = async (name) => {
     const height = await w.webContents.executeJavaScript(`Math.max(680, (document.querySelector('main.content')?.scrollHeight ?? 0) + 60)`);
-    w.setContentSize(900 * scale, Math.min(4000, height) * scale);
+    w.setContentSize(900 * scale, (fixed ? Math.max(680, Math.min(900, height)) : Math.min(4000, height)) * scale);
     await new Promise((r) => setTimeout(r, 400));
     const img = await w.webContents.capturePage();
-    const file = path.join(OUT, `${name}.png`);
+    const file = path.join(OUTDIR, `${name}.png`);
     fs.writeFileSync(file, img.toPNG());
     console.log(file);
   };
@@ -117,10 +122,10 @@ app.whenReady().then(async () => {
       const c = document.querySelector('main.content');
       return Math.max(680, (c?.scrollHeight ?? 0) + 60);
     })()`);
-    w.setContentSize(900 * scale, Math.min(4000, height) * scale);
+    w.setContentSize(900 * scale, (fixed ? 680 : Math.min(4000, height)) * scale);
     await new Promise((r) => setTimeout(r, 400));
     const img = await w.webContents.capturePage();
-    const file = path.join(OUT, `${label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.png`);
+    const file = path.join(OUTDIR, `${label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.png`);
     fs.writeFileSync(file, img.toPNG());
     console.log(file);
   }
