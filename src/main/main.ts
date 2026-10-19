@@ -41,6 +41,8 @@ import { type Delivery, finishDictation, type OutputSink } from './pipeline';
 import { debouncedWriter, loadJson, readJson, writeJson } from './store';
 import { SttLink } from './sttlink';
 import { createPicker, createPill, createSettings, placePicker, showPill } from './windows';
+import type { AgentServer } from './agentserver';
+import { installBridge, startAgentChannel } from './agents';
 
 if (process.env.DICTATE_DATA_DIR) app.setPath('userData', process.env.DICTATE_DATA_DIR);
 app.setName('dictate');
@@ -1322,6 +1324,7 @@ async function main(): Promise<void> {
   if (settings.portableShortcutEnabled) applyPortableShortcut();
 
   if (!settings.onboarded) openSettings();
+  void startAgents().catch((e) => log('error', `agents did not start: ${(e as Error).message}`));
 
   // QA: drive the hotkey without the keyboard. Each line appended to this file is `down` or `up` (the dictation
   // key), handled as if the hook had seen it.
@@ -1367,6 +1370,25 @@ async function main(): Promise<void> {
   }
 }
 
+// ---------- coding agents ----------
+
+let agentServer: AgentServer | undefined;
+
+function agentStatus() {
+  return { running: true, modelsReady: sttReady, dictating: !!rec || finishing.size > 0, doNotDisturb: false, historyAccess: false };
+}
+
+async function startAgents(): Promise<void> {
+  installBridge(appRoot(), userData(), log);
+  agentServer = await startAgentChannel(userData(), {
+    call: async (_session, tool) => {
+      if (tool === 'status') return agentStatus();
+      throw new Error(`${tool} isn't available in this version of Dictate`);
+    },
+    log,
+  }, log);
+}
+
 app.on('window-all-closed', () => {
   // A tray app: closing settings does not quit.
 });
@@ -1381,5 +1403,6 @@ app.on('before-quit', () => {
   nativeMic?.stop();
   cleanup?.stopAll();
   stt?.kill();
+  agentServer?.stop();
   log('info', 'quit');
 });
