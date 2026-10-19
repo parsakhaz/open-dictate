@@ -24,7 +24,8 @@ if (process.env.DICTATE_SMOKE_NO_SANDBOX === '1' && process.platform === 'linux'
 const env = { ...process.env, DICTATE_SETTINGS_QA_REPORT: report, DICTATE_SETTINGS_QA_PROFILE: profile };
 delete env.ELECTRON_RUN_AS_NODE;
 const child = spawn(electron, argv, { env, stdio: 'inherit' });
-const timeout = setTimeout(() => { console.error('Settings progress regression timed out'); child.kill('SIGKILL'); }, 30_000);
+// The walkthrough steps added time; a busy macOS runner needed more than 30 s.
+const timeout = setTimeout(() => { console.error('Settings progress regression timed out'); child.kill('SIGKILL'); }, 60_000);
 const code = await new Promise(resolve => {
   child.once('error', error => { console.error(error); resolve(1); });
   child.once('exit', status => resolve(status ?? 1));
