@@ -912,7 +912,8 @@ async function startUpdater(): Promise<void> {
   const mode = updateMode({ platform: process.platform, packaged: app.isPackaged, appImage: process.env.APPIMAGE });
   let engine: UpdateEngine | undefined;
   if (mode === 'install') {
-    const { autoUpdater } = await import('electron-updater');
+    // require, not import(): a dynamic ESM import of a package inside app.asar fails in the packaged app.
+    const { autoUpdater } = require('electron-updater') as typeof import('electron-updater');
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;
     autoUpdater.logger = null;
@@ -1275,7 +1276,7 @@ async function main(): Promise<void> {
 
   registerIpc();
   startCapture();
-  void startUpdater();
+  void startUpdater().catch((e) => log('error', `updater did not start: ${e instanceof Error ? e.message : String(e)}`));
   pill = createPill();
   pill.webContents.on('render-process-gone', (_e, d) => {
     log('error', `pill renderer gone: ${d.reason}`);
