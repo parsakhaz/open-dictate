@@ -21,6 +21,17 @@ describe('parseSettings', () => {
     expect(d.pressEnter).toBe(false);
   });
 
+  it('lets coding agents in by default, with alerts on, a chime, and history reading off', () => {
+    expect([d.agentsEnabled, d.agentAlertsPaused, d.agentChime, d.agentHistory]).toEqual([true, false, true, false]);
+    expect(d.vocabularyPending).toEqual([]);
+  });
+
+  it('loads a file from before agents, and keeps a valid review queue while dropping a bad item', () => {
+    const s = parseSettings({ agentHistory: 'yes', vocabularyPending: [{ term: 'Supabase', aliases: ['super base'], reason: 'db', source: 'repo · Codex', at: '2026-10-19T20:00:00Z' }, { term: 'a => b', aliases: [] }] }, d);
+    expect(s.agentHistory).toBe(false);
+    expect(s.vocabularyPending.map((t) => t.term)).toEqual(['Supabase']);
+  });
+
   it('unloads the models after 60 idle minutes on battery by default', () => {
     expect(d.batteryUnloadMinutes).toBe(60);
     expect(d.version).toBe(2);
