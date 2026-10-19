@@ -837,6 +837,8 @@ function onHook(e: FromHook): void {
     replyPreview.cancel();
     return;
   }
+  // Esc with the pointer over an agent's card dismisses it (the app in front sees the Esc too).
+  if (e.down && e.vk === VK.Escape && !rec && !cancellable.size && pointerOverCard()) agents?.dismissTop();
   // Esc after release cancels a dictation still transcribing or cleaning (the hook swallowed it).
   if (e.down && e.vk === VK.Escape && !rec && cancellable.size) {
     cancelAfterRelease();
@@ -1434,6 +1436,15 @@ async function main(): Promise<void> {
           pillSend('dictate:pill', JSON.parse(line.slice(6)));
           showPill(pill);
         } else if (line.startsWith('partial ')) pillSend('dictate:partial', line.slice(8));
+        // Agent cards: hover (expanded) without a mouse, and the top card's buttons ("card choose Prod").
+        else if (line.startsWith('cards-hover ')) pillSend('dictate:qa-hover', line.slice(12) === 'on');
+        else if (line === 'cards-list') pillSend('dictate:qa-list');
+        else if (line.startsWith('pause ')) agents?.setPaused(line.slice(6) === 'on');
+        else if (line.startsWith('card ')) {
+          const [action, ...rest] = line.slice(5).split(' ');
+          const top = agents?.hub.queue.view(Date.now()).top;
+          if (top) void agents?.action({ id: top.id, action, value: rest.join(' ') } as CardAction);
+        }
       }
       seen = lines.length;
     });

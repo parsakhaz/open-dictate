@@ -230,6 +230,12 @@ export class Agents {
     return { cardId: card.id, to: card.source.split(' · ').pop() || 'the agent' };
   }
 
+  /** Esc with the pointer over the card: it goes (an ask returns dismissed; consent counts as deny). */
+  dismissTop(): void {
+    const top = this.hub.queue.view(Date.now()).top;
+    if (top) this.hub.dismiss(top.id);
+  }
+
   setDictating(on: boolean): void {
     this.hub.setDictating(on);
   }

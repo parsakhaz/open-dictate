@@ -2,9 +2,11 @@
 // Headless: the pill sits off-screen and is captured by Electron; the fixture WAV drives the live states;
 // no keys are injected and nothing is pasted. Writes tmp/pill-shots/<variant>-<state>.png.
 //   node qa/pillshots.js [a b c]
+//   node qa/pillshots.js cards   (agents' cards, driven through the real MCP bridge; no models needed)
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn, execFileSync } = require('node:child_process');
+const { agentSession } = require('./agent-bridge');
 
 const ROOT = path.resolve(__dirname, '..');
 const DATA = path.join(ROOT, 'tmp', 'qa-pill-data');
@@ -78,7 +80,75 @@ async function run(variant) {
   }
 }
 
+/** Agents' cards: collapsed, expanded, replying, the preview, consent, stacked and the list, as real cards. */
+async function runCards() {
+  rmData();
+  fs.rmSync(path.join(SHOTS, 'cards-*'), { force: true });
+  fs.mkdirSync(DATA, { recursive: true });
+  fs.writeFileSync(path.join(DATA, 'settings.json'), JSON.stringify({ onboarded: true, hotkeys: [{ keys: [0x81] }], toggle: null, picker: null, sounds: false, agentHistory: true }));
+  const app = spawn(path.join(ROOT, 'node_modules', 'electron', 'dist', 'electron.exe'), ['.'], {
+    cwd: ROOT,
+    env: { ...process.env, DICTATE_DATA_DIR: DATA, DICTATE_QA_SINK: 'none', DICTATE_QA_CONTROL: CONTROL, DICTATE_PILL_SHOTS: SHOTS, DICTATE_PILL_VARIANT: 'cards', PANE_SESSION_ID: '', PANE_PANEL_ID: '' },
+    stdio: 'ignore',
+  });
+  const sessions = [];
+  try {
+    for (let t = Date.now(); !/agents: channel open/.test(since(0)) && Date.now() - t < 30000; ) await sleep(200);
+    // A Pane tab when this runs inside one (names come from runpane, read-only); a plain folder otherwise.
+    const pane = process.env.PANE_SESSION_ID ? { PANE_SESSION_ID: process.env.PANE_SESSION_ID, PANE_PANEL_ID: process.env.PANE_PANEL_ID } : {};
+    const codex = agentSession(DATA, { client: 'codex-mcp-client', title: 'Codex', env: pane, cwd: ROOT });
+    sessions.push(codex);
+    await codex.call('notify', { title: 'Approve the migration?', message: 'Dropping users.legacy_id rewrites 2.1 M rows. Say “go” to run it on staging first, or tell me what to change.', urgency: 'needs_you', choices: ['Staging', 'Prod'], link: 'https://github.com/parsakhaz/open-dictate/pull/7' });
+    await sleep(900);
+    cmd('shot collapsed');
+    await sleep(500);
+    cmd('cards-hover on');
+    await sleep(600);
+    cmd('shot expanded');
+    await sleep(500);
+    cmd('cards-hover off');
+    cmd('state {"kind":"listening","mode":"push-to-talk","finish":"Release to finish","replyTo":"Codex"}');
+    cmd('partial use staging');
+    await sleep(700);
+    cmd('shot replying');
+    await sleep(300);
+    cmd('state {"kind":"reply-preview","message":"Use staging.","to":"Codex"}');
+    await sleep(700);
+    cmd('shot preview');
+    await sleep(300);
+    cmd('state {"kind":"hidden"}');
+    const claude = agentSession(DATA, { client: 'claude-code', title: 'Claude Code', cwd: ROOT });
+    sessions.push(claude);
+    const consent = claude.call('read_history', { query: 'migration' });
+    await sleep(900);
+    cmd('shot consent');
+    await sleep(300);
+    cmd('card consent deny');
+    await consent;
+    const cursor = agentSession(DATA, { client: 'cursor-vscode', title: 'Cursor', cwd: path.join(ROOT, 'docs') });
+    sessions.push(cursor);
+    await claude.call('notify', { title: 'Tests are green', urgency: 'needs_you' });
+    await cursor.call('notify', { title: 'Which branch should I rebase?', urgency: 'needs_you' });
+    await sleep(900);
+    cmd('shot stacked');
+    await sleep(300);
+    cmd('cards-list');
+    await sleep(600);
+    cmd('shot list');
+    await sleep(500);
+  } finally {
+    for (const s of sessions) await s.close();
+    execFileSync('taskkill', ['/PID', String(app.pid), '/T', '/F'], { stdio: 'ignore' });
+  }
+}
+
 (async () => {
+  if (process.argv[2] === 'cards') {
+    await runCards();
+    console.log(`cards: ${fs.readdirSync(SHOTS).filter((f) => f.startsWith('cards-')).join(', ')}`);
+    if (!process.env.KEEP) rmData();
+    return;
+  }
   fs.rmSync(SHOTS, { recursive: true, force: true });
   const variants = process.argv.slice(2).length ? process.argv.slice(2) : ['a', 'b', 'c'];
   for (const v of variants) {

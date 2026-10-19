@@ -1,10 +1,12 @@
-// The overlay pill: what dictate is doing right now, a live waveform and the live words. It also hosts mic
-// capture (the browser fallback path) and the sound cues. Never takes focus (the window is not focusable).
+// The overlay pill: what dictate is doing right now, a live waveform and the live words, and agents' cards above
+// it. It also hosts mic capture (the browser fallback path) and the sound cues. Never takes focus (the window is
+// not focusable).
 // Small and centred, its width following its content; every state keeps the same height and cross-fades.
 import { dbfs } from '../core/audio';
 import { hintVisible } from '../core/pillhint';
 import { dictate, h } from './bridge';
 import * as capture from './capture';
+import { mountCards } from './cards';
 import { type Cue, play } from './sounds';
 
 export type PillState =
@@ -47,7 +49,10 @@ const content = h('div.content', {}, lead, wave, textwrap, undo);
 const pill = h('div.pill', {}, content);
 /** Above the pill: the hint for the first seconds of the first recordings, or the caption (variant B). */
 const above = h('div.above');
-root.append(above, pill);
+/** The status (hint and pill) fades as one; agent cards sit above it, or at the bottom while it is away. */
+const status = h('div.status', {}, above, pill);
+root.append(status);
+mountCards(root, status);
 
 let config: PillConfig = { variant: 'a', showText: true };
 let state: PillState = { kind: 'hidden' };
