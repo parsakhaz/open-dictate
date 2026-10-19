@@ -81,6 +81,8 @@ void app.whenReady().then(async () => {
     assert.equal(onboardingChoice, false, 'Onboarding must submit the chosen Off value');
     report.onboardingOffRetained = true;
     step('onboardingOffRetained');
+    // Finish reaches main before the page re-renders out of the walkthrough; wait for the regular Settings.
+    for (let n = 0; n < 100 && !await js<boolean>(`getComputedStyle(document.querySelector('nav')).display !== 'none' && document.querySelector('main h1')?.textContent !== 'You are set'`); n++) await pause(20);
     await js(`[...document.querySelectorAll('nav button')].find(e => e.textContent.includes('Advanced')).click()`);
     await js(`(() => { const input = document.querySelector('[data-setting="modelsDir"]'); input.focus(); input.value = '/draft/models folder'; input.setSelectionRange(3, 13); window.__draft = input; })()`);
     setup = { ...setup, received: 9 * 1048576 };
