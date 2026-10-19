@@ -97,6 +97,20 @@ export const isWindow = (target: number): boolean => platformCapabilities().targ
 export const setForeground = (target: number): boolean => platformCapabilities().targetTracking && nativeDesktop().setForeground(target);
 export const windowClass = (target: number): string => nativeDesktop().windowClass(target);
 export const windowPid = (target: number): number => nativeDesktop().windowPid(target);
+/** The program in front: its executable path where the OS tells us, else ''. */
+export function foregroundProcessPath(): string {
+  try {
+    if (process.platform === 'win32') return win().processImage(win().windowPid(win().foregroundWindow()));
+    const pid = windowPid(foregroundWindow());
+    if (!pid) return '';
+    if (process.platform === 'linux') return require('node:fs').readlinkSync(`/proc/${pid}/exe`) as string;
+    return spawnSync('ps', ['-o', 'comm=', '-p', String(pid)], { encoding: 'utf8', timeout: 1000 }).stdout.trim();
+  } catch {
+    return '';
+  }
+}
+/** Windows only: the next app to ask may come to the front (after the person's click on the pill). */
+export const allowForegroundHandoff = (): boolean => process.platform === 'win32' && win().allowAnyForeground();
 export const looksLikeNoTextTarget = (target: number): boolean => !platformCapabilities().automaticPaste || nativeDesktop().looksLikeNoTextTarget(target);
 export const caretRect = () => platformCapabilities().targetTracking ? nativeDesktop().caretRect() : null;
 export const hasTextCaret = (target: number): boolean => platformCapabilities().targetTracking && nativeDesktop().hasTextCaret(target);

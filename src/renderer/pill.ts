@@ -1,16 +1,18 @@
-// The overlay pill: what dictate is doing right now, a live waveform and the live words. It also hosts mic
-// capture (the browser fallback path) and the sound cues. Never takes focus (the window is not focusable).
+// The overlay pill: what dictate is doing right now, a live waveform and the live words, and agents' cards above
+// it. It also hosts mic capture (the browser fallback path) and the sound cues. Never takes focus (the window is
+// not focusable).
 // Small and centred, its width following its content; every state keeps the same height and cross-fades.
 import { dbfs } from '../core/audio';
 import { hintVisible } from '../core/pillhint';
 import { dictate, h } from './bridge';
 import * as capture from './capture';
+import { mountCards } from './cards';
 import { type Cue, play } from './sounds';
 
 export type PillState =
   | { kind: 'hidden' }
   /** `starting`: the mic is still opening; the waveform is grey and flat until its first audio. */
-  | { kind: 'listening'; mode: 'push-to-talk' | 'toggle'; finish: string; starting?: boolean }
+  | { kind: 'listening'; mode: 'push-to-talk' | 'toggle'; finish: string; starting?: boolean; replyTo?: string }
   | { kind: 'warming'; finish?: string }
   | { kind: 'transcribing' }
   | { kind: 'cleaning' }
@@ -18,7 +20,9 @@ export type PillState =
   | { kind: 'copied'; message: string }
   | { kind: 'info'; message: string }
   | { kind: 'error'; message: string }
-  | { kind: 'toast'; message: string; undo?: boolean; ms: number };
+  | { kind: 'toast'; message: string; undo?: boolean; ms: number }
+  /** A reply to an agent, shown for 2 s before it is sent; Esc cancels. */
+  | { kind: 'reply-preview'; message: string; to: string; warn?: boolean };
 
 export interface PillConfig {
   /** Design variant (the comparison build); 'a' otherwise. */
@@ -29,7 +33,7 @@ export interface PillConfig {
 
 const BARS = 9;
 /** Segoe Fluent Icons: check, copy, warning, info, microphone. */
-const GLYPHS: Partial<Record<PillState['kind'], string>> = { done: '✓', copied: '⧉', error: '⚠', info: 'ⓘ', toast: '●' };
+const GLYPHS: Partial<Record<PillState['kind'], string>> = { done: '✓', copied: '⧉', error: '⚠', info: 'ⓘ', toast: '●', 'reply-preview': '➤' };
 
 const root = document.getElementById('root')!;
 const bars = Array.from({ length: BARS }, () => h('span.bar'));
@@ -45,7 +49,10 @@ const content = h('div.content', {}, lead, wave, textwrap, undo);
 const pill = h('div.pill', {}, content);
 /** Above the pill: the hint for the first seconds of the first recordings, or the caption (variant B). */
 const above = h('div.above');
-root.append(above, pill);
+/** The status (hint and pill) fades as one; agent cards sit above it, or at the bottom while it is away. */
+const status = h('div.status', {}, above, pill);
+root.append(status);
+mountCards(root, status);
 
 let config: PillConfig = { variant: 'a', showText: true };
 let state: PillState = { kind: 'hidden' };
@@ -78,6 +85,7 @@ const recording = (k: PillState['kind']) => k === 'listening' || k === 'warming'
 const working = (k: PillState['kind']) => k === 'transcribing' || k === 'cleaning';
 
 function words(): string {
+  if (state.kind === 'listening' && state.replyTo) return `Replying to ${state.replyTo}… ${partial}`.trim();
   if (state.kind === 'listening') return partial || (state.starting ? 'Starting…' : 'Listening…');
   if (state.kind === 'warming') return partial || 'Warming up…';
   if (state.kind === 'transcribing') return partial || 'Transcribing…';
@@ -106,6 +114,7 @@ function render(): void {
   let line = '';
   if (notice && live) line = notice;
   else if (recording(s.kind) && silent) line = 'Can’t hear you — check the mic';
+  else if (s.kind === 'reply-preview') line = `${s.warn ? 'Starts like a command · ' : ''}Sending to ${s.to} in 2 s · Esc cancels`;
   else if (s.kind === 'listening' && hintAllowed && hintVisible(0, performance.now() - sessionStart)) line = `${s.finish} · Esc to cancel`;
   // Variant B carries the live words above a waveform-only pill.
   if (config.variant === 'b' && live && config.showText && !line) {
@@ -114,7 +123,7 @@ function render(): void {
     textwrap.hidden = true;
   } else {
     above.textContent = line;
-    above.dataset.role = notice || silent ? 'warn' : 'hint';
+    above.dataset.role = notice || silent || (s.kind === 'reply-preview' && s.warn) ? 'warn' : 'hint';
   }
   above.classList.toggle('shown', !!above.textContent);
   fitWidth();

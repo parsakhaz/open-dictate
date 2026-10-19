@@ -1,5 +1,6 @@
 // Shared types and defaults. Pure; browser-safe.
 import type { MicPref } from './mics';
+import type { PendingTerm } from './vocabproposals';
 
 export const SAMPLE_RATE = 16000;
 
@@ -109,6 +110,16 @@ export interface Settings {
   /** The last hardware check, shown in the walkthrough and Settings → Cleanup. */
   hardware: HardwareResult | null;
   vocabulary: VocabTerm[];
+  /** Terms coding agents suggested, waiting for the person's review; none reach the prompt until approved. */
+  vocabularyPending: PendingTerm[];
+  /** Claude Code, Codex and Cursor get Dictate's tools on launch ("Let coding agents use Dictate"). */
+  agentsEnabled: boolean;
+  /** "Pause agent alerts": cards are held and counted in the tray. */
+  agentAlertsPaused: boolean;
+  /** One soft chime when a card that needs the person appears. */
+  agentChime: boolean;
+  /** Agents may ask to read dictation history, with consent on the pill each time. Off by default. */
+  agentHistory: boolean;
 }
 
 export interface StepResult {

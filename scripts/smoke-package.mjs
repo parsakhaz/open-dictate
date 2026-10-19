@@ -71,11 +71,14 @@ async function smoke(executable, label, { normalConfiguration = false } = {}) {
   for (const name of ['sherpa', 'koffi', 'uiohook']) {
     if (result.native?.[name] !== true) throw new Error(`${label}: native ${name} was not loaded: ${JSON.stringify(result)}`);
   }
+  if (result.agents?.bridgeCopied !== true || result.agents?.tools?.length !== 6 || result.agents?.status !== true) {
+    throw new Error(`${label}: the agents' bridge did not run from the data folder and reach the app: ${JSON.stringify(result.agents)}`);
+  }
   if (modelDir && (typeof result.inference?.text !== 'string' || !result.inference.text || result.inference.partials < 1)) {
     throw new Error(`${label}: packaged recognizer did not transcribe the speech fixture: ${JSON.stringify(result)}`);
   }
   if (modelDir) console.log(`PASS ${label} packaged speech: ${result.inference.text}`);
-  console.log(`PASS ${label}: ${result.platform}/${result.arch}, packaged renderer and sherpa/koffi/uiohook loaded`);
+  console.log(`PASS ${label}: ${result.platform}/${result.arch}, packaged renderer and sherpa/koffi/uiohook loaded, agents' bridge answered`);
 }
 function artifact(name) {
   const path = join(dist, name);

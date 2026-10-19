@@ -7,6 +7,7 @@ How open-dictate is put together, for contributors. Each claim here points at th
 | [process-model.md](process-model.md) | Every process and window, how they talk, where data lives, first run, start at login, auto-update. |
 | [speech-and-cleanup.md](speech-and-cleanup.md) | The streaming recognizer, live cleanup, the cleanup chain and its guard, llama-server, vocabulary, the speed check, model downloads. |
 | [input-and-output.md](input-and-output.md) | The keyboard hook per platform, the hotkey state machine, microphone capture, paste and clipboard, the history picker. |
+| [agents.md](agents.md) | Coding agents on the pill: the MCP bridge and local channel, cards, the Pane watcher, voice reply, history consent, registration. |
 
 ## Source layout
 
@@ -32,6 +33,8 @@ How open-dictate is put together, for contributors. Each claim here points at th
 | Keyboard hook worker | [src/native/keyhook-worker.ts](../../src/native/keyhook-worker.ts) | Windows only: a low-level hook on its own thread. macOS and X11 use `uiohook-napi` in main instead. |
 | Native mic worker | [src/native/mic-worker.ts](../../src/native/mic-worker.ts) | Windows only: WASAPI capture on its own thread. |
 | llama-server ×2 | [src/engine/llama.ts](../../src/engine/llama.ts) | One child process per cleanup model (Gemma, Emberon), on a free port on 127.0.0.1. |
+| MCP bridge, one per agent session | [src/bridge/dictate-mcp.ts](../../src/bridge/dictate-mcp.ts) → `<data>/agents/dictate-mcp.js` | Started by a coding agent, not by Dictate: MCP over stdio, forwarded to the app's local channel. See [agents.md](agents.md). |
+| `runpane watch` | Pane's CLI | Follows Pane's agent states for the pill's cards; restarted with backoff while Pane is away. |
 | Lifetime watchdog | [src/native/posix-lifetime.ts](../../src/native/posix-lifetime.ts) | macOS/Linux only: kills the llama-servers if main dies abruptly. Windows uses a job object instead. |
 
 ## One dictation, end to end

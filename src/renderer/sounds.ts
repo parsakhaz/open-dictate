@@ -1,4 +1,5 @@
-// Subtle cues, synthesised: two soft rising notes on start, falling on stop, one low note on cancel.
+// Subtle cues, synthesised: two soft rising notes on start, falling on stop, one low note on cancel, and a soft
+// bell-like pair when an agent needs the person.
 let out: AudioContext | null = null;
 let sleepTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -15,7 +16,7 @@ function tone(ctx: AudioContext, freq: number, at: number, dur: number, gain: nu
   o.stop(at + dur + 0.02);
 }
 
-export type Cue = 'start' | 'stop' | 'cancel' | 'error';
+export type Cue = 'start' | 'stop' | 'cancel' | 'error' | 'chime';
 
 export function play(cue: Cue): void {
   out ??= new AudioContext({ latencyHint: 'interactive' });
@@ -28,6 +29,9 @@ export function play(cue: Cue): void {
   } else if (cue === 'stop') {
     tone(ctx, 1175, t, 0.08, 0.04);
     tone(ctx, 784, t + 0.055, 0.12, 0.04);
+  } else if (cue === 'chime') {
+    tone(ctx, 988, t, 0.22, 0.03);
+    tone(ctx, 1319, t + 0.11, 0.3, 0.025);
   } else if (cue === 'cancel') {
     tone(ctx, 440, t, 0.14, 0.045);
   } else {

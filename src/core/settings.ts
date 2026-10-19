@@ -6,6 +6,7 @@ import { parseMicPrefs } from './mics';
 import { isStep } from './onboarding';
 import type { Binding, CleanupChain, HardwareResult, KeySpec, OutputMode, Settings, VocabTerm } from './types';
 import { normalizeVocabulary } from './vocabulary';
+import { parsePending } from './vocabproposals';
 
 /** Relative defaults for non-app callers; main resolves these under Electron's userData directory. */
 export const DEFAULT_MODELS_DIR = 'models';
@@ -54,6 +55,11 @@ export function defaultSettings(vocabulary: VocabTerm[] = []): Settings {
     hardware: null,
     autoUpdate: true,
     vocabulary,
+    vocabularyPending: [],
+    agentsEnabled: true,
+    agentAlertsPaused: false,
+    agentChime: true,
+    agentHistory: false,
   };
 }
 
@@ -148,6 +154,11 @@ export function parseSettings(data: unknown, defaults: Settings): Settings {
     hardware: hardwareResult(d.hardware),
     autoUpdate: bool(d.autoUpdate, defaults.autoUpdate),
     vocabulary: vocab ? normalizeVocabulary(vocab as VocabTerm[]) : defaults.vocabulary,
+    vocabularyPending: Array.isArray(d.vocabularyPending) ? parsePending(d.vocabularyPending) : defaults.vocabularyPending,
+    agentsEnabled: bool(d.agentsEnabled, defaults.agentsEnabled),
+    agentAlertsPaused: bool(d.agentAlertsPaused, defaults.agentAlertsPaused),
+    agentChime: bool(d.agentChime, defaults.agentChime),
+    agentHistory: bool(d.agentHistory, defaults.agentHistory),
   };
 }
 

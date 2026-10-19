@@ -34,6 +34,8 @@ const GetClassNameW = user32.func('__stdcall', 'GetClassNameW', 'int', ['intptr'
 const IsWindow = user32.func('__stdcall', 'IsWindow', 'bool', ['intptr']);
 const PostThreadMessageW = user32.func('__stdcall', 'PostThreadMessageW', 'bool', ['uint32', 'uint32', 'uintptr', 'intptr']);
 const GetLastError = kernel32.func('__stdcall', 'GetLastError', 'uint32', []);
+const QueryFullProcessImageNameW = kernel32.func('__stdcall', 'QueryFullProcessImageNameW', 'bool', ['intptr', 'uint32', 'void *', koffi.inout(koffi.pointer('uint32'))]);
+const AllowSetForegroundWindow = user32.func('__stdcall', 'AllowSetForegroundWindow', 'bool', ['uint32']);
 
 const INPUT_KEYBOARD = 1;
 const KEYEVENTF_KEYUP = 0x2;
@@ -113,6 +115,30 @@ export function windowPid(hwnd: number): number {
   const pid = [0];
   GetWindowThreadProcessId(hwnd, pid);
   return pid[0];
+}
+
+const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+
+/** The executable a process runs, or '' when Windows won't say. */
+export function processImage(pid: number): string {
+  if (!pid) return '';
+  const h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+  if (!h) return '';
+  try {
+    const buf = Buffer.alloc(2048);
+    const len = [1024];
+    return QueryFullProcessImageNameW(h, 0, buf, len) ? buf.toString('utf16le', 0, len[0] * 2) : '';
+  } finally {
+    CloseHandle(h);
+  }
+}
+
+/**
+ * Lets any process take the foreground once. Called right after the person clicks a card, while Dictate holds the
+ * last input, so Pane can come to the front instead of only flashing its taskbar button.
+ */
+export function allowAnyForeground(): boolean {
+  return AllowSetForegroundWindow(0xffffffff);
 }
 
 /** Windows with no text field to paste into: the desktop and the taskbar. */

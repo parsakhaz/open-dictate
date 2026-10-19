@@ -1,5 +1,5 @@
 // The settings window: the first-run walkthrough (Getting started), then pages for
-// hotkeys, microphone, cleanup, vocabulary, history, advanced paths and about.
+// hotkeys, microphone, cleanup, vocabulary, history, coding agents, advanced paths and about.
 import { dbfs, defaultGainDb } from '../core/audio';
 import { bindingLabel, dictationKeyProblem } from '../core/hotkeys';
 import type { MicDevice } from '../core/mics';
@@ -7,6 +7,7 @@ import { micKey, micName } from '../core/mics';
 import { canGoBack, canSkip, nextStep, previousStep, resumeStep, STEPS, type Step, stepNumber, tryReady, tryWait } from '../core/onboarding';
 import { displaySize, THIRD_PARTY } from '../core/thirdparty';
 import type { Binding, CleanupChain, OutputMode, Settings, VocabTerm } from '../core/types';
+import { relativeTime } from '../core/history';
 import { dictate, h } from './bridge';
 
 interface State {
@@ -42,9 +43,21 @@ interface State {
   startupError: string;
   recording: boolean;
   automation: boolean;
+  agents: AgentsState | null;
 }
 
-type Page = 'start' | 'general' | 'microphone' | 'cleanup' | 'vocabulary' | 'history' | 'advanced' | 'about';
+interface AgentsState {
+  channel: boolean;
+  pane: { installed: boolean; attached: boolean };
+  registration: { agent: 'claude' | 'codex' | 'cursor'; found: boolean; registered: boolean; ownedByDictate: boolean; handWritten: boolean; error?: string }[];
+  registrationAllowed: boolean;
+  snippets: { agent: string; file: string; text: string; note?: string }[];
+  sessions: { id: string; client: string; inPane: boolean; connectedAt: number }[];
+  grants: { sessionId: string; source: string; client: string; grantedAt: number; expiresAt: number }[];
+  accessLog: { at: string; source: string; client: string; query: string; hours: number; limit: number; includeRaw: boolean; outcome: string; count: number }[];
+}
+
+type Page = 'start' | 'general' | 'microphone' | 'cleanup' | 'vocabulary' | 'history' | 'agents' | 'advanced' | 'about';
 
 const PAGES: { id: Page; label: string; icon: string }[] = [
   { id: 'start', label: 'Getting started', icon: '⌂' },
@@ -53,6 +66,7 @@ const PAGES: { id: Page; label: string; icon: string }[] = [
   { id: 'cleanup', label: 'Cleanup', icon: '✦' },
   { id: 'vocabulary', label: 'Vocabulary', icon: 'Aa' },
   { id: 'history', label: 'History', icon: '◷' },
+  { id: 'agents', label: 'Agents', icon: '⌘' },
   { id: 'advanced', label: 'Advanced', icon: '⚙' },
   { id: 'about', label: 'About', icon: 'ⓘ' },
 ];
@@ -635,6 +649,7 @@ function doneStep(): Node[] {
       h('div.recap', {}, ...recap.map(([k, d]) => h('div.recaprow', {}, h('span.recapkey', {}, k), h('span.carddesc', {}, d)))),
       card('Start at login', `Start dictate when you sign in to ${osName()}.`, toggle(welcomeStartAtLogin, (v) => (welcomeStartAtLogin = v))),
       card('Where your history lives', h('span', {}, 'On this computer only, in ', h('code', {}, st.dataDir), '. Settings → History sets how much is kept.'), h('button.button', { onclick: () => void dictate.invoke('dictate:open-data') }, 'Open folder')),
+      card('Coding agents', 'Agents in Claude Code, Codex and Cursor can reach you through the pill: a card says which tab needs you. Settings → Agents.'),
       card('Come back any time', 'Getting started, in Settings and in the tray menu, opens these steps again.'),
     ],
     primaryButton('Finish', async () => {
@@ -897,6 +912,7 @@ function vocabulary(): Node[] {
   return [
     h('h1', {}, 'Vocabulary'),
     h('p.lead', {}, 'Names and terms the cleanup step should spell right. Add what the recognizer tends to write instead under "sounds like".'),
+    ...suggestedTerms(),
     h('div.toolbar', {}, filter, h('button.button.accent', { onclick: () => {
           terms.unshift({ term: '', aliases: [] });
           (filter as HTMLInputElement).value = '';
@@ -905,6 +921,87 @@ function vocabulary(): Node[] {
         },
       }, 'Add term'), h('span.muted', {}, `${terms.length} terms`)),
     body,
+  ];
+}
+
+/** Terms coding agents suggested: none reach the cleanup prompt until approved here. */
+function suggestedTerms(): Node[] {
+  const pending = st.settings.vocabularyPending;
+  if (!pending.length) return [];
+  const decide = (term: string, approve: boolean) => refresh(dictate.invoke<State>('dictate:agents-vocab', { term, approve }));
+  return [
+    h('h2', {}, `Suggested by agents (${pending.length})`),
+    ...pending.map((t) =>
+      card(
+        t.term,
+        h('span', {}, t.aliases.length ? `Sounds like: ${t.aliases.join(', ')}. ` : '', t.reason ? `${t.reason} ` : '', h('span.muted', {}, `From ${t.source || 'an agent'}`)),
+        h('div.buttons', {}, h('button.button', { onclick: () => decide(t.term, false) }, 'Reject'), h('button.button.accent', { onclick: () => decide(t.term, true) }, 'Approve')),
+      ),
+    ),
+    h('h2', {}, 'Your terms'),
+  ];
+}
+
+const AGENT_NAMES = { claude: 'Claude Code', codex: 'Codex', cursor: 'Cursor' } as const;
+const OUTCOMES: Record<string, string> = { 'allowed-once': 'Allowed once', 'allowed-session': 'Allowed for the session', 'session-grant': 'Allowed (session)', denied: 'Denied', timeout: 'No answer', off: 'Off', dnd: 'Alerts paused', busy: 'Already asking' };
+
+function agentsPage(): (Node | null)[] {
+  const s = st.settings;
+  const a = st.agents;
+  const now = Date.now();
+  const regLine = (r: AgentsState['registration'][number]) =>
+    r.error ? `Couldn’t check: ${r.error}`
+      : r.handWritten ? 'Has a “dictate” entry you wrote yourself; Dictate leaves it alone.'
+      : r.ownedByDictate ? 'Dictate’s tools are set up.'
+      : !r.found ? 'Not found on this computer.'
+      : s.agentsEnabled && a?.registrationAllowed ? 'Found; Dictate adds its tools when it starts.' : 'Found; not set up.';
+  const paneLine = !a ? '' : a.pane.attached ? 'Following your Pane tabs: a tab that needs you shows on the pill.' : a.pane.installed ? 'Pane isn’t running. Dictate picks it up when it starts.' : 'Pane isn’t installed. Agents can still reach you through the pill.';
+  const copy = (text: string) => (e: Event) => {
+    void dictate.invoke('dictate:agents-copy', text);
+    (e.target as HTMLButtonElement).textContent = 'Copied';
+  };
+  return [
+    h('h1', {}, 'Agents'),
+    h('p.lead', {}, 'Coding agents reach you through the pill. A card names the tab or folder it came from (Dictate looks that up; agents can’t set it) and what the agent needs. Click it to open the tab, or hold your dictation key over it to answer.'),
+    card('Let coding agents use Dictate', 'Adds Dictate’s tools to Claude Code, Codex and Cursor each time Dictate starts. Off removes them again; a “dictate” entry you wrote yourself is never touched.', toggle(s.agentsEnabled, (v) => set({ agentsEnabled: v }), 'Let coding agents use Dictate')),
+    ...(a?.registration ?? []).map((r) => card(AGENT_NAMES[r.agent], regLine(r))),
+    a && !a.registrationAllowed ? h('p.muted.small', {}, 'This is a development build: it doesn’t change your agents’ settings.') : null,
+    card('Pane', paneLine),
+    card('Pause agent alerts', 'Cards wait, and the tray shows how many. Questions from agents return “do not disturb”.', toggle(s.agentAlertsPaused, (v) => set({ agentAlertsPaused: v }), 'Pause agent alerts')),
+    card('Chime when an agent needs you', 'One soft chime for cards that need you. Finished tabs stay silent.', toggle(s.agentChime, (v) => set({ agentChime: v }), 'Chime')),
+    h('h2', {}, 'Other agents'),
+    h('p.muted.small', {}, 'Copy the setup and paste it into that agent’s settings file.'),
+    ...(a?.snippets ?? []).map((sn) => card(sn.agent, h('span', {}, h('code', {}, sn.file), sn.note ? ` · ${sn.note}` : ''), h('button.button', { onclick: copy(sn.text) }, 'Copy setup'))),
+    h('h2', {}, 'Dictation history'),
+    card('Let agents read my dictation history', 'Off by default. When on, an agent can ask, and you allow or deny each request on the pill. Secrets are redacted, and every read is listed below.', toggle(s.agentHistory, (v) => set({ agentHistory: v }), 'Let agents read my dictation history')),
+    ...(a?.grants ?? []).map((g) =>
+      card(
+        `Allowed for this session: ${g.source}`,
+        `Since ${relativeTime(new Date(g.grantedAt).toISOString(), now)}; ends when that agent closes, or in ${Math.max(1, Math.round((g.expiresAt - now) / 3600_000))} h.`,
+        h('button.button', { onclick: () => refresh(dictate.invoke<State>('dictate:agents-revoke', g.sessionId)) }, 'Revoke'),
+      ),
+    ),
+    a?.accessLog.length
+      ? h(
+          'section.card',
+          {},
+          h('div.cardtitle', {}, 'Reads'),
+          h(
+            'div.accesslog',
+            {},
+            ...a.accessLog.slice(0, 50).map((r) =>
+              h(
+                'div.accessrow',
+                {},
+                h('span.muted', {}, relativeTime(r.at, now)),
+                h('span', {}, r.source || r.client),
+                h('span.muted', {}, `${r.query ? `“${r.query}”, ` : ''}last ${r.hours} h, up to ${r.limit}${r.includeRaw ? ', with raw' : ''}`),
+                h('span', {}, `${OUTCOMES[r.outcome] ?? r.outcome}${r.count ? ` · ${r.count}` : ''}`),
+              ),
+            ),
+          ),
+        )
+      : card('Reads', 'No agent has asked yet.'),
   ];
 }
 
@@ -973,7 +1070,7 @@ function render(): void {
       ),
     ),
   );
-  const build = { start, general, microphone, cleanup: cleanupPage, vocabulary, history: historyPage, advanced, about }[page];
+  const build = { start, general, microphone, cleanup: cleanupPage, vocabulary, history: historyPage, agents: agentsPage, advanced, about }[page];
   const scroll = content.scrollTop;
   content.replaceChildren(h('div.page', {}, actionError ? h('div.warning', {}, actionError) : null, ...build()));
   content.scrollTop = scroll;

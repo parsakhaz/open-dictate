@@ -18,7 +18,7 @@ import { parseVocabularyFile } from '../core/vocabulary';
 import { WarmMic } from '../core/warm';
 import type { SttToMain } from '../engine/stt-worker';
 import type { FromHook } from '../native/keyhook-worker';
-import { accessibilityGranted, batterySaverOn, caretRect, foregroundWindow, isWindow, killWithUs, platformCapabilities, requestAccessibility, setForeground, writeClipboardText } from '../native/platform';
+import { accessibilityGranted, allowForegroundHandoff, batterySaverOn, caretRect, foregroundProcessPath, foregroundWindow, isWindow, killWithUs, platformCapabilities, requestAccessibility, setForeground, writeClipboardText } from '../native/platform';
 import { type CapturePath, CaptureRouter } from './capture';
 import { Cleanup } from './cleanup';
 import { migratePlatformSettings, runtimeDefaults } from './config';
@@ -41,6 +41,7 @@ import { type Delivery, finishDictation, type OutputSink } from './pipeline';
 import { debouncedWriter, loadJson, readJson, writeJson } from './store';
 import { SttLink } from './sttlink';
 import { createPicker, createPill, createSettings, placePicker, showPill } from './windows';
+import { Agents, type AgentsHost, type CardAction } from './agents';
 
 if (process.env.DICTATE_DATA_DIR) app.setPath('userData', process.env.DICTATE_DATA_DIR);
 app.setName('dictate');
@@ -132,6 +133,8 @@ interface Session {
   final?: (text: string) => void;
   /** Esc after release (transcribing or cleaning): stops the cleanup, and nothing is pasted. */
   abort: AbortController;
+  /** This dictation answers an agent's card instead of pasting (the key went down over the card, or Reply). */
+  reply?: { cardId: string; to: string };
 }
 
 let nextId = 1;
@@ -144,7 +147,39 @@ const cancellable = new Set<Session>();
 
 /** The hook swallows Esc while it cancels something: a recording, or a dictation still transcribing or cleaning. */
 function syncEsc(): void {
-  hook.send({ type: 'recording', on: !!rec || cancellable.size > 0 });
+  hook.send({ type: 'recording', on: !!rec || cancellable.size > 0 || !!replyPreview });
+}
+
+/** The 2 s look at a reply before it goes to an agent; Esc cancels it. */
+let replyPreview: { cancel: () => void } | null = null;
+
+function previewReply(to: string, text: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const end = (send: boolean) => {
+      clearTimeout(timer);
+      replyPreview = null;
+      syncEsc();
+      resolve(send);
+    };
+    const timer = setTimeout(() => end(true), 2000);
+    replyPreview = { cancel: () => end(false) };
+    syncEsc();
+    // A leading / ! # @ may read as a command to the agent.
+    pillSend('dictate:pill', { kind: 'reply-preview', message: text, to, warn: /^[/!#@]/.test(text) });
+    showPill(pill);
+  });
+}
+
+/** Where the top card sits in the pill window (CSS pixels), from the renderer. */
+let cardRect: { x: number; y: number; width: number; height: number } | null = null;
+
+function pointerOverCard(): boolean {
+  if (!cardsShown || !cardRect || pill.isDestroyed()) return false;
+  const p = screen.getCursorScreenPoint();
+  const b = pill.getBounds();
+  const x = p.x - b.x;
+  const y = p.y - b.y;
+  return x >= cardRect.x && x <= cardRect.x + cardRect.width && y >= cardRect.y && y <= cardRect.y + cardRect.height;
 }
 
 /** Esc after release: every dictation still transcribing or cleaning stops, and nothing of it is pasted. */
@@ -180,6 +215,7 @@ function hotkeyLabel(i = 0): string {
 
 function idleTray(): void {
   if (rec || finishing.size) return;
+  agents?.setDictating(false);
   setTray(!sttReady ? (sttError ? 'error' : 'loading') : 'idle');
   lastActivityAt = Date.now();
   updater?.activity();
@@ -233,6 +269,9 @@ function onHotkey(a: HotkeyAction): void {
         return;
       }
       rec = { id: nextId++, mode: null, shown: false, releasedAt: 0, partial: '', live: false, abort: new AbortController() };
+      // The pointer over a card at key down (or Reply) sends this one dictation to it.
+      rec.reply = agents?.replyTarget(pointerOverCard()) ?? undefined;
+      agents?.setDictating(true);
       cleanup.touch();
       // Capture starts at key down so the first word is not lost; the pill waits until this is a hold or a double-tap.
       keyDownAt = performance.timeOrigin + performance.now();
@@ -256,7 +295,7 @@ function onHotkey(a: HotkeyAction): void {
       }
       // Until the mic delivers audio the meter is grey and flat, and the start cue waits for it.
       const finish = finishHint(a.mode, a.via, { hotkey: hotkeyLabel(a.key), toggle: bindingLabel(settings.toggle) });
-      pillSend('dictate:pill', cleanup.warming() ? { kind: 'warming', finish } : { kind: 'listening', mode: a.mode, finish, starting: !rec.live });
+      pillSend('dictate:pill', cleanup.warming() ? { kind: 'warming', finish } : { kind: 'listening', mode: a.mode, finish, starting: !rec.live, replyTo: rec.reply?.to });
       showPill(pill);
       rec.shown = true;
       if (first && rec.live) sound('start');
@@ -340,7 +379,18 @@ async function stopRecording(): Promise<void> {
       }
     : undefined;
   const practice = practicing && !!settingsWin && !settingsWin.isDestroyed() && settingsWin.isFocused();
-  const deps = { chain: cleanup.deps(), sink: practice ? practiceSink : sink, history, saveHistory: () => saveHistory.now(), log, clean, pressEnter: settings.pressEnter, signal: s.abort.signal };
+  const reply = !practice ? s.reply : undefined;
+  let replied: { ok: boolean; message: string } | undefined;
+  // A reply: cleaned and kept in history as usual, then previewed, then sent to the card instead of pasted.
+  const replySink: OutputSink = {
+    deliver: async (text): Promise<Delivery> => {
+      const t = text.trim();
+      if (!reply || !agents || !(await previewReply(reply.to, t))) return { pasted: false, copied: false, reason: 'reply cancelled' };
+      replied = await agents.reply(reply.cardId, t, raw);
+      return replied.ok ? { pasted: true, copied: false, confirmed: true } : { pasted: false, copied: true, reason: replied.message };
+    },
+  };
+  const deps = { chain: cleanup.deps(), sink: practice ? practiceSink : reply ? replySink : sink, history, saveHistory: () => saveHistory.now(), log, clean, pressEnter: settings.pressEnter, signal: s.abort.signal };
   const result = await finishDictation(raw, cleanup.steps(), settings.output, s.releasedAt, deps, (phase) => {
     if (phase === 'cleaning') pillSend('dictate:pill', { kind: 'cleaning' });
     else {
@@ -358,6 +408,13 @@ async function stopRecording(): Promise<void> {
   }
   log('info', `dictation ${s.id}: final after ${sttMs.toFixed(0)} ms`);
   const d = result.delivery;
+  if (reply) {
+    if (replied) pillSend('dictate:pill', replied.ok ? { kind: 'done', message: replied.message } : { kind: 'copied', message: replied.message });
+    else pillSend('dictate:pill', { kind: 'info', message: 'Cancelled · nothing sent' });
+    pushState();
+    rebuildTrayMenu();
+    return idleTray();
+  }
   if (d?.pasted && d.confirmed === false) pillSend('dictate:pill', { kind: 'copied', message: 'Pasted — also on the clipboard' });
   else if (d?.pasted) pillSend('dictate:pill', { kind: 'done', message: `${settings.output === 'both' ? 'Pasted and copied' : 'Pasted'}${d.entered ? ' · Enter' : ''}` });
   else if (d?.copied) pillSend('dictate:pill', { kind: 'copied', message: settings.output === 'clipboard' ? 'Copied' : `Copied — press ${pasteKeys}` });
@@ -648,7 +705,7 @@ function showToast(message: string, undo: boolean, ms: number): void {
   clearTimeout(toastTimer);
   if (undo) {
     pill.setIgnoreMouseEvents(false);
-    toastTimer = setTimeout(() => pill.setIgnoreMouseEvents(true), ms);
+    toastTimer = setTimeout(() => pill.setIgnoreMouseEvents(true, { forward: true }), ms);
   }
 }
 
@@ -775,6 +832,13 @@ function onHook(e: FromHook): void {
     }
     return;
   }
+  // Esc during a reply's preview: nothing is sent.
+  if (e.down && e.vk === VK.Escape && !rec && replyPreview) {
+    replyPreview.cancel();
+    return;
+  }
+  // Esc with the pointer over an agent's card dismisses it (the app in front sees the Esc too).
+  if (e.down && e.vk === VK.Escape && !rec && !cancellable.size && pointerOverCard()) agents?.dismissTop();
   // Esc after release cancels a dictation still transcribing or cleaning (the hook swallowed it).
   if (e.down && e.vk === VK.Escape && !rec && cancellable.size) {
     cancelAfterRelease();
@@ -827,6 +891,7 @@ function rebuildTrayMenu(): void {
       { label: 'Cleanup', submenu: [chain('gemma-emberon', 'Gemma → Emberon (best)'), chain('gemma', 'Gemma only'), chain('emberon', 'Emberon only (fastest)'), chain('off', 'Off (raw transcript)')] },
       { label: 'Output', submenu: [out('paste', 'Paste into the focused app'), out('clipboard', 'Clipboard only'), out('both', 'Paste and keep on clipboard')] },
       { label: 'Sounds', type: 'checkbox', checked: settings.sounds, click: (i) => updateSettings({ sounds: i.checked }) },
+      { label: `Pause agent alerts${settings.agentAlertsPaused && agents?.waiting() ? ` (${agents.waiting()} waiting)` : ''}`, type: 'checkbox', checked: settings.agentAlertsPaused, click: (i) => agents?.setPaused(i.checked) },
       { type: 'separator' },
       { label: 'Getting started…', click: () => openSettings('start') },
       { label: 'Settings…', click: () => openSettings() },
@@ -1002,6 +1067,7 @@ function state() {
     startupError,
     recording: !!rec,
     automation: !!process.env.DICTATE_SMOKE_TEST,
+    agents: agents?.state() ?? null,
   };
 }
 
@@ -1023,6 +1089,8 @@ function updateSettings(patch: Partial<Settings>): void {
   if (patch.pillText !== undefined) pillConfig();
   if (patch.startAtLogin !== undefined) applyLoginItem();
   if (patch.autoUpdate !== undefined) updater?.setEnabled(settings.autoUpdate);
+  if (patch.agentsEnabled !== undefined && patch.agentsEnabled !== before.agentsEnabled) void agents?.applyRegistration().then(() => pushState());
+  if (patch.agentAlertsPaused !== undefined && agents && agents.hub.queue.paused !== settings.agentAlertsPaused) agents.setPaused(settings.agentAlertsPaused);
   if (patch.portableShortcut !== undefined || patch.portableShortcutEnabled !== undefined) applyPortableShortcut();
   if (['cleanup', 'llamaServer', 'modelsDir', 'vocabulary', 'batteryEmberonOnly', 'batteryUnloadMinutes'].some((k) => k in patch)) cleanup.update(settings);
   if ((patch.modelsDir && patch.modelsDir !== before.modelsDir) || (patch.sttThreads && patch.sttThreads !== before.sttThreads)) {
@@ -1152,6 +1220,18 @@ function registerIpc(): void {
     return p;
   });
   ipcMain.handle('dictate:open-data', () => shell.openPath(userData()));
+  ipcMain.handle('dictate:agents-vocab', (_e, a: { term: string; approve: boolean }) => {
+    if (a.approve) agents?.approve(String(a.term));
+    else agents?.reject(String(a.term));
+    return state();
+  });
+  ipcMain.handle('dictate:agents-revoke', (_e, sessionId: string) => {
+    agents?.revoke(String(sessionId));
+    return state();
+  });
+  ipcMain.handle('dictate:agents-copy', async (_e, text: string) => {
+    await writeClipboardText(String(text), { history: false });
+  });
   ipcMain.handle('dictate:open-url', (_e, url: string) => {
     // Only the licence and source links the pages show: https, never a file or app protocol.
     if (typeof url === 'string' && /^https:\/\/\S+$/.test(url)) return shell.openExternal(url);
@@ -1164,7 +1244,15 @@ function registerIpc(): void {
   });
   ipcMain.on('dictate:renderer-error', (_e, page: string, message: string) => log('error', `renderer ${page}: ${String(message).slice(0, 2000)}`));
   ipcMain.on('dictate:pill-hidden', () => {
-    if (!rec?.shown) pill.hide();
+    if (!rec?.shown && !cardsShown) pill.hide();
+  });
+  // Only the cards take clicks: the renderer says when the pointer is over one; elsewhere clicks pass through.
+  ipcMain.on('dictate:pill-mouse', (_e, over: boolean) => {
+    if (!pill.isDestroyed()) pill.setIgnoreMouseEvents(!over, { forward: true });
+  });
+  ipcMain.handle('dictate:card-action', (_e, a: CardAction) => agents?.action(a));
+  ipcMain.on('dictate:card-rect', (_e, r: typeof cardRect) => {
+    cardRect = r && [r.x, r.y, r.width, r.height].every(Number.isFinite) ? r : null;
   });
   ipcMain.on('dictate:devices', (_e, d: { list: MicDevice[]; defaultLabel: string }) => {
     if (process.env.DICTATE_QA_DEVICES) return;
@@ -1183,7 +1271,7 @@ function registerIpc(): void {
   ipcMain.on('dictate:undo-mic', () => {
     const d = mics.undo();
     log('info', `undo mic switch: back to ${d?.label ?? 'system default'}`);
-    pill.setIgnoreMouseEvents(true);
+    pill.setIgnoreMouseEvents(true, { forward: true });
     pillSend('dictate:pill', { kind: 'info', message: `Using ${d ? micName(d.label) : 'the default mic'}` });
     pushState();
     rebuildTrayMenu();
@@ -1322,6 +1410,7 @@ async function main(): Promise<void> {
   if (settings.portableShortcutEnabled) applyPortableShortcut();
 
   if (!settings.onboarded) openSettings();
+  startAgents();
 
   // QA: drive the hotkey without the keyboard. Each line appended to this file is `down` or `up` (the dictation
   // key), handled as if the hook had seen it.
@@ -1347,6 +1436,23 @@ async function main(): Promise<void> {
           pillSend('dictate:pill', JSON.parse(line.slice(6)));
           showPill(pill);
         } else if (line.startsWith('partial ')) pillSend('dictate:partial', line.slice(8));
+        // Agent cards: hover (expanded) without a mouse, and the top card's buttons ("card choose Prod").
+        else if (line.startsWith('cards-hover ')) pillSend('dictate:qa-hover', line.slice(12) === 'on');
+        else if (line === 'cards-list') pillSend('dictate:qa-list');
+        // Where the top card is on screen (physical pixels, for a real pointer), and what the queue holds.
+        else if (line === 'card-where' && cardRect) {
+          const b = pill.getBounds();
+          log('info', `QA card at ${JSON.stringify(screen.dipToScreenRect(pill, { x: Math.round(b.x + cardRect.x), y: Math.round(b.y + cardRect.y), width: Math.round(cardRect.width), height: Math.round(cardRect.height) }))}`);
+        } else if (line === 'cards-dump') {
+          const v = agents?.hub.queue.view(Date.now());
+          log('info', `QA cards ${JSON.stringify({ top: v?.top ? { title: v.top.title, source: v.top.source, urgency: v.top.urgency, kind: v.top.kind, target: !!v.top.target } : null, more: v?.more ?? 0, all: v?.all.map((c) => c.title) ?? [] })}`);
+        }
+        else if (line.startsWith('pause ')) agents?.setPaused(line.slice(6) === 'on');
+        else if (line.startsWith('card ')) {
+          const [action, ...rest] = line.slice(5).split(' ');
+          const top = agents?.hub.queue.view(Date.now()).top;
+          if (top) void agents?.action({ id: top.id, action, value: rest.join(' ') } as CardAction);
+        }
       }
       seen = lines.length;
     });
@@ -1367,6 +1473,50 @@ async function main(): Promise<void> {
   }
 }
 
+// ---------- coding agents ----------
+
+let agents: Agents | undefined;
+/** The pill shows agent cards: it stays up, and takes clicks over the cards. */
+let cardsShown = false;
+
+/** Registration writes the person's real agent configs: packaged builds only. QA points it at a test home. */
+function registrationOptions(): AgentsHost['registration'] {
+  const testHome = process.env.DICTATE_AGENT_HOME;
+  if (testHome) {
+    return { allowed: true, executable: process.execPath, env: { ...process.env, HOME: testHome, USERPROFILE: testHome, CODEX_HOME: path.join(testHome, '.codex'), CLAUDE_CONFIG_DIR: testHome } };
+  }
+  const automated = !!process.env.DICTATE_SMOKE_TEST || !!process.env.DICTATE_QA_CONTROL;
+  return { allowed: app.isPackaged && !automated, executable: process.env.APPIMAGE || process.execPath, env: process.env };
+}
+
+function startAgents(): void {
+  agents = new Agents({
+    userData: userData(),
+    appRoot: appRoot(),
+    log,
+    settings: () => settings,
+    update: (patch) => updateSettings(patch),
+    history: () => history,
+    status: () => ({ modelsReady: sttReady, dictating: !!rec || finishing.size > 0 }),
+    showCards: (view) => {
+      cardsShown = !!view.top;
+      pillSend('dictate:cards', view);
+      if (cardsShown) showPill(pill);
+    },
+    chime: () => pillSend('dictate:sound', 'chime'),
+    openSettings: (page) => openSettings(page),
+    openExternal: (url) => {
+      if (/^https:\/\/\S+$/.test(url)) void shell.openExternal(url);
+    },
+    copy: (text) => writeClipboardText(text, { history: true }),
+    paneInFront: () => /(^|[\\/])pane(\.exe)?$/i.test(foregroundProcessPath()),
+    allowForeground: () => void allowForegroundHandoff(),
+    registration: registrationOptions(),
+    trayChanged: () => rebuildTrayMenu(),
+  });
+  void agents.start().catch((e) => log('error', `agents did not start: ${(e as Error).message}`));
+}
+
 app.on('window-all-closed', () => {
   // A tray app: closing settings does not quit.
 });
@@ -1381,5 +1531,6 @@ app.on('before-quit', () => {
   nativeMic?.stop();
   cleanup?.stopAll();
   stt?.kill();
+  agents?.stop();
   log('info', 'quit');
 });

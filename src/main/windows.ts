@@ -7,7 +7,8 @@ const renderer = (file: string) => path.join(app.getAppPath(), 'out', 'renderer'
 const preload = () => path.join(app.getAppPath(), 'out', 'main', 'preload.js');
 
 export const PILL_W = 600;
-export const PILL_H = 120;
+/** Tall enough for an expanded agent card above the pill; everything but the cards lets clicks through. */
+export const PILL_H = 420;
 
 export function createPill(): BrowserWindow {
   const w = new BrowserWindow({
@@ -28,7 +29,8 @@ export function createPill(): BrowserWindow {
     webPreferences: { preload: preload(), backgroundThrottling: false, contextIsolation: true, sandbox: false },
   });
   w.setAlwaysOnTop(true, 'screen-saver');
-  w.setIgnoreMouseEvents(true);
+  // Clicks pass through; pointer moves still reach the page so a card can take them while the pointer is on it.
+  w.setIgnoreMouseEvents(true, { forward: true });
   void w.loadFile(renderer('pill.html'));
   return w;
 }
