@@ -67,7 +67,7 @@ export const THIRD_PARTY: ThirdPartyItem[] = [
     licence: 'MIT',
     licenceUrl: 'https://github.com/ggml-org/llama.cpp/blob/master/LICENSE',
     source: 'https://github.com/ggml-org/llama.cpp',
-    sizeNote: 'about 12–20 MB depending on platform',
+    sizeNote: 'about 12–32 MB depending on platform',
     downloaded: true,
     optional: false,
   },

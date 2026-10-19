@@ -11,7 +11,7 @@ open-dictate itself is licensed under AGPL-3.0-or-later. The models and the llam
 | Nemotron Speech Streaming 0.6B (sherpa-onnx int8 export) | Speech recognition | [NVIDIA Open Model License](https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/) | https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models | 464 MB |
 | Emberon-2 (Q4_K_M GGUF) by Promethic Labs | Text cleanup | [LFM Open License v1.0](https://huggingface.co/PromethicLabs/Emberon-2/blob/main/LICENSE) | https://huggingface.co/PromethicLabs/Emberon-2 | 200 MB |
 | Gemma 4 E2B (Q4_K_M GGUF, unsloth) (optional) | Higher-quality text cleanup | [Apache-2.0](https://ai.google.dev/gemma/docs/gemma_4_license) | https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF | 3.1 GB |
-| llama.cpp b11700 | Runs the cleanup model | [MIT](https://github.com/ggml-org/llama.cpp/blob/master/LICENSE) | https://github.com/ggml-org/llama.cpp | about 12–20 MB depending on platform |
+| llama.cpp b11700 | Runs the cleanup model | [MIT](https://github.com/ggml-org/llama.cpp/blob/master/LICENSE) | https://github.com/ggml-org/llama.cpp | about 12–32 MB depending on platform |
 
 ## Libraries bundled in the app
 

@@ -14,7 +14,7 @@ After the first download, the app times one cold and three warm cleanups of a bu
 | Same, Vulkan hidden | CPU | 165 ms | 1,337 ms | Emberon only |
 | Apple M1 Pro, 32 GB | Metal | 59 ms alone; 192 ms with Gemma loaded | 657 ms | Gemma → Emberon |
 
-The Windows download is llama.cpp's portable CPU build, so most Windows PCs measure **Emberon only**. Gemma (3.1 GB) is offered when the computer has a 4 GB GPU or 16 GB of RAM, and used only if it measures under 1 s.
+Windows and Linux download llama.cpp's Vulkan build, so a GPU, integrated ones included, is used where there is one; without one it runs on the CPU and most such PCs measure **Emberon only**. Gemma (3.1 GB) is offered when the computer has a 4 GB GPU or 16 GB of RAM, and used only if it measures under 1 s.
 
 ### Dictation speed
 
@@ -27,7 +27,7 @@ The Windows download is llama.cpp's portable CPU build, so most Windows PCs meas
 
 ### First-run download
 
-The essentials are about 0.68 GB (speech model 464 MB, Emberon 200 MB, llama.cpp 12–20 MB). On the M1 Pro over home Wi-Fi it downloaded at a median 8.8 MB/s and installed in about a minute; a download cut at 30% resumed from the same byte.
+The essentials are about 0.68 GB (speech model 464 MB, Emberon 200 MB, llama.cpp 12–32 MB). On the M1 Pro over home Wi-Fi it downloaded at a median 8.8 MB/s and installed in about a minute; a download cut at 30% resumed from the same byte.
 
 ## Model choices
 
@@ -36,7 +36,7 @@ The essentials are about 0.68 GB (speech model 464 MB, Emberon 200 MB, llama.cpp
 | Nemotron Speech Streaming 0.6B, int8, 1120 ms chunks (sherpa-onnx) | Streams words while you talk, runs on a CPU, English. | NVIDIA Open Model License |
 | Emberon-2 Q4_K_M | 350M parameters, 200 MB, fast on a CPU: punctuation, fillers, polish. | LFM Open License v1.0 |
 | Gemma 4 E2B Q4_K_M | Better with names from your vocabulary; needs a GPU or a fast computer. Optional. | Apache-2.0 |
-| llama.cpp b11700 | Runs the cleanup models. The portable CPU build covers every PC; a custom Vulkan or CUDA build can be pointed at in Advanced. | MIT |
+| llama.cpp b11700 | Runs the cleanup models. The Vulkan build (Windows, Linux) uses any GPU and falls back to its CPU backends; Metal on Mac. A custom build, such as CUDA, can be pointed at in Advanced. | MIT |
 
 Models are never bundled: the app downloads them from their official sources on first run, checks each file's pinned SHA-256, and shows every licence and required notice first ([THIRD_PARTY.md](../../THIRD_PARTY.md)). Other languages wait for a multilingual streaming model.
 

@@ -52,7 +52,9 @@ export interface SetupState {
 }
 
 export function llamaAssetFor(platform: NodeJS.Platform, arch: string): DownloadAsset {
-  const os = { win32: 'win-cpu', darwin: 'macos', linux: 'ubuntu' }[platform as 'win32' | 'darwin' | 'linux'];
+  // Vulkan on Windows and Linux: AMD, Intel and NVIDIA, integrated GPUs too. Its CPU backends ship in the same archive
+  // and llama.cpp falls back to them when Vulkan finds no device. Metal on Mac.
+  const os = { win32: 'win-vulkan', darwin: 'macos', linux: 'ubuntu-vulkan' }[platform as 'win32' | 'darwin' | 'linux'];
   const asset = LLAMA_ASSETS.find((a) => a.name === `llama-b11700-bin-${os}-${arch}.${platform === 'win32' ? 'zip' : 'tar.gz'}`);
   if (!asset) throw new Error(`Unsupported cleanup runtime: ${platform}/${arch}`);
   return asset;
@@ -262,8 +264,13 @@ export function speechInstalled(modelsDir: string): boolean {
 }
 
 const serverName = (platform: NodeJS.Platform) => platform === 'win32' ? 'llama-server.exe' : 'llama-server';
+/** The GPU backend the pinned build loads beside llama-server; an earlier CPU-only download lacks it and is replaced. */
+const GPU_BACKEND: Partial<Record<NodeJS.Platform, string>> = { win32: 'ggml-vulkan.dll', linux: 'libggml-vulkan.so' };
+
 export function runtimeInstalled(binDir: string, platform: NodeJS.Platform): boolean {
-  try { return fs.statSync(path.join(binDir, serverName(platform))).isFile(); } catch { return false; }
+  const isFile = (name: string) => { try { return fs.statSync(path.join(binDir, name)).isFile(); } catch { return false; } };
+  const backend = GPU_BACKEND[platform];
+  return isFile(serverName(platform)) && (!backend || isFile(backend));
 }
 
 /** Stage 1: enough to dictate with cleanup. */

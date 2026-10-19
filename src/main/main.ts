@@ -10,6 +10,7 @@ import { HistoryStore } from '../core/history';
 import { type Bindings, bindingFromKeys, bindingLabel, type HotkeyAction, HotkeyMachine, isModifier, menuMaskKeys, type RecordMode, swallowBindings, VK } from '../core/hotkeys';
 import { DEFAULT_SEGMENTER, LiveCleanup, Segmenter } from '../core/live';
 import { type MicDevice, type MicEvent, MicSelector, micKey, micName } from '../core/mics';
+import { appliesMeasuredChain, keepsLlamaServer, upgradedOnboarded } from '../core/onboarding';
 import { finishHint } from '../core/pillhint';
 import { applyEnv, GEMMA_GGUF, parseSettings, resolveModelsDir, STT_MODEL } from '../core/settings';
 import type { Binding, Settings } from '../core/types';
@@ -875,7 +876,7 @@ function downloadSizes(): { essentials: number; gemma: number } {
 const practiceSink: OutputSink = { deliver: async (): Promise<Delivery> => ({ pasted: true, copied: false, confirmed: true }) };
 
 /** C4/D10: time cleanup on this computer, save the result, and use the chain it picks. */
-async function hardwareCheck(measureGemma: boolean): Promise<unknown> {
+async function hardwareCheck(measureGemma: boolean, requested: boolean): Promise<unknown> {
   if (hardwareRunning) return state();
   if (rec || finishing.size) throw new Error('Finish dictating before running the check');
   hardwareRunning = true;
@@ -891,7 +892,9 @@ async function hardwareCheck(measureGemma: boolean): Promise<unknown> {
     });
     const c = report.choice;
     log('info', `hardware check: ${c.summary} (emberon ${report.emberonMs?.toFixed(0) ?? '-'} ms, gemma chain ${report.gemmaChainMs?.toFixed(0) ?? '-'} ms, ${report.devices.length} GPU devices)`);
-    updateSettings({ cleanup: c.chain, hardware: { summary: c.summary, chain: c.chain, emberonMs: report.emberonMs, gemmaChainMs: report.gemmaChainMs, offerGemma: c.offerGemma, measuredAt: report.measuredAt } });
+    // After Getting started, a check nobody asked for (one after a download) reports but keeps the person's chain.
+    const chain = appliesMeasuredChain({ onboarded: settings.onboarded, requested }) ? { cleanup: c.chain } : {};
+    updateSettings({ ...chain, hardware: { summary: c.summary, chain: c.chain, emberonMs: report.emberonMs, gemmaChainMs: report.gemmaChainMs, offerGemma: c.offerGemma, measuredAt: report.measuredAt } });
   } catch (err) {
     hardwareError = `The speed check failed: ${(err as Error).message}`;
     log('error', hardwareError);
@@ -1096,8 +1099,9 @@ function registerIpc(): void {
     if (kind === 'speech') cleanup.sync();
     else {
       // D10: the measurement picks the chain, not the download (the Cleanup page's button included).
-      updateSettings({ llamaServer: llamaServerPath() });
-      void hardwareCheck(kind !== 'essentials').catch(() => undefined);
+      if (!keepsLlamaServer(settings.llamaServer, fs.existsSync)) updateSettings({ llamaServer: llamaServerPath() });
+      // Downloading Gemma asks to switch to it if it is fast enough; the other downloads only report afterwards.
+      void hardwareCheck(kind !== 'essentials', kind === 'gemma').catch(() => undefined);
     }
     return state();
   });
@@ -1138,7 +1142,7 @@ function registerIpc(): void {
     await updater?.check();
     return state();
   });
-  ipcMain.handle('dictate:hardware-check', () => hardwareCheck(fs.existsSync(path.join(settings.modelsDir, GEMMA_GGUF))));
+  ipcMain.handle('dictate:hardware-check', (_e, requested?: boolean) => hardwareCheck(fs.existsSync(path.join(settings.modelsDir, GEMMA_GGUF)), requested !== false));
   ipcMain.handle('dictate:practice', (_e, on: boolean) => {
     practicing = !!on;
   });
@@ -1207,8 +1211,14 @@ function registerIpc(): void {
 function loadSettings(): Settings {
   const vocab = parseVocabularyFile(fs.readFileSync(path.join(appRoot(), 'defaults', 'vocabulary.json'), 'utf8')).terms;
   const defaults = runtimeDefaults(vocab, { platform: process.platform, userData: userData() });
-  const data = migratePlatformSettings(loadJson(path.join(userData(), 'settings.json'), log), defaults, fs.existsSync);
+  const saved = loadJson(path.join(userData(), 'settings.json'), log);
+  const data = migratePlatformSettings(saved, defaults, fs.existsSync);
   const s = parseSettings(data, defaults);
+  // A profile from before Getting started that already dictates keeps working as it was, without the walkthrough.
+  if (!s.onboarded && upgradedOnboarded(saved, speechInstalled(resolveModelsDir(s.modelsDir, fs.existsSync)))) {
+    s.onboarded = true;
+    s.onboardingStep = 'done';
+  }
   return applyEnv(s, process.env);
 }
 
