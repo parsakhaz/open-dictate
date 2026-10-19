@@ -6,7 +6,7 @@ import { cpSync, mkdirSync, rmSync } from 'node:fs';
 prepareNative();
 
 const common = { bundle: true, sourcemap: true, logLevel: 'warning', target: 'node24' };
-const node = { ...common, platform: 'node', format: 'cjs', external: ['electron', 'sherpa-onnx-node', 'koffi', 'uiohook-napi'] };
+const node = { ...common, platform: 'node', format: 'cjs', external: ['electron', 'electron-updater', 'sherpa-onnx-node', 'koffi', 'uiohook-napi'] };
 
 rmSync('out', { recursive: true, force: true });
 mkdirSync('out/renderer', { recursive: true });

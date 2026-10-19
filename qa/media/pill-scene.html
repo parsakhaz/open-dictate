@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../out/renderer/theme.css" />
+    <link rel="stylesheet" href="../../out/renderer/pill.css" />
+    <link rel="stylesheet" href="scene.css" />
+    <script src="shim.js"></script>
+  </head>
+  <body>
+    <div id="desk">
+      <div class="window">
+        <div class="titlebar"><span class="tab">release-notes.md</span><span>Notes</span></div>
+        <div class="doc">
+          <h3>Infra update</h3>
+          <p>Status for the weekly sync. Everything below was dictated.</p>
+          <div class="muted-line" style="width: 82%"></div>
+          <div class="muted-line" style="width: 64%"></div>
+          <div class="live"><span id="typed"></span><span class="caret"></span></div>
+        </div>
+      </div>
+    </div>
+    <div id="keycue"><kbd>Right Ctrl</kbd><span>hold to talk</span></div>
+    <div id="root"></div>
+    <script type="module" src="../../out/renderer/pill.js"></script>
+  </body>
+</html>

@@ -15,8 +15,9 @@ module.exports = {
     'node_modules/koffi/build/**/*',
   ],
   npmRebuild: false,
-  // Publishing is a separate workflow job after all native smoke checks and version gates pass.
-  publish: null,
+  // Builds always run with --publish never; the release job publishes after every native check passes.
+  // This only tells the app (app-update.yml) and latest*.yml where releases live, for auto-update (C6).
+  publish: { provider: 'github', owner: 'parsakhaz', repo: 'open-dictate', releaseType: 'release' },
   win: {
     target: ['nsis'],
     artifactName: 'Dictate-${version}-windows-${arch}-setup.${ext}',

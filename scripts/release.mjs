@@ -25,6 +25,8 @@ function collect(source, destination) {
       `Dictate-${version}-macos-${arch}.zip`, `Dictate-${version}-macos-${arch}.dmg`,
       `Dictate-${version}-linux-${arch}.AppImage`, `Dictate-${version}-linux-${arch}.deb`,
     ]),
+    // Auto-update metadata (C6): Windows and the AppImages update themselves; Macs and .debs are only told.
+    'latest.yml', `Dictate-${version}-windows-x64-setup.exe.blockmap`, 'latest-linux.yml', 'latest-linux-arm64.yml',
   ];
   const found = new Map();
   function walk(dir) {
