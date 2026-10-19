@@ -70,8 +70,8 @@ export class CardQueue {
     let next = card;
     if (i >= 0) {
       const old = this.cards[i];
-      // A finished tab never hides one that still needs the person.
-      if (card.kind === 'pane-ready' && rank(old.urgency) < rank(card.urgency)) return this.paused ? 'dnd' : 'queued';
+      // A finished tab never hides one that still needs the person, nor the agent's own words.
+      if (card.kind === 'pane-ready' && (old.origin === 'agent' || rank(old.urgency) < rank(card.urgency))) return this.paused ? 'dnd' : 'queued';
       // Pane saying a tab is blocked keeps the agent's own headline from that tab, and offers Reply.
       if (card.kind === 'pane-blocked' && old.origin === 'agent' && old.kind === 'notify') {
         next = { ...old, kind: 'pane-blocked', urgency: 'needs_you', target: card.target ?? old.target, faded: false, shownAt: undefined };
