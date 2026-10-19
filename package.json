@@ -4,7 +4,7 @@
   "private": true,
   "packageManager": "pnpm@11.10.0",
   "description": "Local Windows dictation: hold a hotkey, speak, and cleaned text is typed into the focused app. Nemotron streaming STT + local llama.cpp cleanup.",
-  "license": "AGPL-3.0",
+  "license": "AGPL-3.0-or-later",
   "main": "out/main/main.js",
   "scripts": {
     "build": "node build.mjs",
