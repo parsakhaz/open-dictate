@@ -40,10 +40,10 @@
 | | |
 | --- | --- |
 | **1. Download** the installer for your computer from [Releases](https://github.com/parsakhaz/open-dictate/releases/latest): `.exe` for Windows, `.dmg` for Mac, `.AppImage` or `.deb` for Linux. | |
-| **2. Open it.** Windows: **More info → Run anyway**, then it installs for you only, no admin. Mac: drag it to Applications; if it's blocked, **System Settings → Privacy & Security → Open Anyway**. Getting started opens. | <img src="docs/media/onboarding/1-welcome.png" width="360" alt="Getting started: welcome"> |
+| **2. Open it.** Windows: **More info → Run anyway**, then it installs for you only, no admin. Mac: drag it to Applications; if it's blocked, **System Settings → Privacy & Security → Open Anyway**. Linux: `sudo apt install ./Dictate-*.deb`, or `chmod +x` the AppImage and run it. Getting started opens. | <img src="docs/media/onboarding/1-welcome.png" width="360" alt="Getting started: welcome"> |
 | **3. Let it set up.** It shows the models' licences, downloads about 0.7 GB (you can pause, and it resumes), then times a cleanup to pick what runs fast on your computer. | <img src="docs/media/onboarding/4-hardware.png" width="360" alt="Getting started: speed check"> |
-| **4. Pick your mic and key.** Say something and watch the meter. Pick Right Ctrl, Right Alt, F13 (a mouse button), or press any key. | <img src="docs/media/onboarding/6-hotkey.png" width="360" alt="Getting started: dictation key"> |
-| **5. Hold the key and talk.** Let go and the text appears where your cursor is. Try it in the practice box first. | <img src="docs/media/onboarding/7-try.png" width="360" alt="Getting started: try it"> |
+| **4. Pick your mic and key.** Say something and watch the meter. Pick Right Ctrl, Right Alt, F13 (a mouse button), or press any key. On a Mac, allow Dictate when asked for **Microphone**, **Accessibility** and **Input Monitoring**, then restart it. | <img src="docs/media/onboarding/6-hotkey.png" width="360" alt="Getting started: dictation key"> |
+| **5. Hold the key and talk.** Let go and the text appears where your cursor is. Try it in the practice box first. (On Linux Wayland, start and stop from the tray instead; [why](#faq).) | <img src="docs/media/onboarding/7-try.png" width="360" alt="Getting started: try it"> |
 
 Getting started is always one click away: **Settings → Getting started**, or **Getting started…** in the tray.
 
@@ -80,14 +80,14 @@ open-dictate runs the whole thing on your computer: a streaming speech model wri
 
 ## Performance
 
-Measured with the production code on the bundled 14-second recording:
+Measured with the production code:
 
-| | |
-| --- | --- |
-| Key release to text, Emberon cleanup, Apple M1 Pro | about 0.25 s |
-| Cleanup with Gemma then Emberon, Radeon 8060S (Vulkan) / Apple M1 Pro (Metal) | 0.59 s / 0.66 s on the 5 s sample |
-| Cleanup with Emberon only, CPU | 0.17 s on the 5 s sample |
-| Idle | about 0.6% of one CPU core; nothing polls |
+| What | Computer | Time |
+| --- | --- | --- |
+| Key release to pasted text, a 14 s dictation, Emberon cleanup | Apple M1 Pro | about 0.25 s |
+| Cleanup of a 5 s dictation, Gemma then Emberon | Radeon 8060S (Vulkan) · Apple M1 Pro (Metal) | 0.59 s · 0.66 s |
+| Cleanup of a 5 s dictation, Emberon only | Ryzen AI Max+ 395, CPU only | 0.17 s |
+| Idle, models loaded | Windows laptop | about 0.6% of one CPU core; nothing polls |
 
 On first run the speed check times a cleanup on your computer and picks Gemma then Emberon, Emberon only, or no cleanup, whichever is fast enough there. More in [decisions](docs/decisions/README.md#measurements).
 
@@ -134,12 +134,7 @@ Models are downloaded by you, from their official sources, and keep their own li
 
 ## Build from source
 
-```sh
-pnpm install
-pnpm start
-```
-
-Node 24 and pnpm 11 are needed. Tests, the QA drivers and packaging are in [docs/development](docs/development/README.md).
+`pnpm install && pnpm start` with Node 24 and pnpm 11. Everything else is in [docs/development](docs/development/README.md).
 
 ## Documentation
 
