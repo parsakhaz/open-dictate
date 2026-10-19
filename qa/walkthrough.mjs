@@ -164,11 +164,12 @@ try {
   await p.click('next');
   await p.until(`${heading} === 'Hotkeys & output'`, 'Settings after Finish');
   await p.shot('9-settings');
-  const saved = JSON.parse(fs.readFileSync(path.join(profile, 'settings.json'), 'utf8'));
-  note('finished', { onboarded: saved.onboarded, cleanup: saved.cleanup, hardware: saved.hardware?.summary });
-  if (!saved.onboarded) throw new Error('settings.json is not onboarded after Finish');
   p.close();
+  // Settings are saved debounced; quitting flushes them.
   await quit(profile);
+  const saved = JSON.parse(fs.readFileSync(path.join(profile, 'settings.json'), 'utf8'));
+  note('finished', { onboarded: saved.onboarded, onboardingStep: saved.onboardingStep, cleanup: saved.cleanup, hardware: saved.hardware?.summary });
+  if (!saved.onboarded) throw new Error('settings.json is not onboarded after Finish');
 
   if (fullDisk) {
     launch(fullDisk);
