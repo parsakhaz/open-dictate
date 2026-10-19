@@ -104,21 +104,21 @@ On first run the speed check times a cleanup on your computer and picks Gemma th
 | Cleanup while you speak | **Yes.** Each finished sentence is cleaned while you keep talking, so little is left at release. | No |
 | Vocabulary | Fed to the cleanup, which spells your names right | Whisper prompt, or fuzzy correction for other models |
 | History | **A picker at the cursor** (Right Ctrl+V): search, pin, paste again, raw transcript one Tab away | Kept in the app, the last 5 by default |
-| Download | 127 MB installer, then about 0.7 GB of models (Gemma, 3.1 GB, optional) | About 20 MB installer, then the model you pick (46 MB and up; the recommended ones are 0.2–1.8 GB) |
+| Download | 127 MB installer, then about 0.7 GB of models (Gemma, 3.1 GB, optional) | Installer about 13–22 MB on Windows and macOS; on Linux 37–42 MB (.deb), 95–105 MB (.rpm) or 122–129 MB (AppImage). Then the model you pick (46 MB and up; the recommended ones are 0.2–1.8 GB) |
 
-Where Handy is ahead: a much smaller app, many more models and languages, Windows on Arm, and a large community. If you dictate in a language other than English, use Handy.
+Where Handy is ahead: a much smaller app on Windows and macOS, many more models and languages, Windows on Arm, and a large community. If you dictate in a language other than English, use Handy.
 
 The paid apps, for completeness:
 
 | | open-dictate | Willow Voice | Superwhisper |
 | --- | --- | --- | --- |
-| Where your speech is processed | **On your computer, always** | Not stated on its site; it offers an offline mode that runs on the device | Local models, or cloud engines |
+| Where your speech is processed | **On your computer, always** | In the cloud by default, processed transiently and not retained ([privacy policy](https://willowvoice.com/privacy-policy)); its site also offers an offline mode that runs on the device | Local models, or cloud engines |
 | Price | **Free** | Subscription, with a limited free tier | Free tier with local models; subscription or lifetime licence for the rest |
 | Windows · macOS · Linux | **Yes · Yes · Yes** | Yes · Yes · No | Yes · Yes · No |
 | Phones | No | iPhone | iOS, Android |
 | Source code | **Open (AGPL-3.0)** | No public code | No public code |
 
-Checked on 2026-10-19: Handy from its v0.9.8 release and source, the others from their own product pages. Plans change, so check their sites; corrections welcome.
+Checked on 2026-10-19: Handy from its [v0.9.8 release](https://github.com/cjpais/Handy/releases/tag/v0.9.8) and source, Willow from its product page and [privacy policy](https://willowvoice.com/privacy-policy), Superwhisper from its product page. Plans change, so check their sites; corrections welcome.
 
 ## Models and licences
 
