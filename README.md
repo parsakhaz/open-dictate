@@ -112,7 +112,7 @@ Compiled in October 2026 from public product pages and reviews; plans change, so
 | Nemotron Speech Streaming 0.6B | Speech recognition | 464 MB | NVIDIA Open Model License |
 | Emberon-2 | Text cleanup | 200 MB | LFM Open License v1.0 |
 | Gemma 4 E2B (optional) | Better names | 3.1 GB | Apache-2.0 |
-| llama.cpp | Runs the cleanup models | 12–20 MB | MIT |
+| llama.cpp | Runs the cleanup models | 12–32 MB | MIT |
 
 Models are downloaded by you, from their official sources, and keep their own licences. Full list with links and notices: [THIRD_PARTY.md](THIRD_PARTY.md).
 
