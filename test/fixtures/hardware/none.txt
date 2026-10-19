@@ -1,0 +1,2 @@
+load_backend: loaded CPU backend from /opt/dictate/bin/libggml-cpu.so
+Available devices:

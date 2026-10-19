@@ -1,12 +1,12 @@
 # dictate
 
-[![Dictate CI](https://github.com/parsakhaz/experiments/actions/workflows/dictate.yml/badge.svg)](https://github.com/parsakhaz/experiments/actions/workflows/dictate.yml)
+[![CI](https://github.com/parsakhaz/open-dictate/actions/workflows/ci.yml/badge.svg)](https://github.com/parsakhaz/open-dictate/actions/workflows/ci.yml)
 
 Local English dictation for **Windows, macOS and Linux**. Hold a dictation key, speak, and release to transcribe. Optional local cleanup fixes punctuation and vocabulary. Speech recognition and cleanup run on your computer; setup downloads the models once.
 
 ## Install and test
 
-This branch adds native build artifacts to [Dictate CI](https://github.com/parsakhaz/experiments/actions/workflows/dictate.yml). Until a `dictate-v…` release is published, open the successful run for PR #19 and download the artifact for your computer:
+Download the installer for your computer from [Releases](https://github.com/parsakhaz/open-dictate/releases). Until the first release is published, open the latest successful [CI run](https://github.com/parsakhaz/open-dictate/actions/workflows/ci.yml) on `main` and download the artifact for your computer:
 
 | Computer | Build | Install |
 | --- | --- | --- |
@@ -80,11 +80,11 @@ Model licenses are separate from Dictate's application license. Setup contacts G
 
 ## Release system
 
-The [workflow](../.github/workflows/dictate.yml) checks, builds and smoke-launches the real application on native Windows x64, Mac ARM64/Intel and Linux x64/ARM64 runners. Installer artifacts contain native installers, checksum-verifying scripts and SHA-256 checksums. Separate `dictate-evidence-<platform>-<arch>-…` artifacts contain startup reports/screenshots, native input checks and the app audio/cancel journey. Native dependencies are unpacked from Electron's ASAR archive; a real fixture is also transcribed by the packaged recognizer utility process. Startup smoke does not grant OS permissions or exercise a physical microphone.
+The [workflow](.github/workflows/ci.yml) checks, builds and smoke-launches the real application on native Windows x64, Mac ARM64/Intel and Linux x64/ARM64 runners. Installer artifacts contain native installers, checksum-verifying scripts and SHA-256 checksums. Separate `dictate-evidence-<platform>-<arch>-…` artifacts contain startup reports/screenshots, native input checks and the app audio/cancel journey. Native dependencies are unpacked from Electron's ASAR archive; a real fixture is also transcribed by the packaged recognizer utility process. Startup smoke does not grant OS permissions or exercise a physical microphone.
 
 PRs and ordinary branch pushes always use `--publish never`. A release requires a `dictate-v<package version>` tag, or explicit authorized dispatch, and all native jobs must succeed before publication. Checksums are generated after builds. No feature branch becomes a stable release merely because CI passed.
 
-After releases exist, the portable installers in [`scripts/install.sh`](scripts/install.sh) and [`scripts/install.ps1`](scripts/install.ps1) select the correct OS/architecture and verify the release checksum. They select Dictate releases rather than unrelated experiments releases. See their help for an exact version, a custom location and private-repository authentication. Re-running the installer upgrades the application and preserves its data.
+After releases exist, the portable installers in [`scripts/install.sh`](scripts/install.sh) and [`scripts/install.ps1`](scripts/install.ps1) select the correct OS/architecture and verify the release checksum. See their help for an exact version, a custom location and private-repository authentication. Re-running the installer upgrades the application and preserves its data.
 
 ## Development and validation
 

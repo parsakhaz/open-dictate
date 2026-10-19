@@ -1,0 +1,5 @@
+load_backend: loaded RPC backend from C:\dictatein\ggml-rpc.dll
+load_backend: loaded Vulkan backend from C:\dictatein\ggml-vulkan.dll
+load_backend: loaded CPU backend from C:\dictatein\ggml-cpu-zen4.dll
+Available devices:
+  Vulkan0: NVIDIA GeForce RTX 4070 (12282 MiB, 11520 MiB free)

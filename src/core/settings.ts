@@ -3,7 +3,8 @@
 import { DEFAULT_HISTORY_LIMIT } from './history';
 import { DEFAULT_TIMING, VK } from './hotkeys';
 import { parseMicPrefs } from './mics';
-import type { Binding, CleanupChain, KeySpec, OutputMode, Settings, VocabTerm } from './types';
+import { isStep } from './onboarding';
+import type { Binding, CleanupChain, HardwareResult, KeySpec, OutputMode, Settings, VocabTerm } from './types';
 import { normalizeVocabulary } from './vocabulary';
 
 /** Relative defaults for non-app callers; main resolves these under Electron's userData directory. */
@@ -48,6 +49,9 @@ export function defaultSettings(vocabulary: VocabTerm[] = []): Settings {
     batteryUnloadMinutes: 60,
     batteryEmberonOnly: false,
     onboarded: false,
+    onboardingStep: 'welcome',
+    licencesSeen: false,
+    hardware: null,
     vocabulary,
   };
 }
@@ -90,6 +94,15 @@ function unloadMinutes(d: Record<string, unknown>, defaults: Settings): number {
   return (d.version ?? 1) === 1 && v === 15 ? 60 : v;
 }
 
+const msOrNull = (x: unknown) => (x === null || (typeof x === 'number' && Number.isFinite(x) && x >= 0));
+
+function hardwareResult(x: unknown): HardwareResult | null {
+  const r = x as Partial<HardwareResult> | null;
+  if (!r || typeof r !== 'object' || typeof r.summary !== 'string' || !CHAINS.includes(r.chain as CleanupChain)) return null;
+  if (!msOrNull(r.emberonMs) || !msOrNull(r.gemmaChainMs) || typeof r.offerGemma !== 'boolean' || typeof r.measuredAt !== 'string') return null;
+  return { summary: r.summary, chain: r.chain as CleanupChain, emberonMs: r.emberonMs ?? null, gemmaChainMs: r.gemmaChainMs ?? null, offerGemma: r.offerGemma, measuredAt: r.measuredAt };
+}
+
 export function parseSettings(data: unknown, defaults: Settings): Settings {
   if (typeof data !== 'object' || data === null) return defaults;
   const d = data as Record<string, unknown>;
@@ -129,6 +142,9 @@ export function parseSettings(data: unknown, defaults: Settings): Settings {
     batteryUnloadMinutes: unloadMinutes(d, defaults),
     batteryEmberonOnly: bool(d.batteryEmberonOnly, defaults.batteryEmberonOnly),
     onboarded: bool(d.onboarded, defaults.onboarded),
+    onboardingStep: isStep(d.onboardingStep) ? d.onboardingStep : defaults.onboardingStep,
+    licencesSeen: bool(d.licencesSeen, defaults.licencesSeen),
+    hardware: hardwareResult(d.hardware),
     vocabulary: vocab ? normalizeVocabulary(vocab as VocabTerm[]) : defaults.vocabulary,
   };
 }

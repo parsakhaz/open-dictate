@@ -5,7 +5,7 @@ set -euo pipefail
 fail() { printf 'Dictate: %s\n' "$*" >&2; exit 1; }
 version="${DICTATE_VERSION:-}"
 from=""
-repo="${DICTATE_REPOSITORY:-parsakhaz/experiments}"
+repo="${DICTATE_REPOSITORY:-parsakhaz/open-dictate}"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --version) [ "$#" -ge 2 ] || fail '--version requires X.Y.Z'; version="$2"; shift 2 ;;

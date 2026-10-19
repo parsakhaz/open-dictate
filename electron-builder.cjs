@@ -28,7 +28,9 @@ module.exports = {
     allowToChangeInstallationDirectory: true,
     createDesktopShortcut: false,
     createStartMenuShortcut: true,
-    runAfterFinish: false,
+    runAfterFinish: true,
+    // Asks before deleting settings, history and models on uninstall.
+    include: 'build/installer.nsh',
   },
   mac: {
     target: ['zip', 'dmg'],

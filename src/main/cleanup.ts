@@ -66,6 +66,17 @@ export class Cleanup {
     return out;
   }
 
+  /** The hardware check times a chain the settings may not use yet: its steps, with its servers started. */
+  async trial(chain: CleanupChain): Promise<ChainStep[]> {
+    const steps = stepsFor(chain, this.v3Template, this.settings.vocabulary);
+    for (const m of new Set(steps.map((s) => s.model))) {
+      void this.servers[m].start().catch(() => undefined);
+      // A cold load on a slow disk can take far longer than a dictation would wait.
+      await this.servers[m].whenReady(90_000);
+    }
+    return steps;
+  }
+
   /** Starts the servers the chain needs and stops the rest. */
   sync(): void {
     const need = this.needed();

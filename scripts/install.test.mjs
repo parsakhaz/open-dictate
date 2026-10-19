@@ -52,3 +52,8 @@ test('installer rejects malformed versions before fetching or installing anythin
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Version must be X.Y.Z/);
 });
+
+test('both one-line installers fetch releases from parsakhaz/open-dictate by default', () => {
+  assert.match(readFileSync('scripts/install.sh', 'utf8'), /repo="\$\{DICTATE_REPOSITORY:-parsakhaz\/open-dictate\}"/);
+  assert.match(readFileSync('scripts/install.ps1', 'utf8'), /else \{ 'parsakhaz\/open-dictate' \}/);
+});

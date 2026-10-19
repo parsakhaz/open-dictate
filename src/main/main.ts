@@ -11,7 +11,7 @@ import { type Bindings, bindingFromKeys, bindingLabel, type HotkeyAction, Hotkey
 import { DEFAULT_SEGMENTER, LiveCleanup, Segmenter } from '../core/live';
 import { type MicDevice, type MicEvent, MicSelector, micKey, micName } from '../core/mics';
 import { finishHint } from '../core/pillhint';
-import { applyEnv, parseSettings, resolveModelsDir, STT_MODEL } from '../core/settings';
+import { applyEnv, GEMMA_GGUF, parseSettings, resolveModelsDir, STT_MODEL } from '../core/settings';
 import type { Binding, Settings } from '../core/types';
 import { parseVocabularyFile } from '../core/vocabulary';
 import { WarmMic } from '../core/warm';
@@ -22,7 +22,8 @@ import { type CapturePath, CaptureRouter } from './capture';
 import { Cleanup } from './cleanup';
 import { migratePlatformSettings, runtimeDefaults } from './config';
 import { applyAutostart } from './startup';
-import { SetupManager, speechInstalled } from './setup';
+import { runHardwareCheck } from './hardware';
+import { assetsFor, essentialsInstalled, SetupManager, speechInstalled } from './setup';
 import { runSmoke } from './smoke';
 import { type TrayState, trayIcon } from './icons';
 import { KeyHook } from './keyhook';
@@ -33,7 +34,7 @@ import { realPasteSink } from './output';
 import type { PasteSink } from './paste';
 import { type PickRequest, pickFromHistory } from './pick';
 import { PickerController, type PickerWindow } from './picker';
-import { finishDictation } from './pipeline';
+import { type Delivery, finishDictation, type OutputSink } from './pipeline';
 import { debouncedWriter, loadJson, readJson, writeJson } from './store';
 import { SttLink } from './sttlink';
 import { createPicker, createPill, createSettings, placePicker, showPill } from './windows';
@@ -100,6 +101,12 @@ const setup = new SetupManager();
 let shortcutRegistered = false;
 let shortcutRequested = false;
 let startupError = '';
+let hardwareRunning = false;
+let hardwareError = '';
+/** Getting started's "Try it" box is open: a dictation made while Settings is in front lands there. */
+let practicing = false;
+/** A page the tray asked for before the Settings window had loaded. */
+let pendingPage: string | null = null;
 const pasteKeys = process.platform === 'darwin' ? 'Cmd+V' : 'Ctrl+V';
 
 // ---------- dictation session ----------
@@ -324,7 +331,8 @@ async function stopRecording(): Promise<void> {
         }
       }
     : undefined;
-  const deps = { chain: cleanup.deps(), sink, history, saveHistory: () => saveHistory.now(), log, clean, pressEnter: settings.pressEnter, signal: s.abort.signal };
+  const practice = practicing && !!settingsWin && !settingsWin.isDestroyed() && settingsWin.isFocused();
+  const deps = { chain: cleanup.deps(), sink: practice ? practiceSink : sink, history, saveHistory: () => saveHistory.now(), log, clean, pressEnter: settings.pressEnter, signal: s.abort.signal };
   const result = await finishDictation(raw, cleanup.steps(), settings.output, s.releasedAt, deps, (phase) => {
     if (phase === 'cleaning') pillSend('dictate:pill', { kind: 'cleaning' });
     else {
@@ -336,6 +344,10 @@ async function stopRecording(): Promise<void> {
   cancellable.delete(s);
   syncEsc();
   if (result.cancelled) return cancelled(s, 'cleaning');
+  if (practice && result.entry) {
+    const e = result.entry;
+    settingsWin?.webContents.send('dictate:practice-result', { raw: e.raw, text: e.text, ms: e.ms ?? null, cleaned: result.steps.some((x) => x.status === 'ok') });
+  }
   log('info', `dictation ${s.id}: final after ${sttMs.toFixed(0)} ms`);
   const d = result.delivery;
   if (d?.pasted && d.confirmed === false) pillSend('dictate:pill', { kind: 'copied', message: 'Pasted — also on the clipboard' });
@@ -374,6 +386,7 @@ function startStt(): void {
       if (!sttReady) {
         sttError = m.message;
         setTray('error');
+        pushState();
       }
     } else if (m.type === 'partial') {
       const s = rec?.id === m.id ? rec : finishing.get(m.id);
@@ -807,8 +820,8 @@ function rebuildTrayMenu(): void {
       { label: 'Output', submenu: [out('paste', 'Paste into the focused app'), out('clipboard', 'Clipboard only'), out('both', 'Paste and keep on clipboard')] },
       { label: 'Sounds', type: 'checkbox', checked: settings.sounds, click: (i) => updateSettings({ sounds: i.checked }) },
       { type: 'separator' },
+      { label: 'Getting started…', click: () => openSettings('start') },
       { label: 'Settings…', click: () => openSettings() },
-      { label: 'Download speech model…', click: () => openSettings() },
       { label: 'Clear history', enabled: !!last, click: () => clearHistory() },
       { label: 'Open log', click: () => void shell.openPath(path.join(userData(), 'logs', 'dictate.log')) },
       { type: 'separator' },
@@ -826,17 +839,61 @@ function clearHistory(): void {
 
 // ---------- settings ----------
 
-function openSettings(): void {
+function openSettings(page?: string): void {
   if (settingsWin && !settingsWin.isDestroyed()) {
+    if (page) settingsWin.webContents.send('dictate:navigate', page);
     if (settingsWin.isMinimized()) settingsWin.restore();
     settingsWin.show();
     settingsWin.focus();
     return;
   }
+  pendingPage = page ?? null;
   settingsWin = createSettings();
   settingsWin.on('closed', () => {
     settingsWin = undefined;
+    practicing = false;
   });
+}
+
+const binDir = () => path.join(userData(), 'bin');
+const llamaServerPath = () => path.join(binDir(), process.platform === 'win32' ? 'llama-server.exe' : 'llama-server');
+
+function downloadSizes(): { essentials: number; gemma: number } {
+  const opts = { platform: process.platform, arch: process.arch };
+  const total = (xs: { bytes: number }[]) => xs.reduce((n, a) => n + a.bytes, 0);
+  return { essentials: total(assetsFor('essentials', opts)), gemma: total(assetsFor('cleanup', { ...opts, cleanupModels: ['gemma'], binDir: binDir() })) };
+}
+
+/** The practice box's sink: nothing is pasted or put on the clipboard; the text goes to the Settings window. */
+const practiceSink: OutputSink = { deliver: async (): Promise<Delivery> => ({ pasted: true, copied: false, confirmed: true }) };
+
+/** C4/D10: time cleanup on this computer, save the result, and use the chain it picks. */
+async function hardwareCheck(measureGemma: boolean): Promise<unknown> {
+  if (hardwareRunning) return state();
+  if (rec || finishing.size) throw new Error('Finish dictating before running the check');
+  hardwareRunning = true;
+  hardwareError = '';
+  pushState();
+  try {
+    const report = await runHardwareCheck({
+      llamaServer: settings.llamaServer,
+      modelsDir: settings.modelsDir,
+      sample: fs.readFileSync(path.join(appRoot(), 'defaults', 'hardware-sample.txt'), 'utf8'),
+      clean: async (text, chain) => runChain(text, await cleanup.trial(chain), cleanup.deps(), { timeoutMs: 3000 }),
+      measureGemma,
+    });
+    const c = report.choice;
+    log('info', `hardware check: ${c.summary} (emberon ${report.emberonMs?.toFixed(0) ?? '-'} ms, gemma chain ${report.gemmaChainMs?.toFixed(0) ?? '-'} ms, ${report.devices.length} GPU devices)`);
+    updateSettings({ cleanup: c.chain, hardware: { summary: c.summary, chain: c.chain, emberonMs: report.emberonMs, gemmaChainMs: report.gemmaChainMs, offerGemma: c.offerGemma, measuredAt: report.measuredAt } });
+  } catch (err) {
+    hardwareError = `The speed check failed: ${(err as Error).message}`;
+    log('error', hardwareError);
+  } finally {
+    hardwareRunning = false;
+    cleanup.sync();
+    pushState();
+  }
+  return state();
 }
 
 function stats() {
@@ -871,6 +928,12 @@ function state() {
     microphonePermission: process.platform === 'darwin' ? systemPreferences.getMediaAccessStatus('microphone') : 'system',
     setup: setup.state,
     speechInstalled: speechInstalled(settings.modelsDir),
+    essentialsReady: essentialsInstalled(settings.modelsDir, binDir(), process.platform),
+    gemmaInstalled: fs.existsSync(path.join(settings.modelsDir, GEMMA_GGUF)),
+    sizes: downloadSizes(),
+    hardwareRunning,
+    hardwareError,
+    dataDir: userData(),
     shortcutRegistered,
     shortcutRequested,
     startupError,
@@ -954,15 +1017,23 @@ function registerIpc(): void {
     }
     return state();
   });
-  ipcMain.handle('dictate:setup-models', async (_e, kind: 'speech' | 'cleanup') => {
-    if (kind !== 'speech' && kind !== 'cleanup') throw new Error('Unknown model download');
+  ipcMain.handle('dictate:setup-models', async (_e, kind: 'speech' | 'cleanup' | 'essentials' | 'gemma') => {
+    if (!['speech', 'cleanup', 'essentials', 'gemma'].includes(kind)) throw new Error('Unknown model download');
     if (rec || finishing.size) throw new Error('Finish dictating before changing models');
     cleanup.stopAll();
+    const options = { modelsDir: settings.modelsDir, binDir: binDir(), platform: process.platform, arch: process.arch };
     try {
-      await setup.install(kind, { modelsDir: settings.modelsDir, binDir: path.join(userData(), 'bin'), platform: process.platform, arch: process.arch });
+      if (kind === 'gemma') await setup.install('cleanup', { ...options, cleanupModels: ['gemma'] });
+      // The Cleanup page's button also repairs a broken llama.cpp runtime, so it always reinstalls it.
+      else await setup.install(kind, { ...options, reinstallRuntime: kind === 'cleanup' });
     } catch (err) { cleanup.sync(); throw err; }
-    if (kind === 'speech') { const old = stt; stt = undefined; old?.kill(); startStt(); cleanup.sync(); }
-    else updateSettings({ llamaServer: path.join(userData(), 'bin', process.platform === 'win32' ? 'llama-server.exe' : 'llama-server'), cleanup: 'gemma-emberon' });
+    if (kind === 'speech' || kind === 'essentials') { const old = stt; stt = undefined; old?.kill(); startStt(); }
+    if (kind === 'speech') cleanup.sync();
+    else {
+      // D10: the measurement picks the chain, not the download (the Cleanup page's button included).
+      updateSettings({ llamaServer: llamaServerPath() });
+      void hardwareCheck(kind !== 'essentials').catch(() => undefined);
+    }
     return state();
   });
   ipcMain.handle('dictate:cancel-setup', () => setup.cancel());
@@ -994,8 +1065,23 @@ function registerIpc(): void {
   });
   ipcMain.handle('dictate:open-log', () => shell.openPath(path.join(userData(), 'logs', 'dictate.log')));
   ipcMain.handle('dictate:finish-onboarding', (_e, startAtLogin: boolean) => {
-    updateSettings({ onboarded: true, startAtLogin });
+    practicing = false;
+    updateSettings({ onboarded: true, onboardingStep: 'done', startAtLogin });
     return state();
+  });
+  ipcMain.handle('dictate:hardware-check', () => hardwareCheck(fs.existsSync(path.join(settings.modelsDir, GEMMA_GGUF))));
+  ipcMain.handle('dictate:practice', (_e, on: boolean) => {
+    practicing = !!on;
+  });
+  ipcMain.handle('dictate:take-page', () => {
+    const p = pendingPage;
+    pendingPage = null;
+    return p;
+  });
+  ipcMain.handle('dictate:open-data', () => shell.openPath(userData()));
+  ipcMain.handle('dictate:open-url', (_e, url: string) => {
+    // Only the licence and source links the pages show: https, never a file or app protocol.
+    if (typeof url === 'string' && /^https:\/\/\S+$/.test(url)) return shell.openExternal(url);
   });
 
   ipcMain.on('dictate:pill-ready', () => {
@@ -1174,6 +1260,8 @@ async function main(): Promise<void> {
         else if (line === 'up') machine.up(key, t);
         else if (line === 'escape') { machine.down(VK.Escape, t); machine.up(VK.Escape, t + 1); }
         else if (line === 'quit') app.quit();
+        // Bring Settings to the front, as a click would (Getting started's practice box needs it focused).
+        else if (line === 'focus') { app.focus({ steal: true }); settingsWin?.show(); settingsWin?.focus(); }
         else if (line.startsWith('shot ')) pillShot(line.slice(5), 0);
         else if (line.startsWith('state ')) {
           pillSend('dictate:pill', JSON.parse(line.slice(6)));
