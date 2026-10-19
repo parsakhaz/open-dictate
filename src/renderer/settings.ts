@@ -50,6 +50,9 @@ const PAGES: { id: Page; label: string; icon: string }[] = [
 let st: State;
 let page: Page = 'general';
 let actionError = '';
+let welcomeStartAtLogin = true;
+let renderedPage: Page | undefined;
+let renderPending = false;
 const pasteKeys = () => st.platform.platform === 'darwin' ? 'Cmd+V' : 'Ctrl+V';
 const osName = () => ({win32:'Windows',darwin:'macOS',linux:'Linux'}[st.platform.platform] ?? st.platform.platform);
 const nav = h('nav.nav');
@@ -71,8 +74,13 @@ function card(title: string, desc: string | Node | null, control?: Node | null, 
 }
 
 function toggle(on: boolean, onChange: (v: boolean) => void, label?: string): HTMLElement {
-  const input = h('input', { type: 'checkbox', checked: on, onchange: (e: Event) => onChange((e.target as HTMLInputElement).checked) });
-  return h('label.toggle', {}, h('span.toggletext', {}, on ? 'On' : 'Off'), input, h('span.track', {}, h('span.thumb')), label ? h('span.sr', {}, label) : null);
+  const text = h('span.toggletext', {}, on ? 'On' : 'Off');
+  const input = h('input', { type: 'checkbox', checked: on, onchange: (e: Event) => {
+    const checked = (e.target as HTMLInputElement).checked;
+    text.textContent = checked ? 'On' : 'Off';
+    onChange(checked);
+  } });
+  return h('label.toggle', {}, text, input, h('span.track', {}, h('span.thumb')), label ? h('span.sr', {}, label) : null);
 }
 
 function select<T extends string>(value: T, options: [T, string][], onChange: (v: T) => void): HTMLSelectElement {
@@ -303,16 +311,32 @@ async function action(channel: string, ...args: unknown[]): Promise<void> {
 
 function modelCard(kind: 'speech' | 'cleanup'): HTMLElement {
   const busy = st.setup.phase === 'downloading' || st.setup.phase === 'extracting';
-  const progress = st.setup.kind === kind ? st.setup.phase === 'downloading'
-    ? `Downloading ${st.setup.file}: ${Math.round((st.setup.received ?? 0) / 1048576)} / ${Math.round((st.setup.total ?? 0) / 1048576)} MB`
-    : st.setup.phase === 'extracting' ? 'Verifying and installing…'
-    : st.setup.phase === 'error' ? st.setup.message ?? 'Download failed. Try again.' : '' : '';
+  const progress = setupProgress(kind);
   const title = kind === 'speech' ? 'Speech model' : 'Optional local cleanup';
   const desc = kind === 'speech'
     ? (st.speechInstalled ? st.stt === 'ready' ? 'Nemotron English streaming model is ready.' : st.stt === 'error' ? `Speech model error: ${st.sttError}` : 'Nemotron English streaming model is installed and loading…' : 'Download 443 MB once to transcribe English locally. No account or API key needed.')
     : 'Download Gemma, Emberon and llama.cpp (about 3.2 GB) for local text cleanup. Raw dictation works without these.';
-  const button = h('button.button', {disabled: busy || (kind === 'speech' && st.speechInstalled), onclick: () => void action('dictate:setup-models', kind)}, kind === 'speech' && st.speechInstalled ? 'Installed' : `Download ${kind === 'speech' ? 'speech model' : 'cleanup models'}`);
-  return card(title, h('span', {}, desc, progress ? h('div.warnline', {}, progress) : null), h('div.bindingrow', {}, button, busy && st.setup.kind === kind ? h('button.button.subtle', {onclick: () => void action('dictate:cancel-setup')}, 'Cancel') : null));
+  const button = h('button.button', {'data-setup-download': kind, disabled: busy || (kind === 'speech' && st.speechInstalled), onclick: () => void action('dictate:setup-models', kind)}, kind === 'speech' && st.speechInstalled ? 'Installed' : `Download ${kind === 'speech' ? 'speech model' : 'cleanup models'}`);
+  return card(title, h('span', {}, desc, h('div.warnline', {'data-setup-progress': kind, hidden: !progress}, progress)), h('div.bindingrow', {}, button, h('button.button.subtle', {'data-setup-cancel': kind, hidden: !busy || st.setup.kind !== kind, onclick: () => void action('dictate:cancel-setup')}, 'Cancel')));
+}
+
+function setupProgress(kind: 'speech' | 'cleanup'): string {
+  if (st.setup.kind !== kind) return '';
+  if (st.setup.phase === 'downloading') return `Downloading ${st.setup.file}: ${Math.round((st.setup.received ?? 0) / 1048576)} / ${Math.round((st.setup.total ?? 0) / 1048576)} MB`;
+  if (st.setup.phase === 'extracting') return 'Verifying and installing…';
+  return st.setup.phase === 'error' ? st.setup.message ?? 'Download failed. Try again.' : '';
+}
+
+function updateSetupProgress(): void {
+  const busy = st.setup.phase === 'downloading' || st.setup.phase === 'extracting';
+  for (const kind of ['speech', 'cleanup'] as const) {
+    const progress = document.querySelector<HTMLElement>(`[data-setup-progress="${kind}"]`);
+    if (progress) { progress.textContent = setupProgress(kind); progress.hidden = !progress.textContent; }
+    const download = document.querySelector<HTMLButtonElement>(`[data-setup-download="${kind}"]`);
+    if (download) download.disabled = busy || (kind === 'speech' && st.speechInstalled);
+    const cancel = document.querySelector<HTMLElement>(`[data-setup-cancel="${kind}"]`);
+    if (cancel) cancel.hidden = !busy || st.setup.kind !== kind;
+  }
 }
 
 function platformCards(): Node[] {
@@ -334,7 +358,6 @@ function setupCards(): Node[] {
 // ---------- pages ----------
 
 function welcome(): Node[] {
-  const startWin = { on: true };
   const meter = meterEl();
   const mic = st.mic?.label ?? st.defaultMicLabel;
   void startMeter(st.mic?.deviceId ?? null, mic, meter);
@@ -359,7 +382,7 @@ function welcome(): Node[] {
       presets('hotkey'),
     ) : card('Output on this desktop', `Wayland keeps external applications isolated. Dictate copies your result; use ${pasteKeys()} to paste it where you need it.`),
     card('Microphone', 'Say something: the bar should move into the middle.', micSelect(), meter),
-    card('Start at login', 'dictate waits quietly in the tray, using no CPU until you press the key.', toggle(startWin.on, (v) => (startWin.on = v))),
+    card('Start at login', 'dictate waits quietly in the tray, using no CPU until you press the key.', toggle(welcomeStartAtLogin, (v) => (welcomeStartAtLogin = v))),
     h(
       'div.actionsrow',
       {},
@@ -367,7 +390,7 @@ function welcome(): Node[] {
         'button.button.accent',
         {
           onclick: async () => {
-            st = await dictate.invoke<State>('dictate:finish-onboarding', startWin.on);
+            st = await dictate.invoke<State>('dictate:finish-onboarding', welcomeStartAtLogin);
             page = 'general';
             render();
           },
@@ -600,11 +623,11 @@ function historyPage(): Node[] {
 function advanced(): Node[] {
   const s = st.settings;
   const path = (key: 'modelsDir' | 'llamaServer', label: string, desc: string) => {
-    const input = h('input.textbox.wide', { value: s[key], onchange: (e: Event) => set({ [key]: (e.target as HTMLInputElement).value } as Partial<Settings>) });
+    const input = h('input.textbox.wide', { 'data-setting': key, value: s[key], onchange: (e: Event) => set({ [key]: (e.target as HTMLInputElement).value } as Partial<Settings>) });
     return card(label, desc, null, input);
   };
   const num = (key: 'tapMs' | 'doubleTapMs' | 'sttThreads', label: string, desc: string, min: number, max: number, step: number) =>
-    card(label, desc, h('input.textbox.num', { type: 'number', min: String(min), max: String(max), step: String(step), value: String(s[key]), onchange: (e: Event) => set({ [key]: Number((e.target as HTMLInputElement).value) } as Partial<Settings>) }));
+    card(label, desc, h('input.textbox.num', { 'data-setting': key, type: 'number', min: String(min), max: String(max), step: String(step), value: String(s[key]), onchange: (e: Event) => set({ [key]: Number((e.target as HTMLInputElement).value) } as Partial<Settings>) }));
   return [
     h('h1', {}, 'Advanced'),
     ...setupCards(),
@@ -625,6 +648,14 @@ function advanced(): Node[] {
 // ---------- shell ----------
 
 function render(): void {
+  // State can change while an uncommitted path or number draft is being edited.
+  // Keep that control (and its caret/selection) alive until focus leaves the editor or the page changes.
+  if (page === renderedPage && ((page === 'advanced' && document.activeElement?.matches('input.textbox')) || document.querySelector('.slider:active'))) {
+    renderPending = true;
+    updateSetupProgress();
+    return;
+  }
+  renderPending = false;
   stopMeters();
   const pages = st.settings.onboarded ? PAGES.filter((p) => p.id !== 'welcome') : PAGES;
   if (!pages.some((p) => p.id === page)) page = 'general';
@@ -648,14 +679,22 @@ function render(): void {
   const scroll = content.scrollTop;
   content.replaceChildren(h('div.page', {}, actionError ? h('div.warning', {}, actionError) : null, ...build()));
   content.scrollTop = scroll;
+  renderedPage = page;
 }
 
 dictate.on('dictate:state', (s: State) => {
-  const focusInVocab = page === 'vocabulary' && document.activeElement?.tagName === 'INPUT';
   st = s;
-  // Do not rebuild under the person's typing.
-  if (!focusInVocab && !document.querySelector('.slider:active')) render();
+  // Vocabulary has its own debounced save; leave its local terms alive while typing.
+  if (page === 'vocabulary' && document.activeElement?.tagName === 'INPUT') return;
+  render();
 });
+dictate.on('dictate:setup-progress', (setup: State['setup']) => {
+  if (!st) return; // Opening Settings during a download still starts with the complete get-state reply.
+  st.setup = setup;
+  updateSetupProgress();
+});
+content.addEventListener('focusout', () => queueMicrotask(() => { if (renderPending) render(); }));
+content.addEventListener('pointerup', () => { if (renderPending) setTimeout(render, 0); });
 
 window.addEventListener('blur', () => {
   // Meters only run while the window is in use.

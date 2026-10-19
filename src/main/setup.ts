@@ -4,12 +4,32 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { STT_MODEL } from '../core/settings';
+import type { CleanupModel } from '../core/chain';
+import { EMBERON_GGUF, GEMMA_GGUF, STT_MODEL } from '../core/settings';
 import { CLEANUP_ASSETS, type DownloadAsset, LLAMA_ASSETS, SPEECH_ASSET, SPEECH_FILES } from './downloads';
 
 export type { DownloadAsset } from './downloads';
 const exec = promisify(execFile);
 export type SetupKind = 'speech' | 'cleanup';
+export interface SetupOptions {
+  modelsDir: string;
+  binDir: string;
+  platform: NodeJS.Platform;
+  arch: string;
+  /** Omit to install the full cleanup chain; callers needing one model can avoid the other download. */
+  cleanupModels?: readonly CleanupModel[];
+}
+
+export function cleanupAssetsFor(models: readonly CleanupModel[] = ['emberon', 'gemma']): DownloadAsset[] {
+  if (!models.length) throw new Error('Select at least one cleanup model');
+  const filenames = { emberon: EMBERON_GGUF, gemma: GEMMA_GGUF };
+  const names = new Set(models.map((model) => {
+    if (!Object.hasOwn(filenames, model)) throw new Error(`Unknown cleanup model: ${model}`);
+    return filenames[model];
+  }));
+  return CLEANUP_ASSETS.filter((asset) => names.has(asset.name));
+}
+
 export interface SetupState {
   phase: 'idle' | 'downloading' | 'extracting' | 'ready' | 'error';
   kind?: SetupKind;
@@ -96,7 +116,7 @@ export class SetupManager {
   private change(state: SetupState): void { this.state = state; this.onChange(); }
   cancel(): void { this.abort?.abort(); }
 
-  async install(kind: SetupKind, options: { modelsDir: string; binDir: string; platform: NodeJS.Platform; arch: string }): Promise<void> {
+  async install(kind: SetupKind, options: SetupOptions): Promise<void> {
     if (this.abort) throw new Error('A model download is already running');
     const abort = new AbortController();
     this.abort = abort;
@@ -124,7 +144,7 @@ export class SetupManager {
           await fs.promises.rename(path.join(temp, STT_MODEL), target);
         }
       } else {
-        for (const asset of CLEANUP_ASSETS) await get(asset, options.modelsDir);
+        for (const asset of cleanupAssetsFor(options.cleanupModels)) await get(asset, options.modelsDir);
         const asset = llamaAssetFor(options.platform, options.arch);
         const archive = await get(asset, temp);
         this.change({ phase: 'extracting', kind, file: asset.name });
@@ -134,7 +154,8 @@ export class SetupManager {
         if (!exe) throw new Error('The llama.cpp archive did not contain llama-server');
         // Keep shared libraries adjacent to the executable (required by the upstream CPU/Metal builds).
         fs.mkdirSync(options.binDir, { recursive: true });
-        await fs.promises.cp(path.dirname(exe), options.binDir, { recursive: true, force: true });
+        // Materialize relative library links: preserving them can point back into the temporary extraction.
+        await fs.promises.cp(path.dirname(exe), options.binDir, { recursive: true, force: true, dereference: true });
         if (options.platform !== 'win32') await fs.promises.chmod(path.join(options.binDir, 'llama-server'), 0o755);
       }
       this.change({ phase: 'ready', kind });

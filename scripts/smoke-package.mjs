@@ -15,11 +15,11 @@ const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.u
 const scratch = mkdtempSync(join(tmpdir(), 'dictate-package-smoke-'));
 mkdirSync(evidence, { recursive: true });
 function run(file, args, opts = {}) {
-  const result = spawnSync(file, args, { encoding: 'utf8', ...opts });
+  const result = spawnSync(file, args, { encoding: 'utf8', timeout: 120_000, windowsHide: true, ...opts });
   if (result.error || result.status !== 0) throw new Error(`${file} failed (${result.status}): ${result.error?.message ?? ''}\n${result.stdout ?? ''}\n${result.stderr ?? ''}`);
   return result.stdout;
 }
-async function smoke(executable, label) {
+async function smoke(executable, label, { sandbox = false } = {}) {
   if (!existsSync(executable)) throw new Error(`Missing executable: ${executable}`);
   const report = join(evidence, `${label}.json`);
   rmSync(report, { force: true });
@@ -27,8 +27,9 @@ async function smoke(executable, label) {
   mkdirSync(profile, { recursive: true });
   // Xvfb has no hardware GPU. Software rendering makes capturePage exercise a real painted surface.
   const args = process.platform === 'linux' ? ['--disable-gpu', '--disable-dev-shm-usage'] : [];
-  if (process.env.DICTATE_SMOKE_NO_SANDBOX === '1' && process.platform === 'linux') args.push('--no-sandbox');
+  if (!sandbox && process.env.DICTATE_SMOKE_NO_SANDBOX === '1' && process.platform === 'linux') args.push('--no-sandbox');
   const env = { ...process.env, DICTATE_SMOKE_TEST: report, DICTATE_DATA_DIR: profile, DICTATE_USER_DATA_DIR: profile };
+  if (sandbox) delete env.DICTATE_SMOKE_NO_SANDBOX;
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.DICTATE_MODELS_DIR;
   if (modelDir) {
@@ -40,18 +41,24 @@ async function smoke(executable, label) {
     const child = spawn(executable, args, { env, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
     const append = chunk => { output = (output + chunk).slice(-100_000); };
     child.stdout.on('data', append); child.stderr.on('data', append);
-    let timedOut = false;
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      if (process.platform === 'win32') spawnSync('taskkill', ['/pid', `${child.pid}`, '/t', '/f']);
-      else { try { process.kill(-child.pid, 'SIGKILL'); } catch {} }
-    }, 60_000);
-    child.once('error', error => { clearTimeout(timeout); fail(error); });
-    child.once('exit', (code, signal) => {
+    let settled = false;
+    const finish = error => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timeout);
       writeFileSync(join(evidence, `${label}.log`), output);
-      if (timedOut || code !== 0) fail(new Error(`${label} exited ${code ?? signal}${timedOut ? ' (timeout)' : ''}\n${output}`));
-      else done();
+      if (error) fail(error); else done();
+    };
+    const timeout = setTimeout(() => {
+      if (process.platform === 'win32') spawnSync('taskkill', ['/pid', `${child.pid}`, '/t', '/f'], { timeout: 10_000 });
+      else { try { process.kill(-child.pid, 'SIGKILL'); } catch {} }
+      try { child.kill('SIGKILL'); } catch {}
+      child.unref(); child.stdout.destroy(); child.stderr.destroy();
+      finish(new Error(`${label} timed out after 180 s\n${output}`));
+    }, 180_000);
+    child.once('error', finish);
+    child.once('exit', (code, signal) => {
+      finish(code === 0 ? undefined : new Error(`${label} exited ${code ?? signal}\n${output}`));
     });
   });
   if (!existsSync(report)) throw new Error(`${label}: Electron did not write a smoke report\n${output}`);
@@ -89,7 +96,17 @@ async function installers() {
     try { await smoke(join(installed, 'Dictate.exe'), 'nsis-installed'); }
     finally {
       const uninstaller = join(installed, 'Uninstall Dictate.exe');
-      if (existsSync(uninstaller)) run(uninstaller, ['/S']);
+      try {
+        if (!existsSync(uninstaller)) throw new Error(`NSIS did not install its uninstaller: ${uninstaller}`);
+        // NSIS otherwise relaunches from TEMP and returns before uninstall finishes. _?= must be the
+        // final, unquoted parameter even with spaces; only the executable's argv[0] is quoted.
+        run(uninstaller, ['/S', `_?=${installed}`], { argv0: `"${uninstaller}"`, windowsVerbatimArguments: true });
+        if (existsSync(join(installed, 'Dictate.exe'))) throw new Error('NSIS uninstall returned before removing Dictate.exe');
+        console.log('PASS NSIS uninstall: the real uninstaller completed and removed Dictate.exe');
+      } catch (error) {
+        console.error(`NSIS uninstall failed: ${error.stack ?? error}`);
+        process.exitCode = 1;
+      }
     }
   } else if (process.platform === 'darwin') {
     const apps = join(scratch, 'Applications with spaces');
@@ -109,11 +126,64 @@ async function installers() {
     await smoke(join(deb, 'opt/Dictate/dictate'), 'deb-extracted');
   }
 }
+async function systemDeb() {
+  if (process.platform !== 'linux') throw new Error('--system-deb requires a Linux test runner');
+  if (process.getuid() === 0) throw new Error('Run the sandboxed .deb proof as a regular user with sudo available');
+  const file = artifact(`Dictate-${version}-linux-${process.arch}.deb`);
+  const name = run('dpkg-deb', ['--field', file, 'Package']).trim();
+  if (name !== 'dictate') throw new Error(`Refusing to install an unexpected package: ${name}`);
+  const state = () => {
+    const value = spawnSync('dpkg-query', ['--show', '--showformat=${db:Status-Status}', name], { encoding: 'utf8', timeout: 10_000 });
+    if (value.error || ![0, 1].includes(value.status)) throw new Error(`Could not determine existing Dictate package ownership: ${value.error?.message ?? value.stderr}`);
+    return value.stdout?.trim();
+  };
+  if (state() === 'installed') throw new Error('Refusing to replace an existing Dictate system package');
+  const reportPath = join(evidence, 'deb-system-install.json');
+  const result = { ok: false, package: name, artifact: file, artifactSha256: createHash('sha256').update(readFileSync(file)).digest('hex'), installationOwned: true, processSandboxDisabled: false, rendererJSSandbox: false };
+  const logs = [];
+  try {
+    logs.push(run('sudo', ['apt-get', 'install', '-y', '--no-install-recommends', file], { timeout: 180_000 }));
+    if (state() !== 'installed') throw new Error('apt did not install the Dictate package');
+    result.appArmorProfileInstalled = existsSync('/etc/apparmor.d/dictate');
+    result.executable = '/opt/Dictate/dictate';
+    console.log('Launching the apt-installed .deb with Chromium process sandbox enabled (no --no-sandbox).');
+    await smoke(result.executable, 'deb-system-installed', { sandbox: true });
+    result.ok = true;
+  } catch (error) {
+    result.error = error.stack ?? String(error);
+    throw error;
+  } finally {
+    try {
+      logs.push(run('sudo', ['apt-get', 'remove', '-y', name], { timeout: 180_000 }));
+      if (state() === 'installed' || existsSync('/opt/Dictate/dictate')) throw new Error('apt did not remove the package installed by this proof');
+      result.uninstalled = true;
+      console.log('PASS apt uninstall: removed only the Dictate package owned by this proof');
+    } catch (error) {
+      result.ok = false;
+      result.uninstallError = error.stack ?? String(error);
+      console.error(`System .deb uninstall failed: ${result.uninstallError}`);
+      process.exitCode = 1;
+    }
+    writeFileSync(reportPath, `${JSON.stringify(result, null, 2)}\n`);
+    writeFileSync(join(evidence, 'deb-system-install.log'), `${logs.join('\n')}\n`);
+  }
+}
 try {
-  const defaultExecutable = process.platform === 'win32' ? join(dist, 'win-unpacked/Dictate.exe') : process.platform === 'darwin' ? join(dist, process.arch === 'arm64' ? 'mac-arm64' : 'mac', 'Dictate.app/Contents/MacOS/Dictate') : join(dist, process.arch === 'arm64' ? 'linux-arm64-unpacked' : 'linux-unpacked', 'dictate');
-  await smoke(resolve(option('--executable', defaultExecutable)), option('--label', 'unpacked'));
-  if (argv.includes('--installers')) await installers();
+  if (argv.includes('--system-deb')) await systemDeb();
+  else {
+    const defaultExecutable = process.platform === 'win32' ? join(dist, 'win-unpacked/Dictate.exe') : process.platform === 'darwin' ? join(dist, process.arch === 'arm64' ? 'mac-arm64' : 'mac', 'Dictate.app/Contents/MacOS/Dictate') : join(dist, process.arch === 'arm64' ? 'linux-arm64-unpacked' : 'linux-unpacked', 'dictate');
+    await smoke(resolve(option('--executable', defaultExecutable)), option('--label', 'unpacked'));
+    if (argv.includes('--installers')) await installers();
+  }
 } catch (error) {
   console.error(error.stack ?? error);
   process.exitCode = 1;
-} finally { rmSync(scratch, { recursive: true, force: true }); }
+} finally {
+  try {
+    // Windows antivirus/file handles can briefly outlive process exit; use bounded linear retries.
+    rmSync(scratch, { recursive: true, force: true, maxRetries: process.platform === 'win32' ? 10 : 0, retryDelay: 100 });
+  } catch (error) {
+    console.error(`Package smoke scratch cleanup failed: ${error.stack ?? error}`);
+    process.exitCode = 1;
+  }
+}

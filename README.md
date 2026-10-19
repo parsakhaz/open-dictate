@@ -15,7 +15,7 @@ This branch adds native build artifacts to [Dictate CI](https://github.com/parsa
 | Intel Mac | `dictate-package-mac-x64-…` | Same installation, using the Intel artifact. |
 | Linux x64 or ARM64 | `dictate-package-linux-<arch>-…` | Install the `.deb`, or make the AppImage executable and run it. X11 requires `xdotool`, `libXtst`, GTK3 and a desktop session. |
 
-macOS test builds are unsigned unless signing credentials are configured. Open the application through Finder's **Open** action and approve it in **System Settings → Privacy & Security** when macOS asks. Microphone, Accessibility and Input Monitoring permissions are required for global dictation and paste. Restart Dictate after changing keyboard permissions. Signing/notarization is separate from native build verification.
+macOS test builds are unsigned unless signing credentials are configured. Try opening the installed Dictate app first. If Gatekeeper blocks it, go to **System Settings → Privacy & Security → Open Anyway**, authenticate, and reopen it ([Apple's instructions](https://support.apple.com/102445)). Microphone, Accessibility and Input Monitoring permissions are required for global dictation and paste. Restart Dictate after changing keyboard permissions. Signing/notarization is separate from native build verification.
 
 1. Open Dictate. **Welcome → Download speech model** installs the 443 MB English streaming model into your own application-data folder. Downloads check the pinned byte count and SHA-256 before installation. `tar` must be available (standard on Windows 10+, macOS and supported Linux distributions).
 2. On Mac, use **Enable access** to request microphone/keyboard permissions. Enable Dictate in the permissions settings indicated above.

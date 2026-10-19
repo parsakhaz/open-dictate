@@ -110,6 +110,7 @@ interface Session {
   shown: boolean;
   releasedAt: number;
   partial: string;
+  recognizerActive?: boolean;
   /** Audio is arriving: the pill's meter is live and the start cue has played (or will, once shown). */
   live: boolean;
   /** Live cleanup ("Clean up as I speak"): sentences split off the streaming transcript and cleaned early. */
@@ -377,6 +378,10 @@ function startStt(): void {
     } else if (m.type === 'partial') {
       const s = rec?.id === m.id ? rec : finishing.get(m.id);
       if (!s) return;
+      if (m.text && !s.recognizerActive) {
+        s.recognizerActive = true;
+        log('info', `stt partial ${m.id}: recognizer activity`);
+      }
       s.partial = m.text;
       if (s.segmenter && s.cleaner) {
         const committed = s.segmenter.update(m.text, performance.now());
@@ -384,6 +389,8 @@ function startStt(): void {
         s.cleaner.committed(committed);
       }
       pillSend('dictate:partial', m.text);
+    } else if (m.type === 'cancelled') {
+      log('info', `stt cancelled ${m.id}: ${m.audioMs.toFixed(0)} ms audio discarded`);
     } else if (m.type === 'final') {
       const s = finishing.get(m.id);
       log('info', `stt final ${m.id}: ${m.audioMs.toFixed(0)} ms audio, flush ${m.flushMs.toFixed(0)} ms`);
@@ -1009,6 +1016,7 @@ function registerIpc(): void {
     log('info', `capture ${a.id} on "${a.label}" (browser), mic open in ${a.openMs} ms after key down`);
     markLive(a.id);
   });
+  ipcMain.on('dictate:capture-cancelled', (_e, a: { id: number }) => log('info', `capture ${a.id}: cancelled (browser)`));
   ipcMain.on('dictate:capture-error', (_e, a: { id: number; message: string }) => captureError(a.id, a.message));
   ipcMain.on('dictate:mic-lost', (_e, a: { id: number; label: string }) => micLost(a.id, a.label));
   ipcMain.on('dictate:capture-failed', (_e, a: { id: number; message: string }) => captureFailed(a.id, a.message));
@@ -1057,7 +1065,10 @@ async function main(): Promise<void> {
     callback(own && permission === 'media' && 'mediaTypes' in details && (details.mediaTypes?.every((t) => t === 'audio') ?? false));
   });
   settings = loadSettings();
-  setup.onChange = () => pushState();
+  // Frequent byte counts must not rebuild settings controls or reopen microphone meters.
+  setup.onChange = () => {
+    if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('dictate:setup-progress', setup.state);
+  };
   saveSettings = debouncedWriter(path.join(userData(), 'settings.json'), () => settings);
   if (!fs.existsSync(path.join(userData(), 'settings.json'))) writeJson(path.join(userData(), 'settings.json'), settings);
   const hist = loadJson(path.join(userData(), 'history.json'), log);

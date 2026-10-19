@@ -14,6 +14,7 @@ export type SttToMain =
   | { type: 'ready'; loadMs: number }
   | { type: 'error'; message: string }
   | { type: 'partial'; id: number; text: string }
+  | { type: 'cancelled'; id: number; audioMs: number }
   | { type: 'final'; id: number; text: string; flushMs: number; audioMs: number };
 
 interface PortLike {
@@ -48,6 +49,7 @@ function onAudio(m: AudioToStt): void {
   } else if (m.type === 'cancel') {
     stt.cancel();
     current = -1;
+    send({ type: 'cancelled', id: m.id, audioMs });
   }
 }
 

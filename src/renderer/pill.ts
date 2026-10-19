@@ -238,7 +238,9 @@ dictate.on('dictate:capture-start', (a: { id: number; deviceId: string | null; g
   void capture.start(a.id, a.deviceId, a.gainDb, a.fakeWav);
 });
 dictate.on('dictate:capture-stop', (a: { id: number }) => void capture.stop(a.id));
-dictate.on('dictate:capture-cancel', (a: { id: number }) => void capture.cancel(a.id));
+dictate.on('dictate:capture-cancel', (a: { id: number }) => {
+  void capture.cancel(a.id).then(() => dictate.send('dictate:capture-cancelled', { id: a.id }));
+});
 dictate.on('dictate:capture-switch', (a: { id: number; deviceId: string | null; gainDb: number }) => void capture.switchDevice(a.id, a.deviceId, a.gainDb));
 
 const report = (d: capture.DeviceList) => dictate.send('dictate:devices', d);

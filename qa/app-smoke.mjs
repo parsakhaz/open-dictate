@@ -65,11 +65,14 @@ try {
   result.savedText = first.text;
   result.historyEntries = 1;
   fs.appendFileSync(control, 'down\n');
-  await pause(600);
+  await until(() => /capture 2 on .*\(browser\)/.test(readLog()), 'second real browser capture start', 10_000);
+  await until(() => /stt partial 2: recognizer activity/.test(readLog()), 'second-session audio decoded by the real recognizer', 15_000);
   fs.appendFileSync(control, 'escape\nup\n');
-  await pause(1000);
+  await until(() => /capture 2: cancelled \(browser\)/.test(readLog()) && /stt cancelled 2: [1-9]\d* ms audio discarded/.test(readLog()), 'capture graph and recognizer cancellation completion', 15_000);
   if (JSON.parse(fs.readFileSync(historyFile, 'utf8')).length !== 1) throw new Error('Cancelled recording was added to history');
+  if ((readLog().match(/QA delivered/g) ?? []).length !== 1 || /stt final 2:/.test(readLog())) throw new Error('Cancelled recording produced a final transcript or output delivery');
   result.cancelledRecordingNotDelivered = true;
+  result.cancellationEvidence = { session: 2, captureStarted: true, recognizerDecodedAudio: true, captureClosed: true, recognizerDiscardedAudio: true, outputDeliveries: 1, historyEntries: 1 };
   result.ok = true;
 } catch (error) { result.error = error.stack ?? String(error); process.exitCode = 1; }
 finally {

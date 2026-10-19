@@ -8,25 +8,53 @@ import { readWav } from '../engine/wav';
 import { platformCapabilities } from '../native/platform';
 
 interface RecognizerProbe { sherpa: boolean; inference?: { text: string; partials: number; audioMs: number } }
-async function probeRecognizer(): Promise<RecognizerProbe> {
+interface ProbeDiagnostics {
+  phase: string;
+  elapsedMs: number;
+  loadMs?: number;
+  inferenceMs?: number;
+  partials: number;
+  lastMessage?: string;
+  stderr?: string;
+  budgets: { loadMs: number; inferenceMs: number; overallMs: number };
+}
+async function probeRecognizer(diagnostics: ProbeDiagnostics): Promise<RecognizerProbe> {
   const child = utilityProcess.fork(path.join(app.getAppPath(), 'out', 'engine', 'stt-worker.js'), [], { stdio: 'pipe' });
   return new Promise<RecognizerProbe>((resolve, reject) => {
+    const started = performance.now();
+    let inferenceStarted = 0;
     let settled = false;
     let partials = 0;
     let audioPort: Electron.MessagePortMain | undefined;
-    const timer = setTimeout(() => { child.kill(); reject(new Error('Recognizer probe timed out')); }, 20_000);
+    let phaseTimer: ReturnType<typeof setTimeout>;
+    const overallTimer = setTimeout(() => finish(`Recognizer overall budget exceeded during ${diagnostics.phase}`), diagnostics.budgets.overallMs);
     const finish = (error?: string, result: RecognizerProbe = { sherpa: false }) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      clearTimeout(phaseTimer);
+      clearTimeout(overallTimer);
+      diagnostics.elapsedMs = Math.round(performance.now() - started);
       audioPort?.close();
       child.kill();
-      if (error) reject(new Error(error)); else resolve(result);
+      if (error) reject(new Error(`${error}; elapsed ${diagnostics.elapsedMs} ms, partials ${partials}, last message ${diagnostics.lastMessage ?? 'none'}`));
+      else { diagnostics.phase = 'complete'; resolve(result); }
     };
+    const phase = (name: string, budget: number) => {
+      diagnostics.phase = name;
+      console.log(`Packaged recognizer: ${name} (bounded ${budget} ms)`);
+      clearTimeout(phaseTimer);
+      phaseTimer = setTimeout(() => finish(`Recognizer ${name} timed out after ${budget} ms`), budget);
+    };
+    child.stderr?.on('data', data => { diagnostics.stderr = `${diagnostics.stderr ?? ''}${String(data)}`.slice(-8000); });
     child.on('message', (m: { type: string; sherpa?: boolean; message?: string; text?: string; audioMs?: number }) => {
+      if (settled) return;
+      diagnostics.lastMessage = m.type;
       if (m.type === 'probed') finish(undefined, { sherpa: m.sherpa === true });
       else if (m.type === 'error') finish(m.message || 'Recognizer native binding failed');
       else if (m.type === 'ready') {
+        diagnostics.loadMs = Math.round(performance.now() - started);
+        inferenceStarted = performance.now();
+        phase('inference', diagnostics.budgets.inferenceMs);
         try {
           const { samples, sampleRate } = readWav(process.env.DICTATE_SMOKE_WAV!);
           if (sampleRate !== 16000) throw new Error('Smoke fixture must be 16 kHz');
@@ -34,21 +62,23 @@ async function probeRecognizer(): Promise<RecognizerProbe> {
           for (let i = 0; i < samples.length; i += 1600) audioPort!.postMessage({ type: 'frame', id: 1, samples: samples.slice(i, i + 1600) });
           audioPort!.postMessage({ type: 'end', id: 1 });
         } catch (err) { finish((err as Error).message); }
-      } else if (m.type === 'partial') partials++;
+      } else if (m.type === 'partial') { partials++; diagnostics.partials = partials; }
       else if (m.type === 'final') {
+        diagnostics.inferenceMs = Math.round(performance.now() - inferenceStarted);
         const text = m.text ?? '';
         if (!partials || !text.toLowerCase().includes('deploy the kubernetes cluster with terraform') || !text.toLowerCase().includes('nemotron streaming models')) finish(`Packaged recognizer returned an unexpected transcript: ${text}`);
         else finish(undefined, { sherpa: true, inference: { text, partials, audioMs: m.audioMs ?? 0 } });
       }
     });
-    child.on('exit', (code) => { if (code !== 0) finish(`Recognizer probe exited: ${code}`); });
+    child.on('exit', (code) => { if (!settled) finish(`Recognizer process exited ${code} during ${diagnostics.phase}`); });
     if (process.env.DICTATE_SMOKE_MODEL_DIR && process.env.DICTATE_SMOKE_WAV) {
+      phase('model load', diagnostics.budgets.loadMs);
       const { port1, port2 } = new MessageChannelMain();
       child.postMessage({ type: 'attach' }, [port1]);
       audioPort = port2;
       port2.start();
       child.postMessage({ type: 'init', modelDir: path.join(process.env.DICTATE_SMOKE_MODEL_DIR, STT_MODEL), threads: 4 });
-    } else child.postMessage({ type: 'probe' });
+    } else { phase('native binding probe', diagnostics.budgets.loadMs); child.postMessage({ type: 'probe' }); }
   });
 }
 
@@ -57,7 +87,9 @@ export async function runSmoke(reportPath: string): Promise<void> {
   try {
     const koffi = require('koffi') as { load: unknown };
     const uiohook = require('uiohook-napi') as { uIOhook: unknown };
-    const recognizer = await probeRecognizer();
+    const diagnostics: ProbeDiagnostics = { phase: 'launch', elapsedMs: 0, partials: 0, budgets: { loadMs: 60_000, inferenceMs: 60_000, overallMs: 120_000 } };
+    report.recognizerProbe = diagnostics;
+    const recognizer = await probeRecognizer(diagnostics);
     report.native = { sherpa: recognizer.sherpa, koffi: typeof koffi.load === 'function', uiohook: !!uiohook.uIOhook };
     if (recognizer.inference) report.inference = recognizer.inference;
     if (!recognizer.sherpa) throw new Error('Recognizer constructor is absent');
