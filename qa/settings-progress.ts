@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { app, BrowserWindow, ipcMain } from 'electron';
@@ -14,12 +15,13 @@ void app.whenReady().then(async () => {
   let settings = { ...defaultSettings([]), onboarded: false };
   let setup = { phase: 'idle', kind: 'speech', file: '', received: 0, total: 10485760 };
   let onboardingChoice: boolean | undefined;
+  let version = '0.1.0';
   const state = () => ({
     settings, setup, speechInstalled: false, stt: 'loading', sttError: '',
     labels: { hotkey: bindingLabel(settings.hotkeys[0] ?? null), hotkeys: settings.hotkeys.map(bindingLabel), toggle: bindingLabel(settings.toggle), picker: bindingLabel(settings.picker) },
     devices: [], mic: null, defaultMicLabel: 'QA microphone', gain: 0, micBluetooth: false,
     servers: { gemma: 'stopped', emberon: 'stopped' }, effectiveChain: settings.cleanup, onBattery: false, missing: [],
-    history: { count: 0, samples: 0, median: null }, logFile: 'dictate.log', version: '0.1.0',
+    history: { count: 0, samples: 0, median: null }, logFile: 'dictate.log', version,
     platform: { platform: process.platform, displayServer: 'x11', globalHotkeys: true, canSwallowKeys: false, automaticPaste: true, accessibilityRequired: false, accessibilityGranted: true },
     microphonePermission: 'granted', shortcutRegistered: false, shortcutRequested: false, startupError: '', recording: false, automation: true,
   });
@@ -72,6 +74,44 @@ void app.whenReady().then(async () => {
     await check(`document.activeElement?.dataset.setting === 'tapMs' && document.activeElement.value === '370'`, 'A normal state update lost the active number draft');
     report.pathDraftAndSelectionRetained = true;
     report.numberDraftRetained = true;
+    // Exercise the normal browser/OS input sequence, including blur between press and release.
+    // Calling HTMLElement.click() would omit that sequence and miss a mid-press DOM replacement.
+    const point = await js<{ x: number; y: number }>(`(() => {
+      const button = [...document.querySelectorAll('nav button')].find(e => e.textContent.includes('History'));
+      const b = button.getBoundingClientRect(); return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) };
+    })()`);
+    await js(`window.__clickEvents = []; for (const type of ['mousedown','focusout','mouseup','click']) document.addEventListener(type, e => window.__clickEvents.push({type, target: e.target.textContent?.slice(0, 60)}), true)`);
+    win.focus();
+    if (process.platform === 'linux') {
+      const bounds = win.getContentBounds();
+      const mouse = (...args: string[]) => {
+        const p = spawnSync('xdotool', args, { encoding: 'utf8', timeout: 5_000 });
+        assert.equal(p.status, 0, p.error?.message ?? p.stderr);
+      };
+      mouse('mousemove', '--sync', String(bounds.x + point.x), String(bounds.y + point.y));
+      mouse('mousedown', '1');
+      await pause(100);
+      mouse('mouseup', '1');
+    } else {
+      win.webContents.sendInputEvent({ type: 'mouseMove', ...point });
+      win.webContents.sendInputEvent({ type: 'mouseDown', ...point, button: 'left', clickCount: 1 });
+      await pause(100);
+      win.webContents.sendInputEvent({ type: 'mouseUp', ...point, button: 'left', clickCount: 1 });
+    }
+    await pause(120);
+    const heading = await js<string>('document.querySelector("main h1")?.textContent');
+    report.pointerClickAfterDeferredState = { source: process.platform === 'linux' ? 'X11 xdotool native mouse' : 'Chromium input events', expectedPage: 'History', actualHeading: heading, events: await js('window.__clickEvents') };
+    assert.equal(heading, 'History', 'A pointer click after an Advanced pending render must activate History');
+    await js(`[...document.querySelectorAll('nav button')].find(e => e.textContent.includes('Advanced')).click(); document.querySelector('[data-setting="doubleTapMs"]').focus()`);
+    version = '0.1.1';
+    win.webContents.send('dictate:state', state());
+    await pause(60);
+    await check(`!document.body.innerText.includes('dictate 0.1.1')`, 'State refresh should defer while the input remains focused');
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' });
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' });
+    await pause(120);
+    await check(`document.body.innerText.includes('dictate 0.1.1')`, 'Keyboard blur must still flush a deferred state refresh');
+    report.keyboardBlurRefreshes = true;
     report.ok = true;
   } catch (error) { report.error = (error as Error).stack ?? String(error); }
   finally {

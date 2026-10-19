@@ -19,7 +19,7 @@ function run(file, args, opts = {}) {
   if (result.error || result.status !== 0) throw new Error(`${file} failed (${result.status}): ${result.error?.message ?? ''}\n${result.stdout ?? ''}\n${result.stderr ?? ''}`);
   return result.stdout;
 }
-async function smoke(executable, label, { sandbox = false } = {}) {
+async function smoke(executable, label, { normalConfiguration = false } = {}) {
   if (!existsSync(executable)) throw new Error(`Missing executable: ${executable}`);
   const report = join(evidence, `${label}.json`);
   rmSync(report, { force: true });
@@ -27,9 +27,9 @@ async function smoke(executable, label, { sandbox = false } = {}) {
   mkdirSync(profile, { recursive: true });
   // Xvfb has no hardware GPU. Software rendering makes capturePage exercise a real painted surface.
   const args = process.platform === 'linux' ? ['--disable-gpu', '--disable-dev-shm-usage'] : [];
-  if (!sandbox && process.env.DICTATE_SMOKE_NO_SANDBOX === '1' && process.platform === 'linux') args.push('--no-sandbox');
+  if (!normalConfiguration && process.env.DICTATE_SMOKE_NO_SANDBOX === '1' && process.platform === 'linux') args.push('--no-sandbox');
   const env = { ...process.env, DICTATE_SMOKE_TEST: report, DICTATE_DATA_DIR: profile, DICTATE_USER_DATA_DIR: profile };
-  if (sandbox) delete env.DICTATE_SMOKE_NO_SANDBOX;
+  if (normalConfiguration) delete env.DICTATE_SMOKE_NO_SANDBOX;
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.DICTATE_MODELS_DIR;
   if (modelDir) {
@@ -128,7 +128,7 @@ async function installers() {
 }
 async function systemDeb() {
   if (process.platform !== 'linux') throw new Error('--system-deb requires a Linux test runner');
-  if (process.getuid() === 0) throw new Error('Run the sandboxed .deb proof as a regular user with sudo available');
+  if (process.getuid() === 0) throw new Error('Run the normal-configuration .deb proof as a regular user with sudo available');
   const file = artifact(`Dictate-${version}-linux-${process.arch}.deb`);
   const name = run('dpkg-deb', ['--field', file, 'Package']).trim();
   if (name !== 'dictate') throw new Error(`Refusing to install an unexpected package: ${name}`);
@@ -139,15 +139,15 @@ async function systemDeb() {
   };
   if (state() === 'installed') throw new Error('Refusing to replace an existing Dictate system package');
   const reportPath = join(evidence, 'deb-system-install.json');
-  const result = { ok: false, package: name, artifact: file, artifactSha256: createHash('sha256').update(readFileSync(file)).digest('hex'), installationOwned: true, processSandboxDisabled: false, rendererJSSandbox: false };
+  const result = { ok: false, package: name, artifact: file, artifactSha256: createHash('sha256').update(readFileSync(file)).digest('hex'), installationOwned: true, globalNoSandboxOverride: false, rendererOSSandbox: false };
   const logs = [];
   try {
     logs.push(run('sudo', ['apt-get', 'install', '-y', '--no-install-recommends', file], { timeout: 180_000 }));
     if (state() !== 'installed') throw new Error('apt did not install the Dictate package');
     result.appArmorProfileInstalled = existsSync('/etc/apparmor.d/dictate');
     result.executable = '/opt/Dictate/dictate';
-    console.log('Launching the apt-installed .deb with Chromium process sandbox enabled (no --no-sandbox).');
-    await smoke(result.executable, 'deb-system-installed', { sandbox: true });
+    console.log('Launching the apt-installed .deb with its normal configuration without a global --no-sandbox override; renderer OS sandbox remains disabled by the existing preload configuration.');
+    await smoke(result.executable, 'deb-system-installed', { normalConfiguration: true });
     result.ok = true;
   } catch (error) {
     result.error = error.stack ?? String(error);

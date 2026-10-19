@@ -108,6 +108,44 @@ function findExecutable(directory: string, name: string): string | undefined {
   return undefined;
 }
 
+export async function installCleanupRuntime(source: string, binDir: string, platform: NodeJS.Platform = process.platform): Promise<void> {
+  const target = path.resolve(binDir);
+  const parent = path.dirname(target);
+  await fs.promises.mkdir(parent, { recursive: true });
+  const staged = await fs.promises.mkdtemp(path.join(parent, '.dictate-runtime-'));
+  const backup = path.join(parent, `.dictate-runtime-previous-${randomUUID()}`);
+  let previousMoved = false;
+  let installed = false;
+  try {
+    // Materialize upstream library links before touching the installed runtime. Copying directly
+    // over an old dangling link follows that destination and fails after the temporary source is gone.
+    await fs.promises.cp(source, staged, { recursive: true, force: true, dereference: true });
+    const executable = path.join(staged, platform === 'win32' ? 'llama-server.exe' : 'llama-server');
+    if (!(await fs.promises.stat(executable)).isFile()) throw new Error('The replacement cleanup runtime has no server executable');
+    if (platform !== 'win32') await fs.promises.chmod(executable, 0o755);
+    const previous = await fs.promises.lstat(target).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return undefined;
+      throw error;
+    });
+    if (previous && (!previous.isDirectory() || previous.isSymbolicLink())) throw new Error('The cleanup runtime destination must be a real directory');
+    if (previous) { await fs.promises.rename(target, backup); previousMoved = true; }
+    try {
+      await fs.promises.rename(staged, target);
+      installed = true;
+    } catch (error) {
+      if (previousMoved) {
+        try { await fs.promises.rename(backup, target); previousMoved = false; }
+        catch (rollbackError) { throw new AggregateError([error, rollbackError], `Cleanup runtime replacement failed; the previous runtime remains at ${backup}`); }
+      }
+      throw error;
+    }
+  } finally {
+    await fs.promises.rm(staged, { recursive: true, force: true });
+    // Removing the renamed directory unlinks stale destination links without traversing their targets.
+    if (installed && previousMoved) await fs.promises.rm(backup, { recursive: true, force: true });
+  }
+}
+
 export class SetupManager {
   state: SetupState = { phase: 'idle' };
   private abort?: AbortController;
@@ -152,11 +190,7 @@ export class SetupManager {
         await extract(archive, unpacked, abort.signal);
         const exe = findExecutable(unpacked, options.platform === 'win32' ? 'llama-server.exe' : 'llama-server');
         if (!exe) throw new Error('The llama.cpp archive did not contain llama-server');
-        // Keep shared libraries adjacent to the executable (required by the upstream CPU/Metal builds).
-        fs.mkdirSync(options.binDir, { recursive: true });
-        // Materialize relative library links: preserving them can point back into the temporary extraction.
-        await fs.promises.cp(path.dirname(exe), options.binDir, { recursive: true, force: true, dereference: true });
-        if (options.platform !== 'win32') await fs.promises.chmod(path.join(options.binDir, 'llama-server'), 0o755);
+        await installCleanupRuntime(path.dirname(exe), options.binDir, options.platform);
       }
       this.change({ phase: 'ready', kind });
     } catch (err) {

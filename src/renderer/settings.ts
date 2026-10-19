@@ -53,6 +53,7 @@ let actionError = '';
 let welcomeStartAtLogin = true;
 let renderedPage: Page | undefined;
 let renderPending = false;
+let pointerActive = false;
 const pasteKeys = () => st.platform.platform === 'darwin' ? 'Cmd+V' : 'Ctrl+V';
 const osName = () => ({win32:'Windows',darwin:'macOS',linux:'Linux'}[st.platform.platform] ?? st.platform.platform);
 const nav = h('nav.nav');
@@ -650,7 +651,7 @@ function advanced(): Node[] {
 function render(): void {
   // State can change while an uncommitted path or number draft is being edited.
   // Keep that control (and its caret/selection) alive until focus leaves the editor or the page changes.
-  if (page === renderedPage && ((page === 'advanced' && document.activeElement?.matches('input.textbox')) || document.querySelector('.slider:active'))) {
+  if (page === renderedPage && (pointerActive || (page === 'advanced' && document.activeElement?.matches('input.textbox')) || document.querySelector('.slider:active'))) {
     renderPending = true;
     updateSetupProgress();
     return;
@@ -693,10 +694,21 @@ dictate.on('dictate:setup-progress', (setup: State['setup']) => {
   st.setup = setup;
   updateSetupProgress();
 });
-content.addEventListener('focusout', () => queueMicrotask(() => { if (renderPending) render(); }));
-content.addEventListener('pointerup', () => { if (renderPending) setTimeout(render, 0); });
+function flushDeferredRender(): void {
+  // A mouse press blurs the input before mouseup/click. Keep its target alive through the click.
+  // Keyboard blur has no active pointer and refreshes after the current input event finishes.
+  setTimeout(() => { if (renderPending && !pointerActive) render(); }, 0);
+}
+content.addEventListener('focusout', flushDeferredRender);
+document.addEventListener('pointerdown', () => { pointerActive = true; }, true);
+for (const event of ['pointerup', 'pointercancel']) document.addEventListener(event, () => {
+  pointerActive = false;
+  flushDeferredRender();
+}, true);
 
 window.addEventListener('blur', () => {
+  pointerActive = false;
+  flushDeferredRender();
   // Meters only run while the window is in use.
   if (document.hidden) stopMeters();
 });

@@ -106,7 +106,7 @@ export async function runSmoke(reportPath: string): Promise<void> {
       if (!content.elements) throw new Error(`Renderer did not start: ${w.getTitle()}`);
       renderers.push({ title: w.getTitle(), ...content });
       if (w.getTitle().includes('settings')) {
-        // The page's first request crosses the real sandboxed preload and main IPC handlers.
+        // The page's first request crosses the real preload and main IPC handlers.
         if (!content.text.includes('Welcome to dictate') && !content.text.includes('Hotkeys & output')) throw new Error('Settings IPC did not render a page');
         if (!w.isVisible()) w.show();
         await w.webContents.executeJavaScript('(async () => { await document.fonts.ready; await Promise.all(document.getAnimations().filter(a => a.effect?.getTiming().iterations !== Infinity).map(a => a.finished.catch(() => {}))); await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); })()');

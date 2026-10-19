@@ -4,7 +4,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { archiveTar, downloadVerified, type DownloadAsset, llamaAssetFor } from '../src/main/setup';
+import { archiveTar, downloadVerified, type DownloadAsset, installCleanupRuntime, llamaAssetFor } from '../src/main/setup';
 
 const temporary: string[] = [];
 afterEach(() => { for (const p of temporary.splice(0)) fs.rmSync(p, { recursive: true, force: true }); });
@@ -20,6 +20,62 @@ async function downloadCase(bytes: string, mutate: Partial<DownloadAsset> = {}) 
 }
 
 describe('verified model setup', () => {
+  // The Unix llama archives contain shared-library symlinks; the Windows ZIP contains real DLLs.
+  it.runIf(process.platform !== 'win32')('repairs dangling destination library links without following them outside the owned runtime', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dictate-runtime-repair-'));
+    temporary.push(root);
+    const source = path.join(root, 'source');
+    const bin = path.join(root, 'bin');
+    const outside = path.join(root, 'outside');
+    fs.mkdirSync(source); fs.mkdirSync(bin); fs.mkdirSync(outside);
+    fs.writeFileSync(path.join(source, 'llama-server'), 'new server');
+    fs.writeFileSync(path.join(source, 'libllama.so.0'), 'new library');
+    fs.symlinkSync('libllama.so.0', path.join(source, 'libllama.so'));
+    fs.symlinkSync(path.join(root, '.setup-deleted', 'libllama.so'), path.join(bin, 'libllama.so'));
+    fs.writeFileSync(path.join(outside, 'sentinel'), 'keep outside');
+    fs.symlinkSync(outside, path.join(bin, 'old-libraries'));
+    await installCleanupRuntime(source, bin);
+    fs.rmSync(source, { recursive: true });
+    expect(fs.lstatSync(path.join(bin, 'libllama.so')).isFile()).toBe(true);
+    expect(fs.readFileSync(path.join(bin, 'libllama.so'), 'utf8')).toBe('new library');
+    expect(fs.readFileSync(path.join(bin, 'llama-server'), 'utf8')).toBe('new server');
+    expect(fs.readdirSync(outside)).toEqual(['sentinel']);
+    expect(fs.readFileSync(path.join(outside, 'sentinel'), 'utf8')).toBe('keep outside');
+  });
+
+  it('preserves the prior usable runtime when preparing a replacement fails', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dictate-runtime-failure-'));
+    temporary.push(root);
+    const bin = path.join(root, 'bin');
+    const source = path.join(root, 'source');
+    const executable = process.platform === 'win32' ? 'llama-server.exe' : 'llama-server';
+    fs.mkdirSync(bin); fs.mkdirSync(source);
+    fs.writeFileSync(path.join(bin, executable), 'prior server');
+    fs.writeFileSync(path.join(bin, 'library'), 'prior library');
+    // Copying this incomplete replacement succeeds; executable validation must fail before promotion.
+    fs.writeFileSync(path.join(source, 'library'), 'replacement library');
+    await expect(installCleanupRuntime(source, bin)).rejects.toThrow();
+    expect(fs.readFileSync(path.join(bin, executable), 'utf8')).toBe('prior server');
+    expect(fs.readFileSync(path.join(bin, 'library'), 'utf8')).toBe('prior library');
+    expect(fs.readdirSync(root).sort()).toEqual(['bin', 'source']);
+  });
+
+  it('rejects a destination directory symlink without changing its target', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dictate-runtime-link-'));
+    temporary.push(root);
+    const source = path.join(root, 'source');
+    const outside = path.join(root, 'outside');
+    const bin = path.join(root, 'bin');
+    const executable = process.platform === 'win32' ? 'llama-server.exe' : 'llama-server';
+    fs.mkdirSync(source); fs.mkdirSync(outside);
+    fs.writeFileSync(path.join(source, executable), 'new server');
+    fs.writeFileSync(path.join(outside, executable), 'outside server');
+    fs.symlinkSync(outside, bin, process.platform === 'win32' ? 'junction' : 'dir');
+    await expect(installCleanupRuntime(source, bin)).rejects.toThrow(/real directory/i);
+    expect(fs.readFileSync(path.join(outside, executable), 'utf8')).toBe('outside server');
+    expect(fs.lstatSync(bin).isSymbolicLink()).toBe(true);
+  });
+
   it('uses native Windows bsdtar even when a GNU tar appears earlier in Git Bash PATH', () => {
     expect(archiveTar('win32', { SystemRoot: 'C:\\Windows', PATH: 'C:\\Program Files\\Git\\usr\\bin' })).toBe('C:\\Windows\\System32\\tar.exe');
     expect(archiveTar('linux', { SystemRoot: 'C:\\Windows' })).toBe('tar');
