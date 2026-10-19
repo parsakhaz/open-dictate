@@ -66,6 +66,7 @@ open-dictate runs the whole thing on your computer: a streaming speech model wri
 | **Your vocabulary** | Add the names and terms you use ("sherpa-onnx", your colleagues, your product) and what the recognizer tends to hear instead. |
 | **Mouse buttons** | Map a mouse button to F13–F24 in Logitech Options+ or G HUB, and dictate with your thumb. |
 | **Mics that come and go** | Your favourite mic is used when it's plugged in, with a fallback, and an Undo when it switches. |
+| **Coding agents reach you on the pill** | When an agent in a Pane tab needs you, or Claude Code, Codex or Cursor calls Dictate's `notify` or `ask`, the pill shows a card naming the tab it came from. Click it to open that tab, or hold your key over it and answer by voice. Settings → **Agents**. |
 | **Updates itself, politely** | Checks GitHub Releases daily, and installs only when you quit or haven't dictated for 10 minutes. You can turn it off. |
 
 <p align="center"><img src="docs/media/settings.png" alt="Settings: hotkeys, microphone, cleanup, vocabulary, history, about" width="100%"></p>
@@ -76,6 +77,7 @@ open-dictate runs the whole thing on your computer: a streaming speech model wri
 - **The network is used twice:** to download the models from their official sources on first run (each file checked against a pinned SHA-256), and to check GitHub Releases for updates, which you can switch off in Settings → About.
 - **Your history** lives only in your user folder: `%APPDATA%\dictate\` on Windows, `~/Library/Application Support/dictate/` on a Mac, `~/.config/dictate/` on Linux, together with your settings, the log and the models. The log never records what you dictated.
 - **The clipboard is restored** after a paste, and on Windows dictations are kept out of Win+V history and the cloud clipboard.
+- **Coding agents** talk to Dictate over a private pipe on your computer, never the network. They can read your dictation history only if you switch that on in Settings → Agents, and then only after you allow each request on the pill. Secrets are redacted and every read is listed. An agent you allow may send what it reads to its own provider.
 - **To delete everything,** delete that folder. The Windows uninstaller offers to do it for you.
 
 ## Performance
@@ -139,7 +141,7 @@ Models are downloaded by you, from their official sources, and keep their own li
 ## Documentation
 
 - [Building, testing and QA](docs/development/README.md)
-- [Architecture](docs/architecture/README.md): processes, speech and cleanup, keyboard and output
+- [Architecture](docs/architecture/README.md): processes, speech and cleanup, keyboard and output, coding agents
 - [Releases and platform notes](docs/release/README.md)
 - [Decisions and measurements](docs/decisions/README.md)
 - [All docs](docs/README.md)

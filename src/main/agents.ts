@@ -316,8 +316,8 @@ export class Agents {
         return;
       }
       const opts = { env: r.env, executable: r.executable, bridgePath: path.join(agentsDir(this.host.userData), BRIDGE_FILE), log: this.host.log };
-      const outcomes = this.host.settings().agentsEnabled ? await registerAgents(opts) : await unregisterAgents(opts);
-      for (const o of outcomes) if (o.action !== 'unchanged' && o.action !== 'not-found') this.host.log('info', `agents: ${o.agent} ${o.action}${o.detail ? ` (${o.detail})` : ''}`);
+      // The writers log each change themselves.
+      await (this.host.settings().agentsEnabled ? registerAgents(opts) : unregisterAgents(opts));
       this.registrationState = await agentStatus({ env: r.env }).catch(() => []);
     };
     this.registering = this.registering.then(run, run).catch((err) => this.host.log('warn', `agents: registration failed (${(err as Error).message})`));
