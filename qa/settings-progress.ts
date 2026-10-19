@@ -28,7 +28,7 @@ void app.whenReady().then(async () => {
     history: { count: 0, samples: 0, median: null }, logFile: 'dictate.log', version,
     platform: { platform: process.platform, displayServer: 'x11', globalHotkeys: true, canSwallowKeys: false, automaticPaste: true, accessibilityRequired: false, accessibilityGranted: true },
     microphonePermission: 'granted', shortcutRegistered: false, shortcutRequested: false, startupError: '', recording: false, automation: true,
-    essentialsReady: false, gemmaInstalled: false, sizes: { essentials: 10485760, gemma: 3106738272 }, hardwareRunning: false, hardwareError: '', dataDir: 'QA profile',
+    essentialsReady: false, gemmaInstalled: false, sizes: { essentials: 10485760, gemma: 3106738272 }, hardwareRunning: false, hardwareError: '', dataDir: 'QA profile', update: { status: 'idle', mode: 'off' },
   });
   const practice: boolean[] = [];
   ipcMain.handle('dictate:practice', (_event, on: boolean) => { practice.push(on); });

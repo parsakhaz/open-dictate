@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>open-dictate media</title>
+<style>
+:root { --bg: #0d0f14; --panel: #151821; --ink: #e9ebef; --muted: #9aa0a8; --line: #232836; --accent: #7fd4ff; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 40px 16px 80px; }
+h1 { font-size: 30px; margin: 0 0 6px; }
+h2 { font-size: 20px; margin: 44px 0 6px; }
+p { margin: 6px 0; color: var(--muted); max-width: 78ch; }
+code { background: #1c2030; padding: 1px 6px; border-radius: 5px; font-size: .9em; }
+a { color: var(--accent); }
+figure { margin: 14px 0 0; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+figure img, figure video { display: block; width: 100%; height: auto; border-radius: 10px; }
+figcaption { color: var(--muted); font-size: 14px; margin-top: 10px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.grid figure { margin: 0; }
+.meta { font-size: 13px; color: #6f7680; }
+</style>
+</head>
+<body>
+<main>
+<h1>open-dictate media</h1>
+<p>Every image is the real app's own windows (the pill, the history picker, Settings and Getting started), rendered off-screen from fixtures at 2x, on a synthetic desktop. Nothing is a mock-up, and nothing comes from a real desktop, clipboard or account. They are regenerated with <code>qa/media/</code> (see <code>qa/media/build.mjs</code>).</p>
+
+<h2>Demo: one dictation</h2>
+<p>The live words, the waveform and the timings are the real recognizer and cleanup run on <code>fixtures/two-sentences.wav</code>, replayed into the real pill in real time (<code>qa/media/demo-timeline.json</code>). "sherpa-onnx" was added to Vocabulary first, as a person would; without it the cleanup guesses that name wrong. Cleanup ran Gemma then Emberon (0.86 s, on a Radeon 8060S with Vulkan).</p>
+<figure>
+  <video src="demo.mp4" autoplay loop muted playsinline controls poster="hero.png"></video>
+  <figcaption>demo.mp4, 1280×720, 20 s, 145 KB. There is also <a href="demo.gif">demo.gif</a> (960 px, 169 KB) for places that won't play video.</figcaption>
+</figure>
+
+<h2>Hero</h2>
+<figure><img src="hero.png" alt="The dictate pill listening, with live words, over a blurred editor"><figcaption>hero.png: the pill listening over a blurred editor, 2560×1440.</figcaption></figure>
+
+<h2>The pill's states</h2>
+<figure><img src="pill-states.png" alt="The pill starting, listening with live words, cleaning, and pasted"><figcaption>pill-states.png: starting (the mic is still opening), listening with the live words, cleaning, pasted.</figcaption></figure>
+
+<h2>History picker</h2>
+<figure><img src="picker.png" alt="The history picker open at the caret in a mail reply"><figcaption>picker.png: Right Ctrl+V (or Right Alt+V) opens your dictation history at the caret, without taking focus. The history is made up.</figcaption></figure>
+
+<h2>Getting started</h2>
+<figure><img src="onboarding.png" alt="The eight steps of Getting started"><figcaption>onboarding.png: the eight first-run steps.</figcaption></figure>
+<figure><img src="smartscreen.png" alt="Windows SmartScreen after More info, with Run anyway and Don't run"><figcaption>smartscreen.png: the unsigned installer on Windows, after <b>More info</b>. Captured on a real Windows 11 PC; the README's Quick start step 2.</figcaption></figure>
+<p>Each step on its own, as used small in the README's Quick start:</p>
+<div class="grid">
+  <figure><img src="onboarding/1-welcome.png" alt="Welcome"><figcaption>1 · Welcome</figcaption></figure>
+  <figure><img src="onboarding/2-licences.png" alt="Models and licences"><figcaption>2 · Models and licences</figcaption></figure>
+  <figure><img src="onboarding/3-download.png" alt="Download"><figcaption>3 · Download, with resume</figcaption></figure>
+  <figure><img src="onboarding/4-hardware.png" alt="Speed check"><figcaption>4 · Speed check</figcaption></figure>
+  <figure><img src="onboarding/5-microphone.png" alt="Microphone"><figcaption>5 · Microphone</figcaption></figure>
+  <figure><img src="onboarding/6-hotkey.png" alt="Dictation key"><figcaption>6 · Dictation key</figcaption></figure>
+  <figure><img src="onboarding/7-try.png" alt="Try it"><figcaption>7 · Try it</figcaption></figure>
+  <figure><img src="onboarding/8-done.png" alt="You are set"><figcaption>8 · You are set</figcaption></figure>
+</div>
+
+<h2>Settings</h2>
+<figure><img src="settings.png" alt="Six Settings pages"><figcaption>settings.png: Hotkeys &amp; output, Microphone, Cleanup, Vocabulary, History and About.</figcaption></figure>
+
+<p class="meta">All PNGs are 256-colour and dithered with ffmpeg. The whole folder is about 2.6 MB.</p>
+</main>
+</body>
+</html>

@@ -1,0 +1,147 @@
+/* A synthetic desktop for README media: a wallpaper, one editor window, nothing personal. */
+/* Only the root has a background: a body background would paint over the negative-z wallpaper. */
+html {
+  background: #0b0d12;
+}
+body {
+  background: transparent;
+  user-select: none;
+}
+#desk {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  background:
+    radial-gradient(1200px 700px at 18% 12%, rgba(64, 120, 255, 0.35), transparent 60%),
+    radial-gradient(900px 600px at 85% 85%, rgba(0, 190, 170, 0.28), transparent 60%),
+    radial-gradient(800px 500px at 70% 10%, rgba(160, 90, 255, 0.22), transparent 60%),
+    linear-gradient(160deg, #0c1220, #0a0d14 60%, #070a10);
+}
+body.plain #desk {
+  background: #15171c;
+}
+body.plain #desk .window {
+  display: none;
+}
+body.blur #desk .window {
+  filter: blur(3px) saturate(0.9);
+  opacity: 0.85;
+}
+.window {
+  position: absolute;
+  left: 50%;
+  top: 7%;
+  width: 72%;
+  height: 66%;
+  transform: translateX(-50%);
+  border-radius: 12px;
+  background: rgba(28, 30, 36, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: var(--font);
+}
+.titlebar {
+  height: 40px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 13px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.titlebar .tab {
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.85);
+}
+.doc {
+  flex: 1;
+  padding: 28px 40px;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 17px;
+  line-height: 28px;
+}
+.doc h3 {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 600;
+  margin: 0 0 14px;
+}
+.doc p {
+  margin: 0 0 12px;
+  color: rgba(255, 255, 255, 0.62);
+}
+.doc .muted-line {
+  height: 12px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.07);
+  margin: 0 0 14px;
+}
+.doc .live {
+  color: rgba(255, 255, 255, 0.92);
+}
+.caret {
+  display: inline-block;
+  width: 2px;
+  height: 22px;
+  margin-left: 1px;
+  vertical-align: -4px;
+  background: #60cdff;
+  animation: blink 1.05s steps(1) infinite;
+}
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+.typed {
+  background: rgba(96, 205, 255, 0.14);
+  border-radius: 3px;
+  transition: background 1.2s ease;
+}
+.typed.settled {
+  background: transparent;
+}
+/* The key being held, bottom left, as a viewer cue in the demo. */
+#keycue {
+  position: fixed;
+  left: 32px;
+  bottom: 34px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font: 600 15px var(--font);
+  color: rgba(255, 255, 255, 0.85);
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+#keycue.on {
+  opacity: 1;
+}
+#keycue kbd {
+  font: 600 14px var(--font);
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-bottom-width: 3px;
+  color: #fff;
+}
+#keycue.held kbd {
+  border-bottom-width: 1px;
+  transform: translateY(2px);
+  background: rgba(96, 205, 255, 0.25);
+}
+/* The picker scene places the real picker page where it opens: at the caret. */
+#pickerframe {
+  position: fixed;
+  width: 380px;
+  height: 480px;
+}

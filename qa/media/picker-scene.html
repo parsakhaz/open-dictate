@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../out/renderer/theme.css" />
+    <link rel="stylesheet" href="../../out/renderer/picker.css" />
+    <link rel="stylesheet" href="scene.css" />
+    <style>
+      /* The real picker opens at the caret; here that is beside the line being written. */
+      #root { inset: auto; left: calc(50% - 60px); top: 210px; width: 380px; height: 480px; }
+    </style>
+    <script src="shim.js"></script>
+  </head>
+  <body>
+    <div id="desk">
+      <div class="window">
+        <div class="titlebar"><span class="tab">reply.md</span><span>Mail</span></div>
+        <div class="doc">
+          <h3>Re: launch checklist</h3>
+          <p>Thanks, here is what I said in standup:</p>
+          <div class="live"><span class="caret"></span></div>
+        </div>
+      </div>
+    </div>
+    <div id="root"></div>
+    <script type="module" src="../../out/renderer/picker.js"></script>
+  </body>
+</html>

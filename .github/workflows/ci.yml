@@ -190,6 +190,8 @@ jobs:
             dist/*.dmg
             dist/*.AppImage
             dist/*.deb
+            dist/latest*.yml
+            dist/*.blockmap
             dist/SHA256SUMS
             dist/install.sh
             dist/install.ps1
