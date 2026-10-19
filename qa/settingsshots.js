@@ -21,6 +21,30 @@ const scale = Number((args.find((a) => a.startsWith('--scale=')) ?? '--scale=1')
 const fixed = args.includes('--fixed');
 const OUTDIR = (args.find((a) => a.startsWith('--out=')) ?? '').slice(6) || OUT;
 
+/** Settings → Agents: three agents found, Pane attached, one session grant and a few reads. */
+const AGENTS = {
+  channel: true,
+  pane: { installed: true, attached: true },
+  registration: [
+    { agent: 'claude', found: true, registered: true, ownedByDictate: true, handWritten: false },
+    { agent: 'codex', found: true, registered: true, ownedByDictate: true, handWritten: false },
+    { agent: 'cursor', found: false, registered: false, ownedByDictate: false, handWritten: false },
+  ],
+  registrationAllowed: true,
+  snippets: [
+    { agent: 'Gemini CLI', file: '~/.gemini/settings.json', text: '{}' },
+    { agent: 'VS Code', file: 'mcp.json (user)', text: '{}' },
+    { agent: 'Windsurf', file: '%APPDATA%/devin/mcp_config.json', text: '{}' },
+  ],
+  sessions: [{ id: 's3', client: 'Claude Code', inPane: true, connectedAt: Date.now() - 600_000 }],
+  grants: [{ sessionId: 's3', source: 'dictate-mcp · Claude Code', client: 'claude-code', grantedAt: Date.now() - 600_000, expiresAt: Date.now() + 7.8 * 3600_000 }],
+  accessLog: [
+    { at: new Date(Date.now() - 120_000).toISOString(), source: 'dictate-mcp · Claude Code', client: 'claude-code', query: 'migration', hours: 24, limit: 5, includeRaw: false, outcome: 'allowed-session', count: 2 },
+    { at: new Date(Date.now() - 3_600_000).toISOString(), source: 'Cursor · open-dictate', client: 'cursor-vscode', query: '', hours: 168, limit: 20, includeRaw: true, outcome: 'denied', count: 0 },
+  ],
+};
+const PENDING = [{ term: 'Supabase', aliases: ['super base'], reason: 'Our database.', source: 'dictate-mcp · Codex', at: '2026-10-19T20:00:00.000Z' }];
+
 const HARDWARE = { summary: 'No GPU found, 32 GB RAM. Emberon cleaned the sample in 0.41 s.', chain: 'emberon', emberonMs: 410, gemmaChainMs: null, offerGemma: true, measuredAt: '2026-10-18T22:00:00.000Z' };
 /** Each walkthrough shot: the saved step plus the made-up state that step shows. */
 const STEP_STATE = {
@@ -50,7 +74,7 @@ app.whenReady().then(async () => {
   const { bindingLabel } = load('src/core/hotkeys.ts');
   // The shipped starting vocabulary, so the Vocabulary page looks as it does after install.
   const vocab = JSON.parse(fs.readFileSync(path.join(ROOT, 'defaults', 'vocabulary.json'), 'utf8'));
-  let settings = { ...defaultSettings(vocab.terms ?? vocab), onboarded: true, ...patch };
+  let settings = { ...defaultSettings(vocab.terms ?? vocab), onboarded: true, vocabularyPending: PENDING, ...patch };
   const state = () => ({
     settings,
     labels: { hotkey: bindingLabel(settings.hotkeys[0] ?? null), hotkeys: settings.hotkeys.map((b) => bindingLabel(b)), toggle: bindingLabel(settings.toggle), picker: bindingLabel(settings.picker) },
@@ -72,6 +96,7 @@ app.whenReady().then(async () => {
     microphonePermission: 'granted',
     setup: {phase:'idle'}, speechInstalled:true, shortcutRegistered:false, shortcutRequested:false, startupError:'', recording:false, automation:true,
     essentialsReady: true, gemmaInstalled: false, sizes: { essentials: 683e6, gemma: 3106738272 }, hardwareRunning: false, hardwareError: '', update: { status: 'up-to-date', mode: 'install', checkedAt: '2026-10-18T21:00:00.000Z' }, dataDir: String.raw`C:\Users\you\AppData\Roaming\dictate`,
+    agents: AGENTS,
     ...extra,
   });
   let extra = {};

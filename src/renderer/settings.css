@@ -747,3 +747,27 @@ code {
 .card > .bindingrow {
   margin-top: 12px;
 }
+
+/* Settings → Agents: the history access log, newest first. */
+.accesslog {
+  display: grid;
+  gap: 2px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+.accessrow {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr) minmax(0, 1.4fr) 150px;
+  gap: 10px;
+  padding: 4px 0;
+  border-top: 1px solid var(--divider);
+}
+.accessrow > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.buttons {
+  display: flex;
+  gap: 8px;
+}
