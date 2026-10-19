@@ -1,5 +1,6 @@
 // Real packaged startup check: native bindings load inside Electron and its recognizer utility process,
 // every actual renderer runs its preload/IPC, and the report is written before the isolated app quits.
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { app, BrowserWindow, MessageChannelMain, utilityProcess } from 'electron';
@@ -82,6 +83,43 @@ async function probeRecognizer(diagnostics: ProbeDiagnostics): Promise<Recognize
   });
 }
 
+/**
+ * The agents' bridge as an agent runs it: copied out of the bundle into the data folder, started with the app's own
+ * executable as Node, answering MCP over stdio and reaching the running app over its channel.
+ */
+async function probeAgents(): Promise<{ bridgeCopied: boolean; tools: string[]; status: boolean }> {
+  const dir = path.join(app.getPath('userData'), 'agents');
+  const bridge = path.join(dir, 'dictate-mcp.js');
+  for (let i = 0; i < 100 && !fs.existsSync(path.join(dir, 'channel.json')); i++) await new Promise((r) => setTimeout(r, 100));
+  if (!fs.existsSync(bridge)) throw new Error(`The agents' bridge was not copied to ${bridge}`);
+  const child = spawn(process.execPath, [bridge], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, stdio: ['pipe', 'pipe', 'pipe'] });
+  try {
+    const replies = new Map<number, Record<string, unknown>>();
+    let buf = '';
+    child.stdout.on('data', (d) => {
+      buf += d;
+      for (let i = buf.indexOf('\n'); i >= 0; i = buf.indexOf('\n')) {
+        const m = JSON.parse(buf.slice(0, i));
+        buf = buf.slice(i + 1);
+        replies.set(m.id, m.result);
+      }
+    });
+    const ask = async (id: number, method: string, params: unknown) => {
+      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
+      for (let i = 0; i < 100 && !replies.has(id); i++) await new Promise((r) => setTimeout(r, 100));
+      const r = replies.get(id);
+      if (!r) throw new Error(`The agents' bridge did not answer ${method}`);
+      return r;
+    };
+    await ask(1, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'dictate-smoke' } });
+    const tools = ((await ask(2, 'tools/list', {})).tools as { name: string }[]).map((t) => t.name);
+    const status = (await ask(3, 'tools/call', { name: 'status', arguments: {} })).structuredContent as { running?: boolean } | undefined;
+    return { bridgeCopied: true, tools, status: status?.running === true };
+  } finally {
+    child.kill();
+  }
+}
+
 export async function runSmoke(reportPath: string): Promise<void> {
   const report: Record<string, unknown> = { ok: false, platform: process.platform, arch: process.arch, packaged: app.isPackaged, version: app.getVersion(), hardwareAccelerationDisabled: true, loginItemsUnchanged: true, singleInstanceLockSkipped: process.env.DICTATE_SMOKE_SKIP_INSTANCE_LOCK === '1' };
   try {
@@ -117,6 +155,7 @@ export async function runSmoke(reportPath: string): Promise<void> {
     }
     report.renderers = renderers;
     report.rendererLoaded = true;
+    report.agents = await probeAgents();
     report.capabilities = platformCapabilities();
     report.ok = true;
   } catch (err) {
