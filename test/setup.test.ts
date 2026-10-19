@@ -8,7 +8,7 @@ import { EMBERON_GGUF, GEMMA_GGUF, STT_MODEL } from '../src/core/settings';
 import { SPEECH_FILES } from '../src/main/downloads';
 import {
   archiveTar, assetsFor, downloadAssets, type DownloadProgress, downloadVerified, type DownloadAsset, essentialsInstalled,
-  installCleanupRuntime, llamaAssetFor, remainingBytes, SetupManager,
+  installCleanupRuntime, llamaAssetFor, remainingBytes, runtimeInstalled, SetupManager,
 } from '../src/main/setup';
 import { serve } from './download-server';
 
@@ -108,10 +108,12 @@ describe('verified model setup', () => {
     } finally { await c.close(); }
   });
 
-  it('selects portable CPU binaries on Windows/Linux and Metal builds on Mac', () => {
-    expect(llamaAssetFor('win32', 'x64').name).toBe('llama-b11700-bin-win-cpu-x64.zip');
+  it('selects Vulkan builds on Windows/Linux (any GPU, integrated too, with CPU backends inside) and Metal builds on Mac', () => {
+    expect(llamaAssetFor('win32', 'x64').name).toBe('llama-b11700-bin-win-vulkan-x64.zip');
+    expect(llamaAssetFor('win32', 'arm64').name).toBe('llama-b11700-bin-win-vulkan-arm64.zip');
     expect(llamaAssetFor('darwin', 'arm64').name).toBe('llama-b11700-bin-macos-arm64.tar.gz');
-    expect(llamaAssetFor('linux', 'x64').name).toBe('llama-b11700-bin-ubuntu-x64.tar.gz');
+    expect(llamaAssetFor('linux', 'x64').name).toBe('llama-b11700-bin-ubuntu-vulkan-x64.tar.gz');
+    expect(llamaAssetFor('linux', 'arm64').name).toBe('llama-b11700-bin-ubuntu-vulkan-arm64.tar.gz');
     expect(() => llamaAssetFor('freebsd', 'x64')).toThrow(/unsupported/i);
   });
 });
@@ -264,7 +266,7 @@ describe('install downloads', () => {
 describe('install stages', () => {
   it('sizes the essentials stage at about 0.7 GB: speech, Emberon and the llama.cpp runtime', () => {
     const assets = assetsFor('essentials', { platform: 'win32', arch: 'x64' });
-    expect(assets.map((a) => a.name)).toEqual([`${STT_MODEL}.tar.bz2`, EMBERON_GGUF, 'llama-b11700-bin-win-cpu-x64.zip']);
+    expect(assets.map((a) => a.name)).toEqual([`${STT_MODEL}.tar.bz2`, EMBERON_GGUF, 'llama-b11700-bin-win-vulkan-x64.zip']);
     const total = assets.reduce((sum, a) => sum + a.bytes, 0);
     expect(total).toBeGreaterThan(0.6e9);
     expect(total).toBeLessThan(0.75e9);
@@ -273,10 +275,25 @@ describe('install stages', () => {
   it('downloads only the requested cleanup model when the runtime is installed', () => {
     const bin = tempDir();
     expect(assetsFor('cleanup', { platform: 'linux', arch: 'x64', cleanupModels: ['gemma'], binDir: bin }).map((a) => a.name))
-      .toEqual([GEMMA_GGUF, 'llama-b11700-bin-ubuntu-x64.tar.gz']);
+      .toEqual([GEMMA_GGUF, 'llama-b11700-bin-ubuntu-vulkan-x64.tar.gz']);
     fs.writeFileSync(path.join(bin, 'llama-server'), '');
+    fs.writeFileSync(path.join(bin, 'libggml-vulkan.so'), '');
     expect(assetsFor('cleanup', { platform: 'linux', arch: 'x64', cleanupModels: ['gemma'], binDir: bin }).map((a) => a.name)).toEqual([GEMMA_GGUF]);
     expect(assetsFor('cleanup', { platform: 'linux', arch: 'x64', cleanupModels: ['gemma'], binDir: bin, reinstallRuntime: true })).toHaveLength(2);
+  });
+
+  it('replaces an earlier CPU-only runtime with the Vulkan build, but keeps a Mac runtime as it is', () => {
+    const win = tempDir();
+    fs.writeFileSync(path.join(win, 'llama-server.exe'), '');
+    fs.writeFileSync(path.join(win, 'ggml-cpu-x64.dll'), '');
+    expect(runtimeInstalled(win, 'win32')).toBe(false);
+    expect(assetsFor('cleanup', { platform: 'win32', arch: 'x64', cleanupModels: ['emberon'], binDir: win }).map((a) => a.name))
+      .toEqual([EMBERON_GGUF, 'llama-b11700-bin-win-vulkan-x64.zip']);
+    fs.writeFileSync(path.join(win, 'ggml-vulkan.dll'), '');
+    expect(runtimeInstalled(win, 'win32')).toBe(true);
+    const mac = tempDir();
+    fs.writeFileSync(path.join(mac, 'llama-server'), '');
+    expect(runtimeInstalled(mac, 'darwin')).toBe(true);
   });
 
   it('detects installed essentials and leaves complete files and partial bytes out of the remaining size', () => {
@@ -292,6 +309,7 @@ describe('install stages', () => {
     expect(essentialsInstalled(models, bin, 'win32')).toBe(false);
     for (const [file, bytes] of Object.entries(SPEECH_FILES)) sized(path.join(models, STT_MODEL, file), bytes);
     fs.writeFileSync(path.join(bin, 'llama-server.exe'), '');
+    fs.writeFileSync(path.join(bin, 'ggml-vulkan.dll'), '');
     expect(essentialsInstalled(models, bin, 'win32')).toBe(true);
     expect(assetsFor('essentials', options)).toEqual([]);
     expect(remainingBytes('essentials', options)).toBe(0);
