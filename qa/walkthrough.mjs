@@ -158,12 +158,18 @@ try {
     focused = await p.evaluate('document.hasFocus()');
   }
   note('settings window focused for the practice box', { focused });
-  fs.appendFileSync(control, 'down\n');
-  await sleep(hold);
-  fs.appendFileSync(control, 'up\n');
-  const practiced = await p.until(`document.querySelector('[data-practice-text]')?.textContent`, 'the practice dictation to land in the box', 30_000);
-  await p.shot('7-try-it');
-  note('practice dictation', { text: practiced, detail: await p.evaluate(`document.querySelector('.practiceresult')?.innerText`) });
+  if (focused) {
+    fs.appendFileSync(control, 'down\n');
+    await sleep(hold);
+    fs.appendFileSync(control, 'up\n');
+    const practiced = await p.until(`document.querySelector('[data-practice-text]')?.textContent`, 'the practice dictation to land in the box', 30_000);
+    await p.shot('7-try-it');
+    note('practice dictation', { text: practiced, detail: await p.evaluate(`document.querySelector('.practiceresult')?.innerText`) });
+  } else {
+    // Without focus the dictation would go to whatever app is in front, as it should: not verified here.
+    report.practiceUnverified = 'the OS did not give Settings focus in this session';
+    await p.shot('7-try-it-unfocused');
+  }
   await p.click('next');
   await p.until(`${heading} === 'You are set'`, 'the done step');
   await p.shot('8-done');
