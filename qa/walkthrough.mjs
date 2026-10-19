@@ -148,10 +148,16 @@ try {
   await sleep(1500);
   const hold = wavSeconds(wav) * 1000 + 800;
   // The practice box takes a dictation only while Settings is in front, as a person clicking into it would.
-  fs.appendFileSync(control, 'focus\n');
-  // macOS ignores focus requests from an app launched outside the GUI session; LaunchServices does not.
-  if (process.platform === 'darwin') spawn('open', ['-a', appExe.replace(/\/Contents\/MacOS\/[^/]+$/, '')]);
-  await sleep(1500);
+  // A person clicks into the box, which makes the window key. Here: ask the app, and on macOS LaunchServices
+  // (macOS ignores focus requests from an app launched outside the GUI session), until the page has focus.
+  let focused = false;
+  for (let i = 0; i < 8 && !focused; i++) {
+    fs.appendFileSync(control, 'focus\n');
+    if (process.platform === 'darwin') spawn('open', ['-a', appExe.replace(/\/Contents\/MacOS\/[^/]+$/, '')]);
+    await sleep(1200);
+    focused = await p.evaluate('document.hasFocus()');
+  }
+  note('settings window focused for the practice box', { focused });
   fs.appendFileSync(control, 'down\n');
   await sleep(hold);
   fs.appendFileSync(control, 'up\n');
