@@ -9,6 +9,9 @@ import { defaultSettings } from '../src/core/settings';
 app.disableHardwareAcceleration();
 app.setPath('userData', process.env.DICTATE_SETTINGS_QA_PROFILE!);
 const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const started = Date.now();
+/** Progress on stdout, so a CI timeout shows the last step reached. */
+const step = (name: string) => console.log(`settings-progress ${((Date.now() - started) / 1000).toFixed(1)} s: ${name}`);
 const report: Record<string, unknown> = { ok: false, platform: process.platform, arch: process.arch, productionRendererAndPreload: true, physicalMicrophone: false };
 
 void app.whenReady().then(async () => {
@@ -33,15 +36,18 @@ void app.whenReady().then(async () => {
   ipcMain.handle('dictate:get-state', state);
   ipcMain.handle('dictate:set-settings', (_event, patch) => { settings = { ...settings, ...patch }; return state(); });
   ipcMain.handle('dictate:finish-onboarding', (_event, on: boolean) => { onboardingChoice = on; settings.onboarded = true; return state(); });
-  ipcMain.on('dictate:renderer-error', (_event, page, message) => { throw new Error(`${page}: ${message}`); });
+  ipcMain.on('dictate:renderer-error', (_event, page, message) => { console.error(`renderer error ${page}: ${message}`); report.error = `${page}: ${message}`; });
   const win = new BrowserWindow({ width: 1000, height: 800, show: true, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true } });
   const js = <T>(code: string) => win.webContents.executeJavaScript(code) as Promise<T>;
   const check = async (code: string, message: string) => assert.equal(await js(code), true, message);
   try {
+    step('window created');
     await win.loadFile(path.join(__dirname, 'settings.html'));
+    step('settings.html loaded');
     for (let n = 0; n < 100 && !await js<boolean>('document.body.innerText.includes("Downloading")'); n++) await pause(30);
     await check(`document.body.innerText.includes('Step 3 of 8') && getComputedStyle(document.querySelector('nav')).display === 'none'`, 'A closed walkthrough must resume at its step, with no other pages');
     report.walkthroughResumes = true;
+    step('walkthroughResumes');
     await js(`window.__progressControls = { next: document.querySelector('[data-wiz="next"]'), back: document.querySelector('[data-wiz="back"]') }`);
     for (let n = 2; n <= 8; n++) {
       setup = { ...setup, received: n * 1048576, overallReceived: n * 1048576, bytesPerSecond: 2e6, etaSeconds: 2 };
@@ -50,15 +56,18 @@ void app.whenReady().then(async () => {
     await pause(60);
     await check(`document.body.innerText.includes('Downloading… 80%') && document.body.innerText.includes('8 MB of 10 MB · 2.0 MB/s') && document.querySelector('[data-wiz="next"]') === window.__progressControls.next && document.contains(window.__progressControls.back)`, 'Download progress replaced the step buttons or failed to update');
     report.progressPreservesControls = true;
+    step('progressPreservesControls');
     // Downloads continue in the background while the rest of the walkthrough runs.
     for (const expected of ['Speed check', 'Your microphone', 'Your dictation key', 'Try it', 'You are set']) {
       await js(`document.querySelector('[data-wiz="next"]').click()`);
       await pause(40);
+      step(`next → ${expected}`);
       assert.equal(await js<string>('document.querySelector("main h1")?.textContent'), expected, `Next should open "${expected}"`);
     }
     assert.equal(settings.onboardingStep, 'done', 'Each step must be saved so a quit resumes there');
     assert.deepEqual(practice, [true, false], 'The practice box must take dictations only while "Try it" is open');
     report.walkthroughSavesSteps = true;
+    step('walkthroughSavesSteps');
     await js(`(() => {
       const row = [...document.querySelectorAll('.card')].find(e => e.querySelector('.cardtitle')?.textContent === 'Start at login');
       const input = row.querySelector('input'); input.click();
@@ -71,6 +80,7 @@ void app.whenReady().then(async () => {
     for (let n = 0; n < 100 && onboardingChoice === undefined; n++) await pause(20);
     assert.equal(onboardingChoice, false, 'Onboarding must submit the chosen Off value');
     report.onboardingOffRetained = true;
+    step('onboardingOffRetained');
     await js(`[...document.querySelectorAll('nav button')].find(e => e.textContent.includes('Advanced')).click()`);
     await js(`(() => { const input = document.querySelector('[data-setting="modelsDir"]'); input.focus(); input.value = '/draft/models folder'; input.setSelectionRange(3, 13); window.__draft = input; })()`);
     setup = { ...setup, received: 9 * 1048576 };
@@ -88,7 +98,9 @@ void app.whenReady().then(async () => {
     await pause(60);
     await check(`document.activeElement?.dataset.setting === 'tapMs' && document.activeElement.value === '370'`, 'A normal state update lost the active number draft');
     report.pathDraftAndSelectionRetained = true;
+    step('pathDraftAndSelectionRetained');
     report.numberDraftRetained = true;
+    step('numberDraftRetained');
     // Exercise the normal browser/OS input sequence, including blur between press and release.
     // Calling HTMLElement.click() would omit that sequence and miss a mid-press DOM replacement.
     const point = await js<{ x: number; y: number }>(`(() => {
@@ -127,7 +139,9 @@ void app.whenReady().then(async () => {
     await pause(120);
     await check(`document.body.innerText.includes('dictate 0.1.1')`, 'Keyboard blur must still flush a deferred state refresh');
     report.keyboardBlurRefreshes = true;
-    report.ok = true;
+    step('keyboardBlurRefreshes');
+    report.ok = !report.error;
+    step('ok');
   } catch (error) { report.error = (error as Error).stack ?? String(error); }
   finally {
     fs.writeFileSync(process.env.DICTATE_SETTINGS_QA_REPORT!, `${JSON.stringify(report, null, 2)}\n`);
