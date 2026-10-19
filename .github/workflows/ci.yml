@@ -229,4 +229,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
-        run: gh release create "$RELEASE_TAG" release/* --repo "$GITHUB_REPOSITORY" --verify-tag --title "Dictate ${RELEASE_TAG#dictate-v}" --notes 'Native Windows x64, macOS Apple Silicon and Intel, Linux x64 and arm64 installers. SHA256SUMS and checksum-verifying installers are included. Builds are unsigned unless code-signing credentials were configured; see README.md for setup and testing.'
+        run: gh release create "$RELEASE_TAG" release/* --repo "$GITHUB_REPOSITORY" --verify-tag --title "Dictate ${RELEASE_TAG#dictate-v}" --notes-file .github/release-notes.md

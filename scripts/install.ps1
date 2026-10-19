@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
   [string]$Version = $env:DICTATE_VERSION,
-  [string]$Repository = $(if ($env:DICTATE_REPOSITORY) { $env:DICTATE_REPOSITORY } else { 'parsakhaz/experiments' }),
+  [string]$Repository = $(if ($env:DICTATE_REPOSITORY) { $env:DICTATE_REPOSITORY } else { 'parsakhaz/open-dictate' }),
   [string]$FromDirectory,
   [string]$InstallDirectory = $(Join-Path $env:LOCALAPPDATA 'Programs\Dictate')
 )

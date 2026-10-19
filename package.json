@@ -38,8 +38,7 @@
   "author": "parsakhaz",
   "repository": {
     "type": "git",
-    "url": "https://github.com/parsakhaz/experiments.git",
-    "directory": "dictate"
+    "url": "https://github.com/parsakhaz/open-dictate.git"
   },
   "desktopName": "org.dictate.Dictate.desktop"
 }
