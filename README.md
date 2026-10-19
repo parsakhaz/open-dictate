@@ -10,10 +10,10 @@ This branch adds native build artifacts to [Dictate CI](https://github.com/parsa
 
 | Computer | Build | Install |
 | --- | --- | --- |
-| Windows 10/11 x64 | `dictate-windows-x64-…` | Run the NSIS `.exe`. Windows ARM can use x64 emulation; there is no native ARM64 Windows build. |
-| Apple Silicon Mac | `dictate-macos-arm64-…` | Open the DMG and drag Dictate to Applications, or unzip the application. |
-| Intel Mac | `dictate-macos-x64-…` | Same installation, using the Intel artifact. |
-| Linux x64 or ARM64 | `dictate-linux-<arch>-…` | Install the `.deb`, or make the AppImage executable and run it. X11 requires `xdotool`, `libXtst`, GTK3 and a desktop session. |
+| Windows 10/11 x64 | `dictate-package-win-x64-…` | Run the NSIS `.exe`. Windows ARM can use x64 emulation; there is no native ARM64 Windows build. |
+| Apple Silicon Mac | `dictate-package-mac-arm64-…` | Open the DMG and drag Dictate to Applications, or unzip the application. |
+| Intel Mac | `dictate-package-mac-x64-…` | Same installation, using the Intel artifact. |
+| Linux x64 or ARM64 | `dictate-package-linux-<arch>-…` | Install the `.deb`, or make the AppImage executable and run it. X11 requires `xdotool`, `libXtst`, GTK3 and a desktop session. |
 
 macOS test builds are unsigned unless signing credentials are configured. Open the application through Finder's **Open** action and approve it in **System Settings → Privacy & Security** when macOS asks. Microphone, Accessibility and Input Monitoring permissions are required for global dictation and paste. Restart Dictate after changing keyboard permissions. Signing/notarization is separate from native build verification.
 
@@ -80,7 +80,7 @@ Model licenses are separate from Dictate's application license. Setup contacts G
 
 ## Release system
 
-The [workflow](../.github/workflows/dictate.yml) checks, builds and smoke-launches the real application on native Windows x64, Mac ARM64/Intel and Linux x64/ARM64 runners. Each artifact contains installers plus SHA-256 checksums and a startup report/screenshot. Native dependencies are unpacked from Electron's ASAR archive; the recognizer binding is also probed in its actual utility process. Startup smoke does not grant OS permissions or exercise a physical microphone.
+The [workflow](../.github/workflows/dictate.yml) checks, builds and smoke-launches the real application on native Windows x64, Mac ARM64/Intel and Linux x64/ARM64 runners. Installer artifacts contain native installers, checksum-verifying scripts and SHA-256 checksums. Separate `dictate-evidence-<platform>-<arch>-…` artifacts contain startup reports/screenshots, native input checks and the app audio/cancel journey. Native dependencies are unpacked from Electron's ASAR archive; a real fixture is also transcribed by the packaged recognizer utility process. Startup smoke does not grant OS permissions or exercise a physical microphone.
 
 PRs and ordinary branch pushes always use `--publish never`. A release requires a `dictate-v<package version>` tag, or explicit authorized dispatch, and all native jobs must succeed before publication. Checksums are generated after builds. No feature branch becomes a stable release merely because CI passed.
 
@@ -105,6 +105,8 @@ On Linux, install the graphical/native dependencies before starting. On Ubuntu 2
 ```sh
 sudo apt-get install libgtk-3-0 libnss3 libasound2 libgbm1 libxtst6 libxt6 libxrandr2 libx11-6 xdotool x11-utils
 ```
+
+Linux ARM64 **source development** also needs `python3 build-essential pkg-config libx11-dev libxtst-dev libxrandr-dev libxt-dev`. The pinned upstream keyboard module mislabeled its ARM64 prebuild; installation validates the executable architecture and builds a genuine native binding. Built installers already contain that binding and need only the runtime libraries above.
 
 `src/core/` holds shared hotkey, capture, cleanup, history and settings logic. `src/native/` isolates Windows hooks/WASAPI, Mac Quartz/Cocoa, X11 tools and desktop capabilities. `src/engine/` hosts recognition and llama-server lifecycle. `src/main/` owns tray, windows, model setup and output; `src/renderer/` is plain DOM plus AudioWorklet capture.
 
