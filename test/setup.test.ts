@@ -4,7 +4,13 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { archiveTar, downloadVerified, type DownloadAsset, installCleanupRuntime, llamaAssetFor } from '../src/main/setup';
+import { EMBERON_GGUF, GEMMA_GGUF, STT_MODEL } from '../src/core/settings';
+import { SPEECH_FILES } from '../src/main/downloads';
+import {
+  archiveTar, assetsFor, downloadAssets, type DownloadProgress, downloadVerified, type DownloadAsset, essentialsInstalled,
+  installCleanupRuntime, llamaAssetFor, remainingBytes, SetupManager,
+} from '../src/main/setup';
+import { serve } from './download-server';
 
 const temporary: string[] = [];
 afterEach(() => { for (const p of temporary.splice(0)) fs.rmSync(p, { recursive: true, force: true }); });
@@ -107,5 +113,196 @@ describe('verified model setup', () => {
     expect(llamaAssetFor('darwin', 'arm64').name).toBe('llama-b11700-bin-macos-arm64.tar.gz');
     expect(llamaAssetFor('linux', 'x64').name).toBe('llama-b11700-bin-ubuntu-x64.tar.gz');
     expect(() => llamaAssetFor('freebsd', 'x64')).toThrow(/unsupported/i);
+  });
+});
+
+function tempDir(prefix = 'dictate-dl-'): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  temporary.push(dir);
+  return dir;
+}
+const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
+const bytesOf = (n: number, seed = 1) => Buffer.from(Array.from({ length: n }, (_, i) => (i * 31 + seed) % 251));
+const assetOf = (url: string, name: string, body: Buffer): DownloadAsset => ({ name, url: `${url}/${name}`, bytes: body.length, sha256: sha(body) });
+const sized = (file: string, bytes: number) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, ''); fs.truncateSync(file, bytes); };
+
+describe('resumable downloads', () => {
+  it('resumes from the stable .part file with a Range request and verifies the whole file', async () => {
+    const body = bytesOf(1000);
+    const s = await serve({ 'test.bin': body });
+    const dir = tempDir();
+    fs.writeFileSync(path.join(dir, '.test.bin.part'), body.subarray(0, 400));
+    const seen: number[] = [];
+    try {
+      const file = await downloadVerified(assetOf(s.url, 'test.bin', body), dir, (n) => seen.push(n));
+      expect(s.requests.map((r) => r.range)).toEqual(['bytes=400-']);
+      expect(seen[0]).toBe(400);
+      expect(seen.at(-1)).toBe(1000);
+      expect(fs.readFileSync(file).equals(body)).toBe(true);
+      expect(fs.readdirSync(dir)).toEqual(['test.bin']);
+    } finally { await s.close(); }
+  });
+
+  it('starts over when the server ignores Range', async () => {
+    const body = bytesOf(1000);
+    const s = await serve({ 'test.bin': body }, ['ignore-range']);
+    const dir = tempDir();
+    fs.writeFileSync(path.join(dir, '.test.bin.part'), body.subarray(0, 400));
+    try {
+      const file = await downloadVerified(assetOf(s.url, 'test.bin', body), dir, () => undefined);
+      expect(s.requests[0].range).toBe('bytes=400-');
+      expect(fs.readFileSync(file).equals(body)).toBe(true);
+    } finally { await s.close(); }
+  });
+
+  it('deletes a resumed .part whose bytes fail the SHA-256 check', async () => {
+    const body = bytesOf(1000);
+    const s = await serve({ 'test.bin': body });
+    const dir = tempDir();
+    fs.writeFileSync(path.join(dir, '.test.bin.part'), bytesOf(400, 7));
+    try {
+      await expect(downloadVerified(assetOf(s.url, 'test.bin', body), dir, () => undefined)).rejects.toThrow(/checksum mismatch for test\.bin/i);
+      expect(fs.readdirSync(dir)).toEqual([]);
+    } finally { await s.close(); }
+  });
+
+  it('keeps the .part when cancelled so the next attempt resumes', async () => {
+    const body = bytesOf(1000);
+    const s = await serve({ 'test.bin': body }, [{ hang: 300 }, 'range']);
+    const dir = tempDir();
+    const abort = new AbortController();
+    try {
+      await expect(downloadVerified(assetOf(s.url, 'test.bin', body), dir, (n) => { if (n >= 300) abort.abort(); }, abort.signal)).rejects.toThrow();
+      expect(fs.statSync(path.join(dir, '.test.bin.part')).size).toBe(300);
+      await downloadVerified(assetOf(s.url, 'test.bin', body), dir, () => undefined);
+      expect(s.requests[1].range).toBe('bytes=300-');
+      expect(fs.readFileSync(path.join(dir, 'test.bin')).equals(body)).toBe(true);
+    } finally { await s.close(); }
+  });
+
+  it('retries once after a dropped connection, resuming where it stopped', async () => {
+    const body = bytesOf(1000);
+    const s = await serve({ 'test.bin': body }, [{ cut: 400 }, 'range']);
+    const dir = tempDir();
+    try {
+      const file = await downloadVerified(assetOf(s.url, 'test.bin', body), dir, () => undefined, undefined, { retryDelayMs: 10 });
+      expect(s.requests.map((r) => r.range)).toEqual([undefined, 'bytes=400-']);
+      expect(fs.readFileSync(file).equals(body)).toBe(true);
+    } finally { await s.close(); }
+  });
+
+  it('retries once after a server error', async () => {
+    const body = bytesOf(1000);
+    const s = await serve({ 'test.bin': body }, [{ status: 503 }, 'range']);
+    const dir = tempDir();
+    try {
+      await downloadVerified(assetOf(s.url, 'test.bin', body), dir, () => undefined, undefined, { retryDelayMs: 10 });
+      expect(s.requests).toHaveLength(2);
+    } finally { await s.close(); }
+  });
+
+  it('names the file and how far it got after the retry also fails, and keeps the .part', async () => {
+    const body = bytesOf(1000);
+    const s = await serve({ 'test.bin': body }, [{ cut: 410 }, { cut: 0 }]);
+    const dir = tempDir();
+    try {
+      await expect(downloadVerified(assetOf(s.url, 'test.bin', body), dir, () => undefined, undefined, { retryDelayMs: 10 }))
+        .rejects.toThrow("Couldn't download test.bin: connection lost at 41%. Retry to resume.");
+      expect(s.requests).toHaveLength(2);
+      expect(fs.statSync(path.join(dir, '.test.bin.part')).size).toBe(410);
+    } finally { await s.close(); }
+  });
+});
+
+describe('install downloads', () => {
+  it('checks free disk space before fetching any byte', async () => {
+    const a = bytesOf(1000);
+    const s = await serve({ 'a.bin': a });
+    const dir = tempDir();
+    try {
+      const run = downloadAssets([{ asset: assetOf(s.url, 'a.bin', a), dir }], () => undefined, { freeBytes: async () => 500 });
+      await expect(run).rejects.toMatchObject({ code: 'ENOSPC_PRECHECK' });
+      await expect(run).rejects.toThrow(/^Not enough disk space: 0\.0 GB needed, 0\.0 GB free on .+\.$/);
+      expect(s.requests).toHaveLength(0);
+    } finally { await s.close(); }
+  });
+
+  it('reports overall progress across files and skips files already complete', async () => {
+    const a = bytesOf(1000, 1);
+    const b = bytesOf(2000, 2);
+    const c = bytesOf(3000, 3);
+    const s = await serve({ 'a.bin': a, 'b.bin': b, 'c.bin': c });
+    const dir = tempDir();
+    fs.writeFileSync(path.join(dir, 'b.bin'), b);
+    const seen: DownloadProgress[] = [];
+    try {
+      const items = [a, b, c].map((body, i) => ({ asset: assetOf(s.url, `${'abc'[i]}.bin`, body), dir }));
+      await downloadAssets(items, (p) => seen.push(p), { freeBytes: async () => 1e12 });
+      expect(s.requests.map((r) => r.path)).toEqual(['a.bin', 'c.bin']);
+      expect(seen.every((p) => p.overallTotal === 6000 && p.steps === 3)).toBe(true);
+      expect(seen.at(-1)).toMatchObject({ file: 'c.bin', step: 3, received: 3000, total: 3000, overallReceived: 6000 });
+      expect(seen.find((p) => p.file === 'c.bin')?.overallReceived).toBeGreaterThanOrEqual(3000);
+    } finally { await s.close(); }
+  });
+
+  it('measures speed from fetched bytes only, not bytes resumed from disk', async () => {
+    const body = bytesOf(2_000_000);
+    const s = await serve({ 'a.bin': body }, [{ chunks: 8, delayMs: 120 }]);
+    const dir = tempDir();
+    fs.writeFileSync(path.join(dir, '.a.bin.part'), body.subarray(0, 1_992_000));
+    const seen: DownloadProgress[] = [];
+    try {
+      await downloadAssets([{ asset: assetOf(s.url, 'a.bin', body), dir }], (p) => seen.push(p), { freeBytes: async () => 1e12 });
+      const rates = seen.map((p) => p.bytesPerSecond).filter((r): r is number => r !== undefined);
+      expect(rates.length).toBeGreaterThan(0);
+      expect(Math.max(...rates)).toBeLessThan(200_000);
+      expect(seen.some((p) => p.etaSeconds !== undefined && Number.isFinite(p.etaSeconds))).toBe(true);
+    } finally { await s.close(); }
+  });
+});
+
+describe('install stages', () => {
+  it('sizes the essentials stage at about 0.7 GB: speech, Emberon and the llama.cpp runtime', () => {
+    const assets = assetsFor('essentials', { platform: 'win32', arch: 'x64' });
+    expect(assets.map((a) => a.name)).toEqual([`${STT_MODEL}.tar.bz2`, EMBERON_GGUF, 'llama-b11700-bin-win-cpu-x64.zip']);
+    const total = assets.reduce((sum, a) => sum + a.bytes, 0);
+    expect(total).toBeGreaterThan(0.6e9);
+    expect(total).toBeLessThan(0.75e9);
+  });
+
+  it('downloads only the requested cleanup model when the runtime is installed', () => {
+    const bin = tempDir();
+    expect(assetsFor('cleanup', { platform: 'linux', arch: 'x64', cleanupModels: ['gemma'], binDir: bin }).map((a) => a.name))
+      .toEqual([GEMMA_GGUF, 'llama-b11700-bin-ubuntu-x64.tar.gz']);
+    fs.writeFileSync(path.join(bin, 'llama-server'), '');
+    expect(assetsFor('cleanup', { platform: 'linux', arch: 'x64', cleanupModels: ['gemma'], binDir: bin }).map((a) => a.name)).toEqual([GEMMA_GGUF]);
+    expect(assetsFor('cleanup', { platform: 'linux', arch: 'x64', cleanupModels: ['gemma'], binDir: bin, reinstallRuntime: true })).toHaveLength(2);
+  });
+
+  it('detects installed essentials and leaves complete files and partial bytes out of the remaining size', () => {
+    const models = tempDir();
+    const bin = tempDir();
+    const options = { modelsDir: models, binDir: bin, platform: 'win32' as const, arch: 'x64' };
+    const all = assetsFor('essentials', { platform: 'win32', arch: 'x64' }).reduce((sum, a) => sum + a.bytes, 0);
+    expect(remainingBytes('essentials', options)).toBe(all);
+    fs.writeFileSync(path.join(models, `.${EMBERON_GGUF}.part`), Buffer.alloc(1000));
+    expect(remainingBytes('essentials', options)).toBe(all - 1000);
+    sized(path.join(models, EMBERON_GGUF), 199996928);
+    expect(assetsFor('essentials', options).map((a) => a.name)).not.toContain(EMBERON_GGUF);
+    expect(essentialsInstalled(models, bin, 'win32')).toBe(false);
+    for (const [file, bytes] of Object.entries(SPEECH_FILES)) sized(path.join(models, STT_MODEL, file), bytes);
+    fs.writeFileSync(path.join(bin, 'llama-server.exe'), '');
+    expect(essentialsInstalled(models, bin, 'win32')).toBe(true);
+    expect(assetsFor('essentials', options)).toEqual([]);
+    expect(remainingBytes('essentials', options)).toBe(0);
+  });
+
+  it('refuses to start an install without enough disk space', async () => {
+    const setup = new SetupManager();
+    const models = tempDir();
+    await expect(setup.install('essentials', { modelsDir: models, binDir: path.join(models, 'bin'), platform: 'win32', arch: 'x64', freeBytes: async () => 400e6 }))
+      .rejects.toThrow(/^Not enough disk space: \d+\.\d GB needed, 0\.4 GB free on /);
+    expect(setup.state).toMatchObject({ phase: 'error', kind: 'essentials' });
+    expect(fs.readdirSync(models).filter((f) => f.endsWith('.part'))).toEqual([]);
   });
 });

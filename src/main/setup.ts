@@ -3,6 +3,7 @@ import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import type { CleanupModel } from '../core/chain';
 import { EMBERON_GGUF, GEMMA_GGUF, STT_MODEL } from '../core/settings';
@@ -10,7 +11,8 @@ import { CLEANUP_ASSETS, type DownloadAsset, LLAMA_ASSETS, SPEECH_ASSET, SPEECH_
 
 export type { DownloadAsset } from './downloads';
 const exec = promisify(execFile);
-export type SetupKind = 'speech' | 'cleanup';
+/** `essentials` = speech + Emberon + llama.cpp runtime: stage 1, enough to dictate with cleanup. */
+export type SetupKind = 'essentials' | 'speech' | 'cleanup';
 export interface SetupOptions {
   modelsDir: string;
   binDir: string;
@@ -18,6 +20,10 @@ export interface SetupOptions {
   arch: string;
   /** Omit to install the full cleanup chain; callers needing one model can avoid the other download. */
   cleanupModels?: readonly CleanupModel[];
+  /** Download llama.cpp again even when binDir already has llama-server, e.g. to repair it. */
+  reinstallRuntime?: boolean;
+  freeBytes?: (dir: string) => Promise<number>;
+  retryDelayMs?: number;
 }
 
 export function cleanupAssetsFor(models: readonly CleanupModel[] = ['emberon', 'gemma']): DownloadAsset[] {
@@ -36,6 +42,12 @@ export interface SetupState {
   file?: string;
   received?: number;
   total?: number;
+  step?: number;
+  steps?: number;
+  overallReceived?: number;
+  overallTotal?: number;
+  bytesPerSecond?: number;
+  etaSeconds?: number;
   message?: string;
 }
 
@@ -46,42 +58,248 @@ export function llamaAssetFor(platform: NodeJS.Platform, arch: string): Download
   return asset;
 }
 
-/** Downloads to a unique temporary sibling and swaps it in only after size and SHA-256 agree. */
-export async function downloadVerified(asset: DownloadAsset, directory: string, progress: (bytes: number) => void, signal?: AbortSignal): Promise<string> {
-  fs.mkdirSync(directory, { recursive: true });
-  const target = path.join(directory, asset.name);
-  const part = path.join(directory, `.${asset.name}.${randomUUID()}.part`);
-  const hash = createHash('sha256');
-  let handle: fs.promises.FileHandle | undefined;
-  try {
-    const response = await fetch(asset.url, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30 * 60_000)]) : AbortSignal.timeout(30 * 60_000) });
-    if (!response.ok || !response.body) throw new Error(`Download failed (HTTP ${response.status}) for ${asset.name}`);
-    handle = await fs.promises.open(part, 'wx', 0o600);
-    let received = 0;
-    for await (const chunk of response.body) {
-      signal?.throwIfAborted();
-      received += chunk.byteLength;
-      if (received > asset.bytes) throw new Error(`Download size exceeds expected ${asset.bytes} bytes for ${asset.name}`);
-      hash.update(chunk);
-      await handle.writeFile(chunk);
-      progress(received);
+/** Network failures worth one more attempt; the message is the reason shown to the user. */
+class Retryable extends Error {}
+const lost = (error: unknown) => (error as Error).name === 'TimeoutError' ? 'the download timed out' : 'connection lost';
+const partPath = (asset: DownloadAsset, directory: string) => path.join(directory, `.${asset.name}.part`);
+const sizeOf = (file: string) => fs.promises.stat(file).then((s) => s.size, () => 0);
+
+function rangeMatches(header: string | null, start: number, total: number): boolean {
+  const m = /^bytes (\d+)-(\d+)\/(\d+|\*)$/.exec(header ?? '');
+  return !!m && Number(m[1]) === start && Number(m[2]) === total - 1 && (m[3] === '*' || Number(m[3]) === total);
+}
+
+async function attempt(asset: DownloadAsset, directory: string, progress: (bytes: number) => void, signal?: AbortSignal): Promise<string> {
+  const part = partPath(asset, directory);
+  let existing = 0;
+  const stat = await fs.promises.lstat(part).catch(() => undefined);
+  if (stat && (!stat.isFile() || stat.size > asset.bytes)) await fs.promises.rm(part, { recursive: true, force: true });
+  else if (stat) existing = stat.size;
+  let response: Response | undefined;
+  if (existing < asset.bytes) {
+    const timeout = AbortSignal.timeout(30 * 60_000);
+    response = await fetch(asset.url, { headers: existing ? { range: `bytes=${existing}-` } : undefined, signal: signal ? AbortSignal.any([signal, timeout]) : timeout })
+      .catch((error) => { throw signal?.aborted ? error : new Retryable(lost(error), { cause: error }); });
+    if (!response.ok || !response.body) {
+      await response.body?.cancel();
+      if (response.status === 416) await fs.promises.rm(part, { force: true });
+      throw new Retryable(`the server answered HTTP ${response.status}`);
     }
-    if (received !== asset.bytes) throw new Error(`Incomplete download for ${asset.name}: ${received} of ${asset.bytes} bytes`);
-    if (hash.digest('hex') !== asset.sha256) throw new Error(`SHA-256 checksum mismatch for ${asset.name}`);
-    await handle.close();
-    handle = undefined;
-    await fs.promises.rename(part, target);
-    return target;
-  } finally {
-    await handle?.close();
-    await fs.promises.rm(part, { force: true });
+    // A 200 means the server ignored Range: start over. A 206 must continue exactly where the .part ends.
+    if (response.status !== 206) existing = 0;
+    else if (!existing || !rangeMatches(response.headers.get('content-range'), existing, asset.bytes)) {
+      await response.body.cancel();
+      await fs.promises.rm(part, { force: true });
+      throw new Retryable('the server sent an unexpected range');
+    }
   }
+  // SHA-256 covers the whole file, so resumed bytes are hashed again before new ones are appended.
+  const hash = createHash('sha256');
+  if (existing) for await (const chunk of fs.createReadStream(part, { end: existing - 1 })) hash.update(chunk);
+  const handle = await fs.promises.open(part, existing ? 'a' : 'w', 0o600);
+  let received = existing;
+  let oversize = false;
+  try {
+    progress(received);
+    const chunks = response?.body?.[Symbol.asyncIterator]();
+    try {
+      while (chunks) {
+        const next = await chunks.next().catch((error) => { throw signal?.aborted ? error : new Retryable(lost(error), { cause: error }); });
+        if (next.done) break;
+        signal?.throwIfAborted();
+        received += next.value.byteLength;
+        if (received > asset.bytes) { oversize = true; break; }
+        hash.update(next.value);
+        await handle.write(next.value);
+        progress(received);
+      }
+    } finally { await chunks?.return?.(); }
+  } finally { await handle.close(); }
+  if (oversize) {
+    await fs.promises.rm(part, { force: true });
+    throw new Error(`Download size exceeds expected ${asset.bytes} bytes for ${asset.name}; the partial download was deleted`);
+  }
+  if (received !== asset.bytes) throw new Retryable('connection lost');
+  if (hash.digest('hex') !== asset.sha256) {
+    await fs.promises.rm(part, { force: true });
+    throw new Error(`SHA-256 checksum mismatch for ${asset.name}; the partial download was deleted`);
+  }
+  const target = path.join(directory, asset.name);
+  await fs.promises.rename(part, target);
+  return target;
+}
+
+export interface DownloadOptions { /** Wait before the single automatic retry; defaults to 2 s. */ retryDelayMs?: number }
+
+/**
+ * Downloads into a stable `.<name>.part` sibling and swaps it in only after size and SHA-256 agree.
+ * An existing .part is resumed with Range. Cancellation and network errors keep it for the next attempt;
+ * only a checksum or size mismatch deletes it. Network errors and non-2xx answers are retried once.
+ */
+export async function downloadVerified(asset: DownloadAsset, directory: string, progress: (bytes: number) => void, signal?: AbortSignal, options: DownloadOptions = {}): Promise<string> {
+  fs.mkdirSync(directory, { recursive: true });
+  for (let retried = false; ; retried = true) {
+    try { return await attempt(asset, directory, progress, signal); }
+    catch (error) {
+      if (signal?.aborted || !(error instanceof Retryable)) throw error;
+      if (retried) {
+        const percent = Math.floor((await sizeOf(partPath(asset, directory))) * 100 / asset.bytes);
+        throw new Error(`Couldn't download ${asset.name}: ${error.message} at ${percent}%. Retry to resume.`, { cause: error });
+      }
+      await sleep(options.retryDelayMs ?? 2000, undefined, { signal });
+    }
+  }
+}
+
+export class DiskSpaceError extends Error {
+  readonly code = 'ENOSPC_PRECHECK';
+  constructor(readonly needed: number, readonly free: number, readonly directory: string) {
+    const gb = (n: number) => `${(n / 1e9).toFixed(1)} GB`;
+    super(`Not enough disk space: ${gb(needed)} needed, ${gb(free)} free on ${directory}.`);
+    this.name = 'DiskSpaceError';
+  }
+}
+
+const SPEECH_UNPACKED = Object.values(SPEECH_FILES).reduce((sum, n) => sum + n, 0);
+/** Room an archive needs while it is unpacked beside itself; GGUFs are used as downloaded. */
+export function unpackedBytes(asset: DownloadAsset): number {
+  if (asset.name === SPEECH_ASSET.name) return SPEECH_UNPACKED;
+  return /\.(zip|tar\.gz)$/.test(asset.name) ? asset.bytes * 3 : 0;
+}
+
+export interface PlannedDownload { asset: DownloadAsset; dir: string }
+export interface DownloadProgress {
+  file: string;
+  /** 1-based index of the file within the install. */
+  step: number;
+  steps: number;
+  received: number;
+  total: number;
+  overallReceived: number;
+  overallTotal: number;
+  /** Smoothed over fetched bytes only; bytes resumed from disk count as received but not as speed. */
+  bytesPerSecond?: number;
+  etaSeconds?: number;
+}
+export interface DownloadAssetsOptions extends DownloadOptions {
+  signal?: AbortSignal;
+  /** Free bytes on the volume holding `dir`; injectable so tests can simulate a full disk. */
+  freeBytes?: (dir: string) => Promise<number>;
+}
+
+const fileIs = (file: string, bytes: number) => { try { return fs.statSync(file).size === bytes; } catch { return false; } };
+function remaining({ asset, dir }: PlannedDownload): number {
+  if (fileIs(path.join(dir, asset.name), asset.bytes)) return 0;
+  try { return Math.max(0, asset.bytes - fs.statSync(partPath(asset, dir)).size); } catch { return asset.bytes; }
+}
+async function statfsFree(dir: string): Promise<number> {
+  const s = await fs.promises.statfs(dir);
+  return s.bavail * s.bsize;
+}
+
+/** Exponential moving average over ~0.5 s windows of fetched bytes, about 2-3 s of memory. */
+function rateMeter(now: () => number = Date.now) {
+  let start: number | undefined;
+  let base = 0;
+  let rate: number | undefined;
+  return (fetched: number) => {
+    const t = now();
+    if (start === undefined) { start = t; base = fetched; return rate; }
+    const seconds = (t - start) / 1000;
+    if (seconds >= 0.5) {
+      const sample = (fetched - base) / seconds;
+      rate = rate === undefined ? sample : rate + 0.3 * (sample - rate);
+      start = t;
+      base = fetched;
+    }
+    return rate;
+  };
+}
+
+/**
+ * Checks free space for every remaining byte (+10%, plus room to unpack archives) before fetching any,
+ * then downloads in order. A final file with the exact byte count is trusted and skipped.
+ */
+export async function downloadAssets(items: readonly PlannedDownload[], report: (progress: DownloadProgress) => void, options: DownloadAssetsOptions = {}): Promise<string[]> {
+  if (!items.length) return [];
+  for (const dir of new Set(items.map((i) => i.dir))) await fs.promises.mkdir(dir, { recursive: true });
+  const needed = Math.ceil(items.reduce((sum, i) => sum + remaining(i) * 1.1 + unpackedBytes(i.asset), 0));
+  const free = await (options.freeBytes ?? statfsFree)(items[0].dir);
+  if (needed > free) throw new DiskSpaceError(needed, free, items[0].dir);
+  const overallTotal = items.reduce((sum, i) => sum + i.asset.bytes, 0);
+  const meter = rateMeter();
+  let done = 0;
+  let fetched = 0;
+  const files: string[] = [];
+  for (const [index, { asset, dir }] of items.entries()) {
+    let last = Number.NEGATIVE_INFINITY;
+    let previous: number | undefined;
+    const progress = (received: number) => {
+      if (previous !== undefined && received > previous) fetched += received - previous;
+      previous = received;
+      const bytesPerSecond = meter(fetched);
+      if (Date.now() - last < 250 && received !== asset.bytes) return;
+      last = Date.now();
+      const overallReceived = done + received;
+      report({
+        file: asset.name, step: index + 1, steps: items.length, received, total: asset.bytes, overallReceived, overallTotal, bytesPerSecond,
+        etaSeconds: bytesPerSecond ? (overallTotal - overallReceived) / bytesPerSecond : undefined,
+      });
+    };
+    const target = path.join(dir, asset.name);
+    if (fileIs(target, asset.bytes)) { files.push(target); progress(asset.bytes); }
+    else files.push(await downloadVerified(asset, dir, progress, options.signal, options));
+    done += asset.bytes;
+  }
+  return files;
 }
 
 export function speechInstalled(modelsDir: string): boolean {
   try {
     return Object.entries(SPEECH_FILES).every(([file, bytes]) => fs.statSync(path.join(modelsDir, STT_MODEL, file)).size === bytes);
   } catch { return false; }
+}
+
+const serverName = (platform: NodeJS.Platform) => platform === 'win32' ? 'llama-server.exe' : 'llama-server';
+export function runtimeInstalled(binDir: string, platform: NodeJS.Platform): boolean {
+  try { return fs.statSync(path.join(binDir, serverName(platform))).isFile(); } catch { return false; }
+}
+
+/** Stage 1: enough to dictate with cleanup. */
+export function essentialsInstalled(modelsDir: string, binDir: string, platform: NodeJS.Platform): boolean {
+  return speechInstalled(modelsDir) && fileIs(path.join(modelsDir, EMBERON_GGUF), CLEANUP_ASSETS.find((a) => a.name === EMBERON_GGUF)!.bytes) && runtimeInstalled(binDir, platform);
+}
+
+export interface AssetOptions {
+  platform: NodeJS.Platform;
+  arch: string;
+  cleanupModels?: readonly CleanupModel[];
+  /** When given, models already installed here are left out. */
+  modelsDir?: string;
+  /** When given, an installed llama-server here is kept instead of downloaded again. */
+  binDir?: string;
+  reinstallRuntime?: boolean;
+}
+
+/** What an install of `kind` downloads, with sizes, so the UI can show the total before starting. */
+export function assetsFor(kind: SetupKind, options: AssetOptions): DownloadAsset[] {
+  const { modelsDir, binDir } = options;
+  const speech = kind !== 'cleanup' && !(modelsDir && speechInstalled(modelsDir)) ? [SPEECH_ASSET] : [];
+  if (kind === 'speech') return speech;
+  const models = cleanupAssetsFor(kind === 'essentials' ? ['emberon'] : options.cleanupModels)
+    .filter((asset) => !(modelsDir && fileIs(path.join(modelsDir, asset.name), asset.bytes)));
+  const runtime = options.reinstallRuntime || !(binDir && runtimeInstalled(binDir, options.platform)) ? [llamaAssetFor(options.platform, options.arch)] : [];
+  return [...speech, ...models, ...runtime];
+}
+
+// Archives wait in a stable folder so an interrupted download resumes; GGUFs download beside their final name.
+function planFor(kind: SetupKind, options: AssetOptions & { modelsDir: string }): PlannedDownload[] {
+  return assetsFor(kind, options).map((asset) => ({ asset, dir: asset.name.endsWith('.gguf') ? options.modelsDir : path.join(options.modelsDir, '.downloads') }));
+}
+
+/** Bytes still to fetch for `kind`, net of complete files and resumable .part files. */
+export function remainingBytes(kind: SetupKind, options: AssetOptions & { modelsDir: string }): number {
+  return planFor(kind, options).reduce((sum, item) => sum + remaining(item), 0);
 }
 
 export function archiveTar(platform: NodeJS.Platform = process.platform, env: Record<string, string | undefined> = process.env): string {
@@ -160,37 +378,27 @@ export class SetupManager {
     this.abort = abort;
     const temp = path.join(options.modelsDir, `.setup-${randomUUID()}`);
     try {
-      fs.mkdirSync(temp, { recursive: true });
-      const get = (asset: DownloadAsset, destination: string) => {
-        let last = 0;
-        this.change({ phase: 'downloading', kind, file: asset.name, received: 0, total: asset.bytes });
-        return downloadVerified(asset, destination, (received) => {
-          if (Date.now() - last > 300 || received === asset.bytes) {
-            last = Date.now();
-            this.change({ phase: 'downloading', kind, file: asset.name, received, total: asset.bytes });
-          }
-        }, abort.signal);
-      };
-      if (kind === 'speech') {
-        if (!speechInstalled(options.modelsDir)) {
-          const archive = await get(SPEECH_ASSET, temp);
-          this.change({ phase: 'extracting', kind, file: SPEECH_ASSET.name });
-          await extract(archive, temp, abort.signal);
-          if (!speechInstalled(temp)) throw new Error('The speech archive did not contain the expected model files');
+      const items = planFor(kind, options);
+      const files = await downloadAssets(items, (progress) => this.change({ phase: 'downloading', kind, ...progress }), {
+        signal: abort.signal, freeBytes: options.freeBytes, retryDelayMs: options.retryDelayMs,
+      });
+      for (const [index, { asset }] of items.entries()) {
+        if (asset.name.endsWith('.gguf')) continue;
+        this.change({ phase: 'extracting', kind, file: asset.name });
+        const unpacked = path.join(temp, String(index));
+        await extract(files[index], unpacked, abort.signal);
+        if (asset === SPEECH_ASSET) {
+          if (!speechInstalled(unpacked)) throw new Error('The speech archive did not contain the expected model files');
           const target = path.join(options.modelsDir, STT_MODEL);
           if (fs.existsSync(target)) await fs.promises.rm(target, { recursive: true });
-          await fs.promises.rename(path.join(temp, STT_MODEL), target);
+          await fs.promises.rename(path.join(unpacked, STT_MODEL), target);
+        } else {
+          const exe = findExecutable(unpacked, serverName(options.platform));
+          if (!exe) throw new Error('The llama.cpp archive did not contain llama-server');
+          await installCleanupRuntime(path.dirname(exe), options.binDir, options.platform);
         }
-      } else {
-        for (const asset of cleanupAssetsFor(options.cleanupModels)) await get(asset, options.modelsDir);
-        const asset = llamaAssetFor(options.platform, options.arch);
-        const archive = await get(asset, temp);
-        this.change({ phase: 'extracting', kind, file: asset.name });
-        const unpacked = path.join(temp, 'llama');
-        await extract(archive, unpacked, abort.signal);
-        const exe = findExecutable(unpacked, options.platform === 'win32' ? 'llama-server.exe' : 'llama-server');
-        if (!exe) throw new Error('The llama.cpp archive did not contain llama-server');
-        await installCleanupRuntime(path.dirname(exe), options.binDir, options.platform);
+        // Kept until installed so a failed extraction does not cost the download again.
+        await fs.promises.rm(files[index], { force: true });
       }
       this.change({ phase: 'ready', kind });
     } catch (err) {
