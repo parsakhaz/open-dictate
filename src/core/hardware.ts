@@ -38,7 +38,8 @@ export function parseListDevices(stdout: string): GpuDevice[] {
   const out: GpuDevice[] = [];
   for (const line of stdout.slice(at).split(/\r?\n/).slice(1)) {
     const m = /^\s+([^\s:]+):\s+(.+?)\s+\((\d+) MiB, (\d+) MiB free\)\s*$/.exec(line);
-    if (!m) continue;
+    // BLAS (Accelerate on a Mac) and similar CPU helpers list 0 MiB: they are not GPUs.
+    if (!m || Number(m[3]) === 0) continue;
     out.push({ id: m[1], name: m[2], backend: backendOf(m[1]), memoryMiB: Number(m[3]), freeMiB: Number(m[4]), integrated: integratedName(m[2]) });
   }
   return out;
@@ -103,7 +104,7 @@ export function summarize(input: Pick<HardwareInput, 'devices' | 'totalRamBytes'
   const ram = `${Math.round(input.totalRamBytes / GB)} GB RAM`;
   // A discrete card is the one that matters; among equals, the largest.
   const gpu = [...input.devices].sort((a, b) => Number(a.integrated) - Number(b.integrated) || b.memoryMiB - a.memoryMiB)[0];
-  const pc = gpu ? `Your PC: ${shortName(gpu.name)}${BACKEND[gpu.backend] ? ` (${BACKEND[gpu.backend]})` : ''}, ${ram}.` : `No GPU found, ${ram}.`;
+  const pc = gpu ? `This computer: ${shortName(gpu.name)}${BACKEND[gpu.backend] ? ` (${BACKEND[gpu.backend]})` : ''}, ${ram}.` : `No GPU found, ${ram}.`;
   const [who, ms] = chain === 'gemma-emberon' && gemmaChainMs != null ? ['Gemma and Emberon', gemmaChainMs] : ['Emberon', emberonMs];
   return `${pc} ${who} cleaned the sample in ${(ms / 1000).toFixed(2)} s.`;
 }

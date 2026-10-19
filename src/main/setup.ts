@@ -225,7 +225,8 @@ export async function downloadAssets(items: readonly PlannedDownload[], report: 
   for (const dir of new Set(items.map((i) => i.dir))) await fs.promises.mkdir(dir, { recursive: true });
   const needed = Math.ceil(items.reduce((sum, i) => sum + remaining(i) * 1.1 + unpackedBytes(i.asset), 0));
   const free = await (options.freeBytes ?? statfsFree)(items[0].dir);
-  if (needed > free) throw new DiskSpaceError(needed, free, items[0].dir);
+  // Archives stage in a hidden .downloads folder; people know the models folder above it.
+  if (needed > free) throw new DiskSpaceError(needed, free, path.basename(items[0].dir) === '.downloads' ? path.dirname(items[0].dir) : items[0].dir);
   const overallTotal = items.reduce((sum, i) => sum + i.asset.bytes, 0);
   const meter = rateMeter();
   let done = 0;

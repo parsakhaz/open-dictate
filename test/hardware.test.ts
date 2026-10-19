@@ -25,6 +25,10 @@ describe('parseListDevices', () => {
     expect(parseListDevices(fixture('metal'))).toEqual([{ id: 'Metal', name: 'Apple M2', backend: 'metal', memoryMiB: 10922, freeMiB: 10922, integrated: true }]);
   });
 
+  it('ignores entries that are not GPUs, such as BLAS on Apple silicon (recorded on an M1 Pro)', () => {
+    expect(parseListDevices(fixture('metal-m1-blas'))).toEqual([{ id: 'MTL0', name: 'Apple M1 Pro', backend: 'metal', memoryMiB: 25559, freeMiB: 25558, integrated: true }]);
+  });
+
   it('finds nothing in a CPU-only build or empty output', () => {
     expect(parseListDevices(fixture('none'))).toEqual([]);
     expect(parseListDevices('')).toEqual([]);
@@ -84,7 +88,13 @@ describe('chooseChain', () => {
 describe('summarize', () => {
   it('names the GPU, the RAM and the time', () => {
     expect(summarize({ chain: 'emberon', devices: [IGPU], totalRamBytes: 127.6 * GB, emberonMs: 400 })).toBe(
-      'Your PC: AMD Radeon 8060S (Vulkan), 128 GB RAM. Emberon cleaned the sample in 0.40 s.',
+      'This computer: AMD Radeon 8060S (Vulkan), 128 GB RAM. Emberon cleaned the sample in 0.40 s.',
+    );
+  });
+
+  it('names Apple silicon on a Mac', () => {
+    expect(summarize({ chain: 'emberon', devices: parseListDevices(fixture('metal-m1-blas')), totalRamBytes: 32 * GB, emberonMs: 59 })).toBe(
+      'This computer: Apple M1 Pro (Metal), 32 GB RAM. Emberon cleaned the sample in 0.06 s.',
     );
   });
 
@@ -95,7 +105,7 @@ describe('summarize', () => {
   it('prefers a discrete GPU and reports the Gemma chain time when that was chosen', () => {
     const rtx: GpuDevice = { id: 'Vulkan1', name: 'NVIDIA GeForce RTX 4070', backend: 'vulkan', memoryMiB: 12282, freeMiB: 11520, integrated: false };
     expect(summarize({ chain: 'gemma-emberon', devices: [IGPU, rtx], totalRamBytes: 32 * GB, emberonMs: 300, gemmaChainMs: 850 })).toBe(
-      'Your PC: NVIDIA GeForce RTX 4070 (Vulkan), 32 GB RAM. Gemma and Emberon cleaned the sample in 0.85 s.',
+      'This computer: NVIDIA GeForce RTX 4070 (Vulkan), 32 GB RAM. Gemma and Emberon cleaned the sample in 0.85 s.',
     );
   });
 

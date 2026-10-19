@@ -302,6 +302,8 @@ describe('install stages', () => {
     const models = tempDir();
     await expect(setup.install('essentials', { modelsDir: models, binDir: path.join(models, 'bin'), platform: 'win32', arch: 'x64', freeBytes: async () => 400e6 }))
       .rejects.toThrow(/^Not enough disk space: \d+\.\d GB needed, 0\.4 GB free on /);
+    // The folder people know, not the hidden staging folder for archives.
+    expect(setup.state.message?.endsWith(`free on ${models}.`)).toBe(true);
     expect(setup.state).toMatchObject({ phase: 'error', kind: 'essentials' });
     expect(fs.readdirSync(models).filter((f) => f.endsWith('.part'))).toEqual([]);
   });
