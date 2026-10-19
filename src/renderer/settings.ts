@@ -1,9 +1,11 @@
-// The settings window: a welcome page on first run, then pages for
-// hotkeys, microphone, cleanup, vocabulary, history and advanced paths.
+// The settings window: the first-run walkthrough (Getting started), then pages for
+// hotkeys, microphone, cleanup, vocabulary, history, advanced paths and about.
 import { dbfs, defaultGainDb } from '../core/audio';
 import { bindingLabel, dictationKeyProblem } from '../core/hotkeys';
 import type { MicDevice } from '../core/mics';
 import { micKey, micName } from '../core/mics';
+import { canGoBack, canSkip, nextStep, previousStep, resumeStep, STEPS, type Step, stepNumber, tryReady } from '../core/onboarding';
+import { displaySize, THIRD_PARTY } from '../core/thirdparty';
 import type { Binding, CleanupChain, OutputMode, Settings, VocabTerm } from '../core/types';
 import { dictate, h } from './bridge';
 
@@ -26,8 +28,14 @@ interface State {
   version: string;
   platform: { platform: string; displayServer: string; globalHotkeys: boolean; canSwallowKeys: boolean; automaticPaste: boolean; accessibilityRequired: boolean; accessibilityGranted: boolean; reason?: string };
   microphonePermission: string;
-  setup: { phase: string; kind?: string; file?: string; received?: number; total?: number; message?: string };
+  setup: { phase: string; kind?: string; file?: string; received?: number; total?: number; message?: string; overallReceived?: number; overallTotal?: number; bytesPerSecond?: number; etaSeconds?: number; step?: number; steps?: number };
   speechInstalled: boolean;
+  essentialsReady: boolean;
+  gemmaInstalled: boolean;
+  sizes: { essentials: number; gemma: number };
+  hardwareRunning: boolean;
+  hardwareError: string;
+  dataDir: string;
   shortcutRegistered: boolean;
   shortcutRequested: boolean;
   startupError: string;
@@ -35,16 +43,17 @@ interface State {
   automation: boolean;
 }
 
-type Page = 'welcome' | 'general' | 'microphone' | 'cleanup' | 'vocabulary' | 'history' | 'advanced';
+type Page = 'start' | 'general' | 'microphone' | 'cleanup' | 'vocabulary' | 'history' | 'advanced' | 'about';
 
 const PAGES: { id: Page; label: string; icon: string }[] = [
-  { id: 'welcome', label: 'Welcome', icon: '⌂' },
+  { id: 'start', label: 'Getting started', icon: '⌂' },
   { id: 'general', label: 'Hotkeys & output', icon: '⌨' },
   { id: 'microphone', label: 'Microphone', icon: '●' },
   { id: 'cleanup', label: 'Cleanup', icon: '✦' },
   { id: 'vocabulary', label: 'Vocabulary', icon: 'Aa' },
   { id: 'history', label: 'History', icon: '◷' },
   { id: 'advanced', label: 'Advanced', icon: '⚙' },
+  { id: 'about', label: 'About', icon: 'ⓘ' },
 ];
 
 let st: State;
@@ -318,11 +327,14 @@ function modelCard(kind: 'speech' | 'cleanup'): HTMLElement {
     ? (st.speechInstalled ? st.stt === 'ready' ? 'Nemotron English streaming model is ready.' : st.stt === 'error' ? `Speech model error: ${st.sttError}` : 'Nemotron English streaming model is installed and loading…' : 'Download 443 MB once to transcribe English locally. No account or API key needed.')
     : 'Download Gemma, Emberon and llama.cpp (about 3.2 GB) for local text cleanup. Raw dictation works without these.';
   const button = h('button.button', {'data-setup-download': kind, disabled: busy || (kind === 'speech' && st.speechInstalled), onclick: () => void action('dictate:setup-models', kind)}, kind === 'speech' && st.speechInstalled ? 'Installed' : `Download ${kind === 'speech' ? 'speech model' : 'cleanup models'}`);
-  return card(title, h('span', {}, desc, h('div.warnline', {'data-setup-progress': kind, hidden: !progress}, progress)), h('div.bindingrow', {}, button, h('button.button.subtle', {'data-setup-cancel': kind, hidden: !busy || st.setup.kind !== kind, onclick: () => void action('dictate:cancel-setup')}, 'Cancel')));
+  return card(title, h('span', {}, desc, h('div.warnline', {'data-setup-progress': kind, hidden: !progress}, progress)), h('div.bindingrow', {}, button, h('button.button.subtle', {'data-setup-cancel': kind, hidden: !busy || !setupIs(kind), onclick: () => void action('dictate:cancel-setup')}, 'Cancel')));
 }
 
+/** Getting started's essentials download includes the speech model, so the speech card follows it too. */
+const setupIs = (kind: 'speech' | 'cleanup') => st.setup.kind === kind || (kind === 'speech' && st.setup.kind === 'essentials');
+
 function setupProgress(kind: 'speech' | 'cleanup'): string {
-  if (st.setup.kind !== kind) return '';
+  if (!setupIs(kind)) return '';
   if (st.setup.phase === 'downloading') return `Downloading ${st.setup.file}: ${Math.round((st.setup.received ?? 0) / 1048576)} / ${Math.round((st.setup.total ?? 0) / 1048576)} MB`;
   if (st.setup.phase === 'extracting') return 'Verifying and installing…';
   return st.setup.phase === 'error' ? st.setup.message ?? 'Download failed. Try again.' : '';
@@ -336,7 +348,7 @@ function updateSetupProgress(): void {
     const download = document.querySelector<HTMLButtonElement>(`[data-setup-download="${kind}"]`);
     if (download) download.disabled = busy || (kind === 'speech' && st.speechInstalled);
     const cancel = document.querySelector<HTMLElement>(`[data-setup-cancel="${kind}"]`);
-    if (cancel) cancel.hidden = !busy || st.setup.kind !== kind;
+    if (cancel) cancel.hidden = !busy || !setupIs(kind);
   }
 }
 
@@ -358,45 +370,290 @@ function setupCards(): Node[] {
 
 // ---------- pages ----------
 
-function welcome(): Node[] {
-  const meter = meterEl();
-  const mic = st.mic?.label ?? st.defaultMicLabel;
-  void startMeter(st.mic?.deviceId ?? null, mic, meter);
+// ---------- getting started: the first-run walkthrough, reopened any time from the nav or the tray ----------
+
+let step: Step = 'welcome';
+let practice: { raw: string; text: string; ms: number | null; cleaned: boolean } | null = null;
+let hardwareStarted = false;
+
+const size = (bytes: number) => (bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.round(bytes / 1e6)} MB`);
+const stepCtx = () => ({ licencesSeen: st.settings.licencesSeen, speechReady: st.speechInstalled });
+const busySetup = () => st.setup.phase === 'downloading' || st.setup.phase === 'extracting';
+const link = (text: string, url: string) =>
+  h('a.link', { href: url, onclick: (e: Event) => { e.preventDefault(); void dictate.invoke('dictate:open-url', url); } }, text);
+
+function go(next: Step): void {
+  if (step === 'try' && next !== 'try') void dictate.invoke('dictate:practice', false);
+  if (next === 'try') void dictate.invoke('dictate:practice', true);
+  step = next;
+  content.scrollTop = 0;
+  render();
+  if (!st.settings.onboarded) void dictate.invoke('dictate:set-settings', { onboardingStep: next });
+}
+
+const primaryButton = (label: string, onclick: () => void, disabled = false) => h('button.button.accent', { 'data-wiz': 'next', disabled, onclick }, label);
+
+/** `pending`: the step's work is not done yet, so Skip means something (it otherwise duplicates the primary button). */
+function stepFrame(title: string | null, lead: string | Node | null, body: (Node | null)[], primary: HTMLElement | null, pending = false): Node[] {
+  const n = stepNumber(step);
   return [
-    h('div.hero', {}, h('div.heroicon', {}, '●'), h('h1', {}, 'Welcome to dictate'), h('p.lead', {}, 'Speech recognition and cleanup run on this computer. Copied text follows your system’s clipboard settings.')),
-    ...setupCards(),
+    h('div.wizdots', { 'aria-label': `Step ${n.index} of ${n.total}` }, ...STEPS.map((s, i) => h('span.wizdot', { 'data-state': s === step ? 'current' : i < n.index - 1 ? 'done' : 'todo' }))),
+    title ? h('h1', {}, title) : null,
+    lead ? h('p.lead', {}, lead) : null,
+    ...body,
     h(
-      'div.steps',
+      'div.wizfoot',
       {},
-      st.platform.displayServer === 'wayland'
-        ? h('div.step', {}, h('div.stepnum', {}, '1'), h('div', {}, h('div.cardtitle', {}, 'Start from the app'), h('div.carddesc', {}, 'Open Hotkeys & output or the tray. Select Start dictation, speak, then Finish dictation. Paste the copied result into your app.')))
-        : h('div.step', {}, h('div.stepnum', {}, '1'), h('div', {}, h('div.cardtitle', {}, 'Hold to talk'), h('div.carddesc', {}, 'Hold ', keycap(st.labels.hotkey), ', speak, and let go. The text is typed where your cursor is.'))),
-      st.platform.displayServer === 'wayland'
-        ? h('div.step', {}, h('div.stepnum', {}, '2'), h('div', {}, h('div.cardtitle', {}, 'Enable a desktop toggle'), h('div.carddesc', {}, 'Use Enable desktop shortcut in Hotkeys & output. Your desktop may ask to allow a toggle combination.')))
-        : h('div.step', {}, h('div.stepnum', {}, '2'), h('div', {}, h('div.cardtitle', {}, 'Double-tap for hands-free'), h('div.carddesc', {}, 'Double-tap ', keycap(st.labels.hotkey), ' to keep listening; tap it again to finish. ', keycap('Esc'), ' cancels.'))),
-      h('div.step', {}, h('div.stepnum', {}, '3'), h('div', {}, h('div.cardtitle', {}, 'Find anything you said'), h('div.carddesc', {}, st.settings.picker ? keycap(st.labels.picker) : 'Open History from Hotkeys & output or the tray', st.settings.picker ? ' opens your dictation history.' : '.'))),
-    ),
-    st.platform.displayServer !== 'wayland' ? card(
-      'Your dictation key',
-      st.settings.hotkeys[0] && same(st.settings.hotkeys[0], { keys: [R_ALT] }) ? 'Right Alt it is. You can change it any time in Hotkeys & output.' : 'No Right Ctrl on your keyboard? Use Right Alt.',
-      h('div.bindingrow', {}, keycap(st.labels.hotkey)),
-      presets('hotkey'),
-    ) : card('Output on this desktop', `Wayland keeps external applications isolated. Dictate copies your result; use ${pasteKeys()} to paste it where you need it.`),
-    card('Microphone', 'Say something: the bar should move into the middle.', micSelect(), meter),
-    card('Start at login', 'dictate waits quietly in the tray, using no CPU until you press the key.', toggle(welcomeStartAtLogin, (v) => (welcomeStartAtLogin = v))),
-    h(
-      'div.actionsrow',
-      {},
+      h('span.muted.small', {}, `Step ${n.index} of ${n.total}`),
       h(
-        'button.button.accent',
-        {
-          onclick: async () => {
-            st = await dictate.invoke<State>('dictate:finish-onboarding', welcomeStartAtLogin);
-            page = 'general';
-            render();
-          },
-        },
-        'Get started',
+        'div.wizbuttons',
+        {},
+        canGoBack(step) ? h('button.button.subtle', { 'data-wiz': 'back', onclick: () => go(previousStep(step)) }, 'Back') : null,
+        canSkip(step) && pending ? h('button.button.subtle', { 'data-wiz': 'skip', onclick: () => go(nextStep(step)) }, 'Skip') : null,
+        primary,
+      ),
+    ),
+  ].filter(Boolean) as Node[];
+}
+
+function startEssentials(): void {
+  void dictate.invoke('dictate:setup-models', 'essentials').catch(() => undefined);
+}
+
+function welcomeStep(): Node[] {
+  const plan: [string, string][] = [
+    ['Download the models', `About ${size(st.sizes.essentials)}, once, from their official sources.`],
+    ['A quick speed check', 'dictate times a cleanup on this computer and picks what runs fast here.'],
+    ['Your mic and your key', 'Then a practice dictation, right here in this window.'],
+  ];
+  return stepFrame(
+    null,
+    null,
+    [
+      h('div.hero', {}, h('div.heroicon', {}, '●'), h('h1', {}, 'Welcome to dictate'), h('p.lead', {}, 'Hold a key, speak, and clean text appears wherever you type. Speech recognition and cleanup run on this computer: no account, no cloud, and it works offline once it is set up.')),
+      h('div.steps', {}, ...plan.map(([t, d], i) => h('div.step', {}, h('div.stepnum', {}, String(i + 1)), h('div', {}, h('div.cardtitle', {}, t), h('div.carddesc', {}, d))))),
+    ],
+    primaryButton('Get started', () => go('licences')),
+  );
+}
+
+function licencesStep(): Node[] {
+  const ready = st.essentialsReady;
+  return stepFrame(
+    'Models and licences',
+    'dictate downloads these from their official sources. Each keeps its own licence. There is nothing to accept; this is what you are getting.',
+    [
+      h(
+        'div.licences',
+        {},
+        ...THIRD_PARTY.filter((i) => i.downloaded).map((i) =>
+          h(
+            'div.licence',
+            {},
+            h('div', {}, h('div.cardtitle', {}, i.name, i.optional ? h('span.badge', {}, 'optional') : null), h('div.carddesc', {}, `${i.role} · `, link(i.licence, i.licenceUrl), ' · ', link('source', i.source)), i.notice ? h('div.muted.small', {}, i.notice) : null),
+            h('div.licencesize', {}, displaySize(i)),
+          ),
+        ),
+      ),
+      h('p.muted.small', {}, `Now: about ${size(st.sizes.essentials)}. Gemma (${size(st.sizes.gemma)}) is offered later, only if this computer runs it fast enough. The same list is in Settings → About.`),
+    ],
+    primaryButton(ready ? 'Continue' : `Download ${size(st.sizes.essentials)}`, async () => {
+      st = await dictate.invoke<State>('dictate:set-settings', { licencesSeen: true });
+      if (!ready && !busySetup()) startEssentials();
+      go('download');
+    }),
+  );
+}
+
+function eta(seconds: number | undefined): string {
+  if (seconds === undefined || !Number.isFinite(seconds)) return '';
+  return seconds < 60 ? ' · less than a minute left' : ` · about ${Math.ceil(seconds / 60)} min left`;
+}
+
+/** The live part of the download step; progress events redraw only this block. */
+function downloadBlock(): Node {
+  const s = st.setup;
+  if (st.essentialsReady) return card('Downloaded and verified', 'The speech model, the Emberon cleanup model and llama.cpp are installed. Every file matched its pinned SHA-256 checksum.');
+  if (busySetup() && s.kind === 'essentials') {
+    const received = s.overallReceived ?? s.received ?? 0;
+    const total = s.overallTotal ?? s.total ?? 0;
+    const pct = total ? Math.min(100, Math.floor((received / total) * 100)) : 0;
+    const speed = s.bytesPerSecond ? ` · ${(s.bytesPerSecond / 1e6).toFixed(1)} MB/s` : '';
+    return h(
+      'section.card',
+      {},
+      h('div.cardtitle', {}, s.phase === 'extracting' ? 'Verifying and installing…' : `Downloading… ${pct}%`),
+      h('div.progress', {}, h('div.progressfill', { style: { width: `${pct}%` } })),
+      h('div.carddesc', { 'data-download-detail': '' }, `${size(received)} of ${size(total)}${speed}${eta(s.etaSeconds)}`),
+      s.file ? h('div.muted.small', {}, `${s.steps ? `File ${(s.step ?? 0) + 1} of ${s.steps}: ` : ''}${s.file}`) : null,
+      h('div.bindingrow', {}, h('button.button', { 'data-wiz': 'pause', onclick: () => void dictate.invoke('dictate:cancel-setup') }, 'Pause')),
+    );
+  }
+  if (s.phase === 'error' && s.kind === 'essentials')
+    return h(
+      'section.card',
+      {},
+      h('div.warning', { 'data-download-error': '' }, s.message ?? 'The download stopped.'),
+      h('div.bindingrow', {}, h('button.button.accent', { 'data-wiz': 'retry', onclick: () => startEssentials() }, 'Retry'), h('span.muted.small', {}, 'Retry picks up where it stopped.')),
+    );
+  if (busySetup()) return card('Another download is running', 'It finishes first; then press Download.');
+  return card('Ready to download', `About ${size(st.sizes.essentials)}. You can pause and resume at any time.`, h('button.button.accent', { 'data-wiz': 'start-download', onclick: () => startEssentials() }, 'Download'));
+}
+
+function downloadStep(): Node[] {
+  return stepFrame(
+    'Download',
+    'Keep going while it downloads: the next steps work without it, and the practice dictation waits until it is done.',
+    [h('div', { 'data-wizdownload': '' }, downloadBlock())],
+    primaryButton(busySetup() && st.setup.kind === 'essentials' ? 'Continue while it downloads' : 'Next', () => go('hardware')),
+    !st.essentialsReady && !busySetup(),
+  );
+}
+
+const CHAIN_NAMES: Record<CleanupChain, string> = { 'gemma-emberon': 'Gemma, then Emberon', gemma: 'Gemma only', emberon: 'Emberon only', off: 'Off: the raw transcript' };
+
+function hardwareStep(): Node[] {
+  const hw = st.settings.hardware;
+  const body: (Node | null)[] = [];
+  if (!st.essentialsReady) body.push(card('Waiting for the download', 'The check times a real cleanup, so it starts once the download is done. Skip ahead and come back, or run it later from Settings → Cleanup.'));
+  else if (st.hardwareRunning) body.push(card('Checking this computer…', 'Timing a cleanup of a 5-second sample. This takes a few seconds.', h('span.spinner')));
+  else if (hw) {
+    body.push(
+      card('This computer', h('span', { 'data-hardware-summary': '' }, hw.summary)),
+      card('Cleanup', `${CHAIN_NAMES[hw.chain]}. You can change it in Settings → Cleanup.`, h('button.button.subtle', { onclick: () => void action('dictate:hardware-check') }, 'Run again')),
+    );
+    if (hw.offerGemma && hw.chain !== 'gemma-emberon' && !st.gemmaInstalled) {
+      const downloading = busySetup() && st.setup.kind === 'gemma';
+      body.push(card('Better names with Gemma (optional)', `${size(st.sizes.gemma)}, in the background. dictate times it when it arrives and switches to it only if it is fast enough here.`, h('button.button', { disabled: busySetup(), onclick: () => void dictate.invoke('dictate:setup-models', 'gemma').catch(() => undefined) }, downloading ? 'Downloading…' : 'Download Gemma')));
+    }
+  } else {
+    if (!hardwareStarted && !st.hardwareError) {
+      hardwareStarted = true;
+      void action('dictate:hardware-check');
+    }
+    body.push(st.hardwareError ? h('section.card', {}, h('div.warning', {}, st.hardwareError), h('button.button', { onclick: () => void action('dictate:hardware-check') }, 'Retry')) : card('Checking this computer…', 'Timing a cleanup of a 5-second sample.', h('span.spinner')));
+  }
+  return stepFrame('Speed check', 'Cleanup fixes punctuation, fillers and names. dictate measures it here and picks what is fast enough on this computer.', body, primaryButton('Next', () => go('microphone')), !hw);
+}
+
+function microphoneStep(): Node[] {
+  const meter = meterEl();
+  void startMeter(st.mic?.deviceId ?? null, st.mic?.label ?? st.defaultMicLabel, meter);
+  return stepFrame(
+    'Your microphone',
+    'Pick the mic you will dictate with, then say something: the bar should move into the middle.',
+    [...platformCards(), card('Microphone', null, micSelect(), meter), h('p.muted.small', {}, 'Too quiet? Raise its input gain on the Microphone page any time.')],
+    primaryButton('Next', () => go('hotkey')),
+  );
+}
+
+function hotkeyStep(): Node[] {
+  if (st.platform.displayServer === 'wayland')
+    return stepFrame('Starting a dictation', null, [card('Output on this desktop', `Wayland keeps apps isolated, so dictate copies your result; paste it with ${pasteKeys()}. Start and finish from the tray, or enable a desktop shortcut in Hotkeys & output.`)], primaryButton('Next', () => go('try')));
+  const mac = st.platform.platform === 'darwin';
+  const note = h('div.warnline');
+  const current = st.settings.hotkeys.length === 1 ? st.settings.hotkeys[0] : null;
+  const chips: [string, number][] = [[mac ? 'Right Control' : 'Right Ctrl', R_CTRL], [mac ? 'Right Option' : 'Right Alt', R_ALT], ['F13 (mouse button)', F13]];
+  const press = h(
+    'button.chip',
+    {
+      onclick: async () => {
+        press.textContent = 'Press the key…';
+        const b = await dictate.invoke<Binding | null>('dictate:record-binding');
+        const problem = b ? dictationKeyProblem(b) : null;
+        if (b && !problem) await set({ hotkeys: [b] });
+        else {
+          note.textContent = problem ?? '';
+          press.textContent = 'Press any key…';
+        }
+      },
+    },
+    'Press any key…',
+  );
+  return stepFrame(
+    'Your dictation key',
+    'Hold it to talk and let go to finish. Double-tap it for hands-free, then tap once to finish. Esc cancels.',
+    [
+      card(
+        'Dictation key',
+        'No Right Ctrl on your keyboard? Pick Right Alt. Mapped a mouse button to F13 in Logitech Options+ or G HUB? Pick F13.',
+        h('div.bindingrow', {}, keycap(st.labels.hotkey)),
+        h('div.keylist', {}, h('div.presets', {}, ...chips.map(([label, key]) => h('button.chip', { 'data-active': String(same(current, { keys: [key] })), onclick: () => (key === F13 ? set({ hotkeys: [{ keys: [F13] }] }) : useKey(key)) }, label)), press), note),
+      ),
+      st.platform.canSwallowKeys ? null : h('p.muted.small', {}, 'On this desktop other apps also receive the key, so choose one you do not use for anything else.'),
+    ],
+    primaryButton('Next', () => go('try')),
+  );
+}
+
+function tryStep(): Node[] {
+  if (!tryReady(stepCtx())) {
+    const s = st.setup;
+    const pct = busySetup() && s.overallTotal ? ` (${Math.floor(((s.overallReceived ?? 0) / s.overallTotal) * 100)}%)` : '';
+    return stepFrame('Try it', null, [card('Waiting for the speech model', `It is still downloading${pct}. Come back once it is done, or skip and try your key in any app later.`, h('button.button', { onclick: () => go('download') }, 'See the download'))], primaryButton('Next', () => go('done')));
+  }
+  const manual = st.platform.displayServer === 'wayland' || !st.platform.globalHotkeys;
+  const result = practice
+    ? h(
+        'div.practiceresult',
+        {},
+        h('div.practicelabel', {}, practice.cleaned ? 'Cleaned' : 'Typed'),
+        h('div.practicetext', { 'data-practice-text': '' }, practice.text),
+        practice.cleaned && practice.raw !== practice.text ? h('div.muted.small', {}, `Heard: ${practice.raw}`) : null,
+        practice.ms !== null ? h('div.muted.small', {}, `Ready ${(practice.ms / 1000).toFixed(2)} s after you let go.${practice.cleaned ? '' : ' Cleanup is off, so this is the raw transcript.'}`) : null,
+      )
+    : h('div.practicehint', {}, manual ? 'Press Start, speak, then Finish.' : h('span', {}, 'Click here, hold ', keycap(st.labels.hotkey), ', speak, and let go.'));
+  return stepFrame(
+    'Try it',
+    'Say something like “Testing my new dictation app, it runs entirely on my own computer.”',
+    [
+      h('div.practicebox', { tabindex: '0', 'data-practice': '' }, result),
+      manual ? h('div.bindingrow', {}, h('button.button', { onclick: () => void action('dictate:toggle') }, st.recording ? 'Finish' : 'Start')) : null,
+      h('p.muted.small', {}, 'While this window is in front, a dictation lands in the box instead of in another app.'),
+    ],
+    primaryButton(practice ? 'Next' : 'Skip for now', () => go('done')),
+  );
+}
+
+function doneStep(): Node[] {
+  const wayland = st.platform.displayServer === 'wayland';
+  const key = () => keycap(st.labels.hotkey);
+  const recap: [Node | string, string][] = wayland
+    ? [['Tray → Start dictation', 'start, then finish'], [keycap(pasteKeys()), 'paste the copied result']]
+    : [[key(), 'hold to talk, let go to finish'], [h('span', {}, key(), ' ', key()), 'double-tap for hands-free; tap again to finish'], [keycap('Esc'), 'cancel']];
+  if (st.settings.picker && !wayland) recap.push([keycap(st.labels.picker), 'your dictation history, at the cursor']);
+  return stepFrame(
+    'You are set',
+    `dictate waits in the ${st.platform.platform === 'darwin' ? 'menu bar' : 'tray'} and uses no CPU until you press your key.`,
+    [
+      h('div.recap', {}, ...recap.map(([k, d]) => h('div.recaprow', {}, h('span.recapkey', {}, k), h('span.carddesc', {}, d)))),
+      card('Start at login', `Start dictate when you sign in to ${osName()}.`, toggle(welcomeStartAtLogin, (v) => (welcomeStartAtLogin = v))),
+      card('Where your history lives', h('span', {}, 'On this computer only, in ', h('code', {}, st.dataDir), '. Settings → History sets how much is kept.'), h('button.button', { onclick: () => void dictate.invoke('dictate:open-data') }, 'Open folder')),
+      card('Come back any time', 'Getting started, in Settings and in the tray menu, opens these steps again.'),
+    ],
+    primaryButton('Finish', async () => {
+      void dictate.invoke('dictate:practice', false);
+      st = await dictate.invoke<State>('dictate:finish-onboarding', welcomeStartAtLogin);
+      page = 'general';
+      render();
+    }),
+  );
+}
+
+function start(): Node[] {
+  return { welcome: welcomeStep, licences: licencesStep, download: downloadStep, hardware: hardwareStep, microphone: microphoneStep, hotkey: hotkeyStep, try: tryStep, done: doneStep }[step]();
+}
+
+function about(): Node[] {
+  return [
+    h('h1', {}, 'About'),
+    card('dictate', h('span', {}, `Version ${st.version}. Part of `, link('open-dictate', 'https://github.com/parsakhaz/open-dictate'), ', free software under the GNU AGPL-3.0. Copyright © 2026 Dcouple Inc.')),
+    h('h2', {}, 'Models and libraries'),
+    h(
+      'div.licences',
+      {},
+      ...THIRD_PARTY.map((i) =>
+        h('div.licence', {}, h('div', {}, h('div.cardtitle', {}, i.name), h('div.carddesc', {}, `${i.role} · `, link(i.licence, i.licenceUrl), ' · ', link('source', i.source)), i.notice ? h('div.muted.small', {}, i.notice) : null), h('div.licencesize', {}, i.downloaded ? displaySize(i) : 'bundled')),
       ),
     ),
   ];
@@ -520,8 +777,13 @@ function cleanupPage(): Node[] {
   const status = (name: string, state: string) => h('span.status', { 'data-state': state }, h('span.dot'), `${name}: ${state === 'ready' ? 'ready' : state === 'starting' ? 'loading…' : state === 'crashed' ? 'restarting…' : 'not running'}`);
   return [
     h('h1', {}, 'Cleanup'),
-    modelCard('cleanup'),
     h('p.lead', {}, 'After transcription, small local language models fix punctuation, fillers and the names in your vocabulary. If a step fails or rewrites too much, its input is kept, so you never lose words.'),
+    modelCard('cleanup'),
+    card(
+      'Speed check',
+      st.hardwareRunning ? 'Timing a cleanup of a 5-second sample…' : st.hardwareError || (st.settings.hardware?.summary ?? 'Times a cleanup on this computer and picks the chain that is fast enough here.'),
+      h('button.button', { disabled: st.hardwareRunning || !st.essentialsReady, onclick: () => void action('dictate:hardware-check') }, 'Re-run the check'),
+    ),
     card(
       'Cleanup',
       h('span.statusrow', {}, status('Gemma 4 E2B', st.servers.gemma), status('Emberon-2', st.servers.emberon)),
@@ -658,25 +920,24 @@ function render(): void {
   }
   renderPending = false;
   stopMeters();
-  const pages = st.settings.onboarded ? PAGES.filter((p) => p.id !== 'welcome') : PAGES;
-  if (!pages.some((p) => p.id === page)) page = 'general';
+  // Until the walkthrough is finished it is the whole window: no other pages to wander off to.
+  const firstRun = !st.settings.onboarded;
+  if (firstRun) page = 'start';
+  nav.closest('.shell')?.classList.toggle('firstrun', firstRun);
   nav.replaceChildren(
-    ...pages.map((p) =>
+    ...PAGES.map((p) =>
       h(
         'button.navitem',
         {
           'data-active': String(p.id === page),
-          onclick: () => {
-            page = p.id;
-            render();
-          },
+          onclick: () => openPage(p.id),
         },
         h('span.navicon', {}, p.icon),
         p.label,
       ),
     ),
   );
-  const build = { welcome, general, microphone, cleanup: cleanupPage, vocabulary, history: historyPage, advanced }[page];
+  const build = { start, general, microphone, cleanup: cleanupPage, vocabulary, history: historyPage, advanced, about }[page];
   const scroll = content.scrollTop;
   content.replaceChildren(h('div.page', {}, actionError ? h('div.warning', {}, actionError) : null, ...build()));
   content.scrollTop = scroll;
@@ -693,7 +954,24 @@ dictate.on('dictate:setup-progress', (setup: State['setup']) => {
   if (!st) return; // Opening Settings during a download still starts with the complete get-state reply.
   st.setup = setup;
   updateSetupProgress();
+  document.querySelector('[data-wizdownload]')?.replaceChildren(downloadBlock());
 });
+dictate.on('dictate:practice-result', (r: NonNullable<typeof practice>) => {
+  practice = r;
+  if (page === 'start' && step === 'try') render();
+});
+dictate.on('dictate:navigate', (p: Page) => openPage(p));
+
+/** Opening Getting started from the nav or the tray starts the walkthrough over; finished downloads show as done. */
+function openPage(p: Page): void {
+  if (page === 'start' && step === 'try' && p !== 'start') void dictate.invoke('dictate:practice', false);
+  if (p === 'start' && st.settings.onboarded) {
+    step = 'welcome';
+    welcomeStartAtLogin = st.settings.startAtLogin;
+  }
+  page = p;
+  render();
+}
 function flushDeferredRender(): void {
   // A mouse press blurs the input before mouseup/click. Keep its target alive through the click.
   // Keyboard blur has no active pointer and refreshes after the current input event finishes.
@@ -717,8 +995,14 @@ document.addEventListener('visibilitychange', () => {
   else render();
 });
 
-void dictate.invoke<State>('dictate:get-state').then((s) => {
+void dictate.invoke<State>('dictate:get-state').then(async (s) => {
   st = s;
-  if (!s.settings.onboarded) page = 'welcome';
-  render();
+  if (!s.settings.onboarded) {
+    page = 'start';
+    step = resumeStep(s.settings.onboardingStep, stepCtx());
+    if (step === 'try') void dictate.invoke('dictate:practice', true);
+  }
+  const requested = await dictate.invoke<Page | null>('dictate:take-page');
+  if (requested) openPage(requested);
+  else render();
 });

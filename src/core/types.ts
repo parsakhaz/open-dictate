@@ -41,6 +41,18 @@ export interface Binding {
 export type CleanupChain = 'off' | 'emberon' | 'gemma' | 'gemma-emberon';
 export type OutputMode = 'paste' | 'clipboard' | 'both';
 
+export interface HardwareResult {
+  /** One plain sentence: the PC, and how fast cleanup ran on it. */
+  summary: string;
+  /** The chain the measurement chose (D10). */
+  chain: CleanupChain;
+  emberonMs: number | null;
+  gemmaChainMs: number | null;
+  /** Worth offering the optional Gemma download on this PC. */
+  offerGemma: boolean;
+  measuredAt: string;
+}
+
 export interface Settings {
   /** 2: batteryUnloadMinutes defaults to 60 (a version-1 file's 15 was the old default and is migrated). */
   version: 2;
@@ -86,8 +98,14 @@ export interface Settings {
   batteryUnloadMinutes: number;
   /** On battery: use Emberon only, whatever `cleanup` says. */
   batteryEmberonOnly: boolean;
-  /** The welcome screen has been seen. */
+  /** The first-run walkthrough was finished (or the old welcome page was). */
   onboarded: boolean;
+  /** Where the walkthrough resumes after a quit; also where "Getting started" reopens it. */
+  onboardingStep: string;
+  /** The models and licences step was shown. */
+  licencesSeen: boolean;
+  /** The last hardware check, shown in the walkthrough and Settings → Cleanup. */
+  hardware: HardwareResult | null;
   vocabulary: VocabTerm[];
 }
 

@@ -12,8 +12,9 @@ const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const report: Record<string, unknown> = { ok: false, platform: process.platform, arch: process.arch, productionRendererAndPreload: true, physicalMicrophone: false };
 
 void app.whenReady().then(async () => {
-  let settings = { ...defaultSettings([]), onboarded: false };
-  let setup = { phase: 'idle', kind: 'speech', file: '', received: 0, total: 10485760 };
+  // A fresh profile that closed Getting started mid-download: it resumes at the download step.
+  let settings = { ...defaultSettings([]), onboarded: false, licencesSeen: true, onboardingStep: 'download' };
+  let setup: Record<string, unknown> = { phase: 'downloading', kind: 'essentials', file: 'speech.tar.bz2', received: 1048576, total: 10485760, overallReceived: 1048576, overallTotal: 10485760, step: 0, steps: 3 };
   let onboardingChoice: boolean | undefined;
   let version = '0.1.0';
   const state = () => ({
@@ -24,7 +25,11 @@ void app.whenReady().then(async () => {
     history: { count: 0, samples: 0, median: null }, logFile: 'dictate.log', version,
     platform: { platform: process.platform, displayServer: 'x11', globalHotkeys: true, canSwallowKeys: false, automaticPaste: true, accessibilityRequired: false, accessibilityGranted: true },
     microphonePermission: 'granted', shortcutRegistered: false, shortcutRequested: false, startupError: '', recording: false, automation: true,
+    essentialsReady: false, gemmaInstalled: false, sizes: { essentials: 10485760, gemma: 3106738272 }, hardwareRunning: false, hardwareError: '', dataDir: 'QA profile',
   });
+  const practice: boolean[] = [];
+  ipcMain.handle('dictate:practice', (_event, on: boolean) => { practice.push(on); });
+  ipcMain.handle('dictate:take-page', () => null);
   ipcMain.handle('dictate:get-state', state);
   ipcMain.handle('dictate:set-settings', (_event, patch) => { settings = { ...settings, ...patch }; return state(); });
   ipcMain.handle('dictate:finish-onboarding', (_event, on: boolean) => { onboardingChoice = on; settings.onboarded = true; return state(); });
@@ -34,25 +39,35 @@ void app.whenReady().then(async () => {
   const check = async (code: string, message: string) => assert.equal(await js(code), true, message);
   try {
     await win.loadFile(path.join(__dirname, 'settings.html'));
-    for (let n = 0; n < 100 && !await js<boolean>('document.body.innerText.includes("Welcome to dictate")'); n++) await pause(30);
+    for (let n = 0; n < 100 && !await js<boolean>('document.body.innerText.includes("Downloading")'); n++) await pause(30);
+    await check(`document.body.innerText.includes('Step 3 of 8') && getComputedStyle(document.querySelector('nav')).display === 'none'`, 'A closed walkthrough must resume at its step, with no other pages');
+    report.walkthroughResumes = true;
+    await js(`window.__progressControls = { next: document.querySelector('[data-wiz="next"]'), back: document.querySelector('[data-wiz="back"]') }`);
+    for (let n = 2; n <= 8; n++) {
+      setup = { ...setup, received: n * 1048576, overallReceived: n * 1048576, bytesPerSecond: 2e6, etaSeconds: 2 };
+      win.webContents.send('dictate:setup-progress', setup);
+    }
+    await pause(60);
+    await check(`document.body.innerText.includes('Downloading… 80%') && document.body.innerText.includes('8 MB of 10 MB · 2.0 MB/s') && document.querySelector('[data-wiz="next"]') === window.__progressControls.next && document.contains(window.__progressControls.back)`, 'Download progress replaced the step buttons or failed to update');
+    report.progressPreservesControls = true;
+    // Downloads continue in the background while the rest of the walkthrough runs.
+    for (const expected of ['Speed check', 'Your microphone', 'Your dictation key', 'Try it', 'You are set']) {
+      await js(`document.querySelector('[data-wiz="next"]').click()`);
+      await pause(40);
+      assert.equal(await js<string>('document.querySelector("main h1")?.textContent'), expected, `Next should open "${expected}"`);
+    }
+    assert.equal(settings.onboardingStep, 'done', 'Each step must be saved so a quit resumes there');
+    assert.deepEqual(practice, [true, false], 'The practice box must take dictations only while "Try it" is open');
+    report.walkthroughSavesSteps = true;
     await js(`(() => {
       const row = [...document.querySelectorAll('.card')].find(e => e.querySelector('.cardtitle')?.textContent === 'Start at login');
       const input = row.querySelector('input'); input.click();
       if (input.checked) throw new Error('Could not select Start at login Off');
     })()`);
-    setup = { ...setup, phase: 'downloading', file: 'speech.tar.bz2', received: 1048576 };
     win.webContents.send('dictate:state', state());
     await pause(60);
     await check(`![...document.querySelectorAll('.card')].find(e => e.querySelector('.cardtitle')?.textContent === 'Start at login').querySelector('input').checked`, 'Start at login choice changed during state refresh');
-    await js(`window.__progressControls = { meter: document.querySelector('.meter'), checkbox: [...document.querySelectorAll('.card')].find(e => e.querySelector('.cardtitle')?.textContent === 'Start at login').querySelector('input') }`);
-    for (let n = 2; n <= 8; n++) {
-      setup = { ...setup, received: n * 1048576 };
-      win.webContents.send('dictate:setup-progress', setup);
-    }
-    await pause(60);
-    await check(`document.body.innerText.includes('8 / 10 MB') && document.querySelector('.meter') === window.__progressControls.meter && document.contains(window.__progressControls.checkbox) && !window.__progressControls.checkbox.checked`, 'Download progress replaced the meter/startup control or failed to update');
-    report.progressPreservesControls = true;
-    await js(`[...document.querySelectorAll('button')].find(e => e.textContent === 'Get started').click()`);
+    await js(`document.querySelector('[data-wiz="next"]').click()`);
     for (let n = 0; n < 100 && onboardingChoice === undefined; n++) await pause(20);
     assert.equal(onboardingChoice, false, 'Onboarding must submit the chosen Off value');
     report.onboardingOffRetained = true;

@@ -109,3 +109,24 @@ describe('paths', () => {
     expect(resolveModelsDir('E:\\mine', (p) => p === ALT_MODELS_DIR)).toBe('E:\\mine');
   });
 });
+
+describe('first-run walkthrough state', () => {
+  it('starts a new profile at the welcome step, licences not yet shown, no hardware check', () => {
+    expect([d.onboarded, d.onboardingStep, d.licencesSeen, d.hardware]).toEqual([false, 'welcome', false, null]);
+  });
+
+  it('keeps the saved step, the licences flag and the hardware result', () => {
+    const hardware = { summary: 'No GPU found, 16 GB RAM. Emberon cleaned the sample in 0.62 s.', chain: 'emberon', emberonMs: 620, gemmaChainMs: null, offerGemma: true, measuredAt: '2026-10-18T22:00:00.000Z' };
+    const s = parseSettings({ onboardingStep: 'hotkey', licencesSeen: true, hardware }, d);
+    expect([s.onboardingStep, s.licencesSeen, s.hardware]).toEqual(['hotkey', true, hardware]);
+  });
+
+  it('drops an unknown step or a malformed hardware result', () => {
+    const s = parseSettings({ onboardingStep: 'nowhere', hardware: { summary: 3 } }, d);
+    expect([s.onboardingStep, s.hardware]).toEqual(['welcome', null]);
+  });
+
+  it('an existing profile that finished the old welcome page stays onboarded', () => {
+    expect(parseSettings({ onboarded: true }, d).onboarded).toBe(true);
+  });
+});

@@ -580,3 +580,170 @@ code {
 .keylist .warnline:empty {
   display: none;
 }
+
+/* Getting started: the first-run walkthrough. */
+.shell.firstrun .nav {
+  display: none;
+}
+.shell.firstrun .content {
+  border-left: none;
+  border-top-left-radius: 0;
+}
+.shell.firstrun .page {
+  margin: 0 auto;
+  max-width: 720px;
+}
+.wizdots {
+  display: flex;
+  gap: 6px;
+  margin: 4px 0 18px;
+}
+.wizdot {
+  width: 28px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--stroke-strong);
+  transition: background var(--normal) var(--ease);
+}
+.wizdot[data-state='done'] {
+  background: rgba(96, 205, 255, 0.45);
+}
+.wizdot[data-state='current'] {
+  background: var(--accent);
+}
+.wizfoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--divider);
+}
+.wizbuttons {
+  display: flex;
+  gap: 8px;
+}
+.licences {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.licence {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  background: var(--card);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+.licencesize {
+  flex: none;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 0 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--stroke-strong);
+  color: var(--text-2);
+}
+.link {
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+.link:hover {
+  text-decoration: underline;
+}
+.progress {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--stroke-strong);
+  overflow: hidden;
+  margin: 10px 0 8px;
+}
+.progressfill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width var(--normal) linear;
+}
+.spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--stroke-strong);
+  border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+.practicebox {
+  min-height: 140px;
+  display: grid;
+  place-items: center;
+  padding: 18px 20px;
+  border-radius: var(--radius);
+  border: 1px dashed rgba(96, 205, 255, 0.45);
+  background: rgba(96, 205, 255, 0.05);
+  outline: none;
+  margin-bottom: 10px;
+}
+.practicebox:focus-visible {
+  border-style: solid;
+}
+.practicehint {
+  color: var(--text-2);
+  line-height: 28px;
+}
+.practiceresult {
+  justify-self: stretch;
+  display: grid;
+  gap: 6px;
+  user-select: text;
+}
+.practicelabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.practicetext {
+  font-size: 18px;
+  line-height: 26px;
+}
+.recap {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.recaprow {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  align-items: center;
+  gap: 12px;
+  background: var(--card);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+}
+.card > .bindingrow {
+  margin-top: 12px;
+}
