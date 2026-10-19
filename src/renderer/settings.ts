@@ -325,7 +325,7 @@ function modelCard(kind: 'speech' | 'cleanup'): HTMLElement {
   const title = kind === 'speech' ? 'Speech model' : 'Optional local cleanup';
   const desc = kind === 'speech'
     ? (st.speechInstalled ? st.stt === 'ready' ? 'Nemotron English streaming model is ready.' : st.stt === 'error' ? `Speech model error: ${st.sttError}` : 'Nemotron English streaming model is installed and loading…' : 'Download 443 MB once to transcribe English locally. No account or API key needed.')
-    : 'Download Gemma, Emberon and llama.cpp (about 3.2 GB) for local text cleanup. Raw dictation works without these.';
+    : 'Download Gemma, Emberon and llama.cpp (about 3.2 GB) for local text cleanup, then times them here and picks what is fast enough. Raw dictation works without these.';
   const button = h('button.button', {'data-setup-download': kind, disabled: busy || (kind === 'speech' && st.speechInstalled), onclick: () => void action('dictate:setup-models', kind)}, kind === 'speech' && st.speechInstalled ? 'Installed' : `Download ${kind === 'speech' ? 'speech model' : 'cleanup models'}`);
   return card(title, h('span', {}, desc, h('div.warnline', {'data-setup-progress': kind, hidden: !progress}, progress)), h('div.bindingrow', {}, button, h('button.button.subtle', {'data-setup-cancel': kind, hidden: !busy || !setupIs(kind), onclick: () => void action('dictate:cancel-setup')}, 'Cancel')));
 }

@@ -1028,11 +1028,10 @@ function registerIpc(): void {
     } catch (err) { cleanup.sync(); throw err; }
     if (kind === 'speech' || kind === 'essentials') { const old = stt; stt = undefined; old?.kill(); startStt(); }
     if (kind === 'speech') cleanup.sync();
-    else if (kind === 'cleanup') updateSettings({ llamaServer: llamaServerPath(), cleanup: 'gemma-emberon' });
     else {
-      // D10: the measurement picks the chain, not the download.
+      // D10: the measurement picks the chain, not the download (the Cleanup page's button included).
       updateSettings({ llamaServer: llamaServerPath() });
-      void hardwareCheck(kind === 'gemma').catch(() => undefined);
+      void hardwareCheck(kind !== 'essentials').catch(() => undefined);
     }
     return state();
   });
