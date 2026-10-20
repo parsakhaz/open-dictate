@@ -85,7 +85,7 @@ app.whenReady().then(async () => {
     devices: [{ deviceId: 'amd', groupId: 'g', label: 'Microphone Array (AMD Audio Device)' }],
     mic: null,
     defaultMicLabel: 'Microphone Array (AMD Audio Device)',
-    gain: 30,
+    gain: { auto: true, db: 30, startDb: 17 },
     micBluetooth: false,
     stt: 'ready',
     sttError: '',
