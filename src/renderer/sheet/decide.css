@@ -1,1 +1,337 @@
 /* Sheet: The wide decision sheet: question tabs, options on the left, the hovered option's preview on the right (L1). */
+
+body[data-kind='decide'] .sheet {
+  box-shadow:
+    0 0 0 1.5px var(--accent),
+    0 6px 12px rgba(0, 0, 0, 0.4);
+}
+body[data-kind='decide'] .shead .src {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+body[data-kind='decide'] .x {
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11px;
+  padding: 0 4px;
+  border-radius: 8px;
+}
+body[data-kind='decide'] .x:hover {
+  color: var(--text);
+  background: var(--card-hover);
+}
+body[data-kind='decide'] kbd {
+  display: inline-block;
+  font: 600 10px/13px var(--font);
+  padding: 0 4px;
+  margin-right: 2px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-bottom-width: 2px;
+  color: var(--text-2);
+}
+.dtitle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 14px 0;
+  min-width: 0;
+}
+.dtitle .ttl {
+  flex: none;
+  max-width: 60%;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+  color: var(--text);
+}
+.dtitle .msg {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dtabs {
+  display: flex;
+  gap: 2px;
+  padding: 8px 10px 0;
+  border-bottom: 1px solid var(--divider);
+  overflow: hidden;
+}
+.dtab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 5px 10px 7px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-3);
+}
+.dtab.on {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+.dtab .dans {
+  min-width: 0;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dhead {
+  flex: none;
+  font-size: 10.5px;
+  line-height: 15px;
+  font-weight: 600;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-2);
+}
+.dhead.acc {
+  background: rgba(96, 205, 255, 0.14);
+  color: var(--accent);
+}
+.dhead.done {
+  background: rgba(108, 203, 95, 0.14);
+  color: var(--green);
+}
+.dok {
+  color: var(--green);
+  font-weight: 700;
+}
+.dtag {
+  display: inline-block;
+  font-size: 10.5px;
+  line-height: 15px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-2);
+}
+.dtag.dstat {
+  margin-left: auto;
+  background: rgba(108, 203, 95, 0.12);
+  color: var(--green);
+}
+.dbody {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 318px minmax(0, 1fr);
+}
+.dbody.narrow {
+  grid-template-columns: minmax(0, 1fr);
+}
+.dleftcol {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 8px 10px 10px;
+  border-right: 1px solid var(--divider);
+  display: grid;
+  gap: 4px;
+  align-content: start;
+}
+.dbody.narrow .dleftcol {
+  border-right: 0;
+}
+.dqt {
+  font-size: 12.5px;
+  line-height: 17px;
+  font-weight: 600;
+  color: var(--text);
+  padding: 0 9px 4px;
+}
+.dleftcol > .ddesc,
+.dother {
+  padding: 0 9px;
+}
+.dopts {
+  display: grid;
+  gap: 2px;
+}
+.dopt {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  column-gap: 10px;
+  align-items: start;
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: default;
+}
+.dopt kbd {
+  justify-self: center;
+  margin: 1px 0 0;
+  min-width: 18px;
+  text-align: center;
+}
+.dlab > div:first-child {
+  font-size: 12.5px;
+  line-height: 18px;
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.ddesc {
+  font-size: 11.5px;
+  line-height: 16px;
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+.dother {
+  font-size: 11.5px;
+  line-height: 16px;
+  color: var(--text-2);
+  font-style: italic;
+}
+.drad,
+.dbox {
+  width: 14px;
+  height: 14px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.35);
+  margin-top: 2px;
+}
+.dbox {
+  border-radius: 3px;
+}
+.dopt.hov {
+  background: var(--card-hover);
+}
+.dopt.sel {
+  background: rgba(96, 205, 255, 0.09);
+  border-color: rgba(96, 205, 255, 0.45);
+}
+.dopt.sel kbd {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+}
+.dopt.sel .drad {
+  border: 4px solid var(--accent);
+}
+.dopt.sel .dbox {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.dright {
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  padding: 10px 14px 12px;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+.dpvh {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--text-3);
+}
+.dpvh b {
+  color: var(--text);
+  font-weight: 600;
+}
+.dpre {
+  border-radius: 8px;
+  background: #15171c;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 6px 0;
+  font:
+    11.5px/18px 'Cascadia Mono',
+    Consolas,
+    ui-monospace,
+    monospace;
+  color: #cfd3da;
+  overflow-x: auto;
+}
+.dpre > div {
+  white-space: pre;
+  padding: 0 10px;
+}
+.dpre:not(.code) > div {
+  white-space: pre-wrap;
+  font-family: var(--font);
+  font-size: 12px;
+}
+.dpre.code > div {
+  padding-left: 6px;
+}
+.dpre.code > div::before {
+  display: inline-block;
+  width: 16px;
+  color: rgba(255, 255, 255, 0.28);
+  content: ' ';
+}
+.dpre .a {
+  background: rgba(108, 203, 95, 0.12);
+}
+.dpre.code > .a::before {
+  content: '+';
+  color: var(--green);
+}
+.dpre .d {
+  background: rgba(255, 92, 92, 0.12);
+  color: rgba(255, 255, 255, 0.55);
+}
+.dpre.code > .d::before {
+  content: '−';
+  color: var(--red);
+}
+body[data-kind='decide'] .sfoot {
+  padding: 9px 12px;
+}
+.dhint {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 3px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--text-3);
+}
+body[data-kind='decide'] .cbtn {
+  border: 1px solid var(--stroke-strong);
+  background: var(--card);
+  border-radius: 6px;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text);
+  white-space: nowrap;
+}
+body[data-kind='decide'] .cbtn:hover {
+  background: var(--card-hover);
+}
+body[data-kind='decide'] .cbtn.primary {
+  background: var(--accent);
+  color: #000;
+  border-color: transparent;
+  font-weight: 600;
+}
+body[data-kind='decide'] .cbtn.armed {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: transparent;
+}

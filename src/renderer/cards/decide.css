@@ -1,1 +1,351 @@
 /* Cards: decide and approve cards: questions stacked with chips; the approval and its countdown (L1). */
+
+/* A grown card holds more than a message: a taller cap that still fits the pill window, scrolling inside when more\n   questions need it. */
+.card[data-kind='decide'] .cbody,
+.card[data-kind='approve'] .cbody {
+  max-height: 270px;
+}
+
+.dtag {
+  flex: none;
+  display: inline-block;
+  font-size: 10.5px;
+  line-height: 15px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.dtag.acc {
+  background: rgba(96, 205, 255, 0.14);
+  color: var(--accent);
+}
+.dtag.amb {
+  background: rgba(255, 181, 76, 0.14);
+  color: var(--amber);
+  font-weight: 600;
+}
+.dtag.red {
+  background: rgba(255, 153, 164, 0.14);
+  color: #ff99a4;
+  font-weight: 600;
+}
+.dtop {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.dtop .title {
+  flex: 1;
+  min-width: 0;
+}
+.dtop .dtag {
+  margin-top: 1px;
+}
+
+/* ---------- one question: its header chip, the question, its chips, the chosen option's description ---------- */
+
+.dq {
+  display: grid;
+  gap: 6px;
+  padding: 8px 0 7px;
+  border-top: 1px solid var(--divider);
+}
+.dq:first-of-type {
+  margin-top: 5px;
+}
+.dqh {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.dhead {
+  flex: none;
+  font-size: 10.5px;
+  line-height: 15px;
+  font-weight: 600;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: rgba(96, 205, 255, 0.14);
+  color: var(--accent);
+}
+.dhead.done {
+  background: rgba(108, 203, 95, 0.14);
+  color: var(--green);
+}
+.dqt {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 17px;
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.dq.pending .dqt {
+  color: var(--text-2);
+}
+.dok {
+  flex: none;
+  color: var(--green);
+  font-size: 12px;
+  line-height: 15px;
+  font-weight: 700;
+}
+.dheard {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  line-height: 15px;
+  color: var(--accent);
+}
+.dheard .rdot {
+  width: 6px;
+  height: 6px;
+  animation: none;
+}
+.dchips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.dchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--stroke-strong);
+  background: var(--card);
+  border-radius: 6px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text);
+  white-space: nowrap;
+  cursor: default;
+  transition:
+    background 600ms var(--ease),
+    box-shadow 600ms var(--ease),
+    border-color 200ms var(--ease);
+}
+.dchip:hover {
+  background: var(--card-hover);
+}
+/* The option's number, or a check once it is picked (the label stays the button's only text). */
+.dchip::before {
+  content: attr(data-n);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-4);
+}
+.dchip.sel {
+  background: rgba(96, 205, 255, 0.15);
+  border-color: rgba(96, 205, 255, 0.7);
+  color: #fff;
+}
+.dchip.sel::before {
+  content: '✓';
+  color: var(--accent);
+  font-size: 11px;
+}
+.dq[data-multi='true'] .dchip::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
+  border-radius: 3px;
+  border: 1.5px solid rgba(255, 255, 255, 0.4);
+}
+.dq[data-multi='true'] .dchip.sel::before {
+  content: '✓';
+  width: auto;
+  height: auto;
+  border: 0;
+}
+.dchip.flash {
+  animation: dflash 700ms var(--ease);
+}
+@keyframes dflash {
+  from {
+    background: rgba(96, 205, 255, 0.3);
+    border-color: var(--accent);
+    box-shadow:
+      0 0 0 3px rgba(96, 205, 255, 0.28),
+      0 0 18px rgba(96, 205, 255, 0.45);
+  }
+}
+.ddesc,
+.dother {
+  font-size: 11.5px;
+  line-height: 16px;
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+.dother {
+  color: var(--text-2);
+  font-style: italic;
+}
+
+/* ---------- the foot: Send, Hold to answer, how many are left ---------- */
+
+.dfoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding-top: 9px;
+  border-top: 1px solid var(--divider);
+}
+.dleft {
+  margin-left: auto;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--text-3);
+}
+
+/* ---------- the person's words: as they come, then the 2 s countdown ---------- */
+
+.dsaid {
+  display: grid;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--divider);
+}
+.dsaid .creply {
+  margin-top: 0;
+}
+.dquote {
+  border-left: 2px solid var(--accent);
+  padding: 3px 0 3px 10px;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--text);
+  font-style: italic;
+  overflow-wrap: anywhere;
+}
+.dcount {
+  display: grid;
+  gap: 5px;
+  margin-top: 4px;
+}
+.dcount .rdot {
+  animation: none;
+}
+.dcount .desc {
+  color: var(--text-3);
+}
+.dsaid kbd {
+  font: 600 10px/13px var(--font);
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-bottom-width: 2px;
+  color: var(--text-2);
+}
+.dbar {
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.dbar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  animation: dbar 2s linear forwards;
+}
+@keyframes dbar {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0;
+  }
+}
+
+/* ---------- the approval: the plan, its risk, and the change being sent ---------- */
+
+.aplan {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 3px;
+}
+.aplan li {
+  position: relative;
+  padding-left: 14px;
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.aplan li::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 7px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+.arisk {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 7px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: rgba(255, 181, 76, 0.07);
+  border: 1px solid rgba(255, 181, 76, 0.22);
+  font-size: 11.5px;
+  line-height: 16px;
+  color: var(--text-2);
+}
+.arisk[hidden] {
+  display: none;
+}
+.afold {
+  display: none;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  line-height: 16px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.afold span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.aask {
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--text-3);
+}
+.afoot {
+  margin-top: 9px;
+}
+/* A change on its way: the plan folds to one line above the quote. */
+.card:has(.dsaid[data-change='true']) .aplan,
+.card:has(.dsaid[data-change='true']) .arisk {
+  display: none;
+}
+.card:has(.dsaid[data-change='true']) .afold {
+  display: flex;
+}
+/* High risk: the ring turns amber. */
+.card[data-kind='approve']:has(.arisk[data-risk='high']) {
+  box-shadow:
+    0 0 0 1.5px var(--amber),
+    0 10px 28px rgba(0, 0, 0, 0.4);
+}
