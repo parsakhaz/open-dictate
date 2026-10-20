@@ -101,6 +101,8 @@ class Inbox {
     host.ipc.handle('now', (id) => typeof id === 'string' && this.bringBack(id));
     host.ipc.handle('drop', (id) => typeof id === 'string' && hub.dismiss(id));
     host.ipc.handle('round', () => this.startRound());
+    // The pill asks when it loads; changes are pushed after that.
+    host.ipc.handle('config', () => JSON.parse(this.configJson()));
 
     // ---------- the shortcuts ----------
     host.shortcut('snooze', { claimed: () => this.snoozeClaimed(), pressed: () => this.snoozePressed() });
@@ -186,9 +188,13 @@ class Inbox {
     this.sendConfig();
   }
 
-  private sendConfig(): void {
+  private configJson(): string {
     const s = this.host.settings();
-    const config = JSON.stringify({ lengths: s.snooze.minutes, key: s.snooze.key, roundKey: s.inbox.roundKey });
+    return JSON.stringify({ lengths: s.snooze.minutes, key: s.snooze.key, roundKey: s.inbox.roundKey });
+  }
+
+  private sendConfig(): void {
+    const config = this.configJson();
     if (config === this.config) return;
     this.config = config;
     this.host.pill.send('dictate:inbox:config', JSON.parse(config));

@@ -117,10 +117,14 @@ export const inbox: PillExtra = {
       toast = t;
       draw();
     });
-    dictate.on('dictate:inbox:config', (c: { lengths: number[]; key: Binding | null }) => {
+    const config = (c: { lengths: number[]; key: Binding | null } | null) => {
+      if (!c) return;
       lengths = c.lengths;
       snoozeKey = bindingLabel(c.key);
-    });
+      draw();
+    };
+    dictate.on('dictate:inbox:config', config);
+    void dictate.invoke<{ lengths: number[]; key: Binding | null }>('dictate:inbox:config').then(config, () => undefined);
     // QA: clicks on the strip without a pointer.
     dictate.on('dictate:inbox:qa', (what: string) => {
       const target = what === 'waiting' ? strip.querySelector<HTMLElement>('.capsule.waiting') : what === 'snoozed' ? strip.querySelector<HTMLElement>('.capsule.snoozed') : what === 'undo' ? strip.querySelector<HTMLElement>('.toast .undo') : what.startsWith('now ') ? strip.querySelector<HTMLElement>(`.shelfrow[data-id="${what.slice(4)}"] .now`) : what.startsWith('chip ') ? document.querySelector<HTMLElement>(`.cards .snz button[data-min="${what.slice(5)}"]`) : null;
