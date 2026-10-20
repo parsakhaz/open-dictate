@@ -173,6 +173,28 @@ function previewReply(to: string, text: string): Promise<boolean> {
 /** Where the top card sits in the pill window (CSS pixels), from the renderer. */
 let cardRect: { x: number; y: number; width: number; height: number } | null = null;
 
+/** QA: finds a card button by its label, logs what is under its centre, and clicks there with page input events. */
+async function qaCardClick(label: string, click: boolean): Promise<void> {
+  const at = (await pill.webContents.executeJavaScript(`(() => {
+    const b = [...document.querySelectorAll('.cards button')].find((x) => x.textContent === ${JSON.stringify(label)});
+    if (!b) return null;
+    const r = b.getBoundingClientRect();
+    const x = Math.round(r.x + r.width / 2), y = Math.round(r.y + r.height / 2);
+    const hit = document.elementFromPoint(x, y);
+    return { x, y, hit: hit && (hit === b || b.contains(hit)) ? 'button' : hit ? hit.tagName.toLowerCase() + '.' + hit.className : 'nothing' };
+  })()`)) as { x: number; y: number; hit: string } | null;
+  if (!click) {
+    const b = pill.getBounds();
+    log('info', `QA card-locate ${JSON.stringify(label)} ${JSON.stringify(at && screen.dipToScreenPoint({ x: b.x + at.x, y: b.y + at.y }))}`);
+    return;
+  }
+  log('info', `QA card-click ${JSON.stringify(label)} ${JSON.stringify(at)}`);
+  if (!at) return;
+  pill.webContents.sendInputEvent({ type: 'mouseMove', x: at.x, y: at.y });
+  pill.webContents.sendInputEvent({ type: 'mouseDown', x: at.x, y: at.y, button: 'left', clickCount: 1 });
+  pill.webContents.sendInputEvent({ type: 'mouseUp', x: at.x, y: at.y, button: 'left', clickCount: 1 });
+}
+
 function pointerOverCard(): boolean {
   if (!cardsShown || !cardRect || pill.isDestroyed()) return false;
   const p = screen.getCursorScreenPoint();
@@ -180,6 +202,39 @@ function pointerOverCard(): boolean {
   const x = p.x - b.x;
   const y = p.y - b.y;
   return x >= cardRect.x && x <= cardRect.x + cardRect.width && y >= cardRect.y && y <= cardRect.y + cardRect.height;
+}
+
+/**
+ * The pill is click-through except over a card (and an Undo toast). Main watches the pointer itself while cards are
+ * up: on Windows a click-through window gets no forwarded pointer moves, so the page never learns it is hovered and
+ * the window would never start taking clicks (issue #9).
+ */
+let cardHover = false;
+/** QA: hovered without a mouse. */
+let qaCardHover = false;
+let undoToast = false;
+let hoverPoll: ReturnType<typeof setInterval> | undefined;
+
+function clickThrough(): void {
+  if (!pill.isDestroyed()) pill.setIgnoreMouseEvents(!(cardHover || undoToast), { forward: true });
+}
+
+function pollCardHover(): void {
+  const on = cardsShown && (qaCardHover || pointerOverCard());
+  if (on === cardHover) return;
+  cardHover = on;
+  clickThrough();
+  pillSend('dictate:card-hover', on);
+  agents?.setHovered(on);
+}
+
+function watchCardHover(on: boolean): void {
+  if (on && !hoverPoll) hoverPoll = setInterval(pollCardHover, 40);
+  if (!on && hoverPoll) {
+    clearInterval(hoverPoll);
+    hoverPoll = undefined;
+  }
+  pollCardHover();
 }
 
 /** Esc after release: every dictation still transcribing or cleaning stops, and nothing of it is pasted. */
@@ -271,7 +326,7 @@ function onHotkey(a: HotkeyAction): void {
       rec = { id: nextId++, mode: null, shown: false, releasedAt: 0, partial: '', live: false, abort: new AbortController() };
       // The pointer over a card at key down (or Reply) sends this one dictation to it.
       rec.reply = agents?.replyTarget(pointerOverCard()) ?? undefined;
-      agents?.setDictating(true);
+      agents?.setDictating(true, rec.reply?.cardId);
       cleanup.touch();
       // Capture starts at key down so the first word is not lost; the pill waits until this is a hold or a double-tap.
       keyDownAt = performance.timeOrigin + performance.now();
@@ -704,8 +759,12 @@ function showToast(message: string, undo: boolean, ms: number): void {
   showPill(pill);
   clearTimeout(toastTimer);
   if (undo) {
-    pill.setIgnoreMouseEvents(false);
-    toastTimer = setTimeout(() => pill.setIgnoreMouseEvents(true, { forward: true }), ms);
+    undoToast = true;
+    clickThrough();
+    toastTimer = setTimeout(() => {
+      undoToast = false;
+      clickThrough();
+    }, ms);
   }
 }
 
@@ -1240,15 +1299,13 @@ function registerIpc(): void {
   ipcMain.on('dictate:pill-ready', () => {
     log('info', 'pill ready');
     pillConfig();
+    // Cards that arrived while the page was still loading.
+    agents?.render();
     sttLink.pillReady();
   });
   ipcMain.on('dictate:renderer-error', (_e, page: string, message: string) => log('error', `renderer ${page}: ${String(message).slice(0, 2000)}`));
   ipcMain.on('dictate:pill-hidden', () => {
     if (!rec?.shown && !cardsShown) pill.hide();
-  });
-  // Only the cards take clicks: the renderer says when the pointer is over one; elsewhere clicks pass through.
-  ipcMain.on('dictate:pill-mouse', (_e, over: boolean) => {
-    if (!pill.isDestroyed()) pill.setIgnoreMouseEvents(!over, { forward: true });
   });
   ipcMain.handle('dictate:card-action', (_e, a: CardAction) => agents?.action(a));
   ipcMain.on('dictate:card-rect', (_e, r: typeof cardRect) => {
@@ -1271,7 +1328,8 @@ function registerIpc(): void {
   ipcMain.on('dictate:undo-mic', () => {
     const d = mics.undo();
     log('info', `undo mic switch: back to ${d?.label ?? 'system default'}`);
-    pill.setIgnoreMouseEvents(true, { forward: true });
+    undoToast = false;
+    clickThrough();
     pillSend('dictate:pill', { kind: 'info', message: `Using ${d ? micName(d.label) : 'the default mic'}` });
     pushState();
     rebuildTrayMenu();
@@ -1437,15 +1495,28 @@ async function main(): Promise<void> {
           showPill(pill);
         } else if (line.startsWith('partial ')) pillSend('dictate:partial', line.slice(8));
         // Agent cards: hover (expanded) without a mouse, and the top card's buttons ("card choose Prod").
-        else if (line.startsWith('cards-hover ')) pillSend('dictate:qa-hover', line.slice(12) === 'on');
+        else if (line.startsWith('cards-hover ')) {
+          qaCardHover = line.slice(12) === 'on';
+          pollCardHover();
+        }
         else if (line === 'cards-list') pillSend('dictate:qa-list');
+        // A click on a card button by its label, as input events into the pill page (the OS pointer stays put).
+        else if (line.startsWith('card-click ')) void qaCardClick(line.slice(11), true);
+        // Where that button is on screen (physical pixels), for a real pointer.
+        else if (line.startsWith('card-locate ')) void qaCardClick(line.slice(12), false);
+        // Whether the top card's title is cut off, and how tall the card is (CSS pixels).
+        else if (line === 'card-layout') {
+          void pill.webContents
+            .executeJavaScript(`(() => { const c = document.querySelector('.cards .card'); const t = c && c.querySelector('.title'); const b = c && c.querySelector('.cbody'); return c && { titleClipped: t.scrollWidth > t.clientWidth + 1 || t.scrollHeight > t.clientHeight + 1, cardHeight: Math.round(c.getBoundingClientRect().height), bodyScrolls: b ? b.scrollHeight > b.clientHeight + 1 : false, buttons: [...c.querySelectorAll('button.cbtn')].map((x) => x.textContent), replying: c.dataset.replying === 'true', text: c.innerText }; })()`)
+            .then((r) => log('info', `QA card-layout ${JSON.stringify(r)}`));
+        }
         // Where the top card is on screen (physical pixels, for a real pointer), and what the queue holds.
         else if (line === 'card-where' && cardRect) {
           const b = pill.getBounds();
           log('info', `QA card at ${JSON.stringify(screen.dipToScreenRect(pill, { x: Math.round(b.x + cardRect.x), y: Math.round(b.y + cardRect.y), width: Math.round(cardRect.width), height: Math.round(cardRect.height) }))}`);
         } else if (line === 'cards-dump') {
           const v = agents?.hub.queue.view(Date.now());
-          log('info', `QA cards ${JSON.stringify({ top: v?.top ? { title: v.top.title, source: v.top.source, urgency: v.top.urgency, kind: v.top.kind, target: !!v.top.target } : null, more: v?.more ?? 0, all: v?.all.map((c) => c.title) ?? [] })}`);
+          log('info', `QA cards ${JSON.stringify({ top: v?.top ? { title: v.top.title, source: v.top.source, urgency: v.top.urgency, kind: v.top.kind, target: !!v.top.target } : null, more: v?.more ?? 0, all: v?.all.map((c) => c.title) ?? [], replying: agents?.hub.queue.replyingTo ?? null })}`);
         }
         else if (line.startsWith('pause ')) agents?.setPaused(line.slice(6) === 'on');
         else if (line.startsWith('card ')) {
@@ -1502,6 +1573,7 @@ function startAgents(): void {
       cardsShown = !!view.top;
       pillSend('dictate:cards', view);
       if (cardsShown) showPill(pill);
+      watchCardHover(cardsShown);
     },
     chime: () => pillSend('dictate:sound', 'chime'),
     openSettings: (page) => openSettings(page),

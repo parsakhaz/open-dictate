@@ -392,6 +392,9 @@ body {
     animation: none !important;
   }
   .spinner,
+  .card,
+  .list,
+  .rdot,
   [data-kind='cleaning'] .text {
     animation: none;
   }
@@ -451,15 +454,55 @@ body {
   line-height: 18px;
   font-weight: 600;
   color: var(--text);
+}
+.list .title {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* The whole title and message, read at a glance; very long ones scroll inside the card. */
+.cbody {
+  display: grid;
+  gap: 3px;
+  align-content: start;
+  max-height: 236px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
+.card .title {
+  overflow-wrap: anywhere;
 }
 .msg {
   font-size: 12px;
   line-height: 17px;
   color: var(--text-2);
   overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+.card[data-replying='true'] {
+  box-shadow: 0 0 0 1.5px var(--accent), 0 10px 28px rgba(0, 0, 0, 0.4);
+}
+.creply {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--accent);
+}
+.rdot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: rdot 1.2s ease-in-out infinite;
+}
+@keyframes rdot {
+  50% {
+    opacity: 0.35;
+  }
 }
 .crow {
   display: flex;
