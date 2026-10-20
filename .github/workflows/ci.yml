@@ -138,6 +138,14 @@ jobs:
         run: node qa/native-smoke.mjs --report tmp/package-smoke/native-input.json --allow-permission-block
       - name: Build native installers without publishing
         run: pnpm package --${{ matrix.platform }} --${{ matrix.arch }}
+      - name: Click an agent card's choice with the real pointer (Windows)
+        if: runner.os == 'Windows'
+        # The pill window is click-through except over a card; only real OS input proves a click reaches it (#9).
+        run: |
+          node qa/cards-pointer.js || failed=1
+          mkdir -p tmp/package-smoke/cards-pointer
+          cp tmp/cards-pointer/report.json tmp/cards-pointer/*.png tmp/package-smoke/cards-pointer/ 2>/dev/null || true
+          exit ${failed:-0}
       - name: Verify WAV capture through the real app, recognizer, output and cancellation (Linux)
         if: runner.os == 'Linux'
         env:

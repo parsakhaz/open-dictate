@@ -8,6 +8,7 @@ The [CI workflow](../../.github/workflows/ci.yml) checks, builds and smoke-launc
 - native clipboard, focus, typing and keyboard-hook checks (Windows and Linux), framework and permission checks (macOS)
 - installers built with `--publish never`, launched, and on Linux the `.deb` installed with the Chromium sandbox on
 - the app's audio, recognizer, output and cancel journey (`qa/app-smoke.mjs`) and the Settings regression (`qa/settings-progress.mjs`)
+- on Windows, a real-pointer click on an agent card's choice (`qa/cards-pointer.js`)
 
 Each job uploads `dictate-package-<platform>-<arch>-<sha>` (installers, `SHA256SUMS`, the checksum-verifying install scripts, update metadata) and `dictate-evidence-<platform>-<arch>-<sha>` (startup reports, screenshots, native input checks).
 
