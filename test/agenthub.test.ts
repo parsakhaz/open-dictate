@@ -335,6 +335,20 @@ describe('history (J13, J14)', () => {
     expect(access.map((a) => a.outcome)).toEqual(['off']);
   });
 
+  it('"Allow for this session" after history access went off grants nothing, so turning it back on asks again (#29)', async () => {
+    const { hub, setHistory } = setup({ historyOn: true });
+    const p = hub.call(inTab(), 'read_history', {}, sig());
+    await settle();
+    const card = hub.queue.view(Date.now()).top!;
+    setHistory(false);
+    hub.consent(card.id, 'session');
+    expect(await p).toEqual({ granted: false, reason: 'off' });
+    setHistory(true);
+    void hub.call(inTab(), 'read_history', {}, sig());
+    await settle();
+    expect(hub.queue.view(Date.now()).top?.kind).toBe('consent');
+  });
+
   it('turning history access off ends "Allow for this session" grants; turning it back on asks again (#29)', async () => {
     const { hub, setHistory } = setup({ historyOn: true });
     const p = hub.call(inTab(), 'read_history', {}, sig());
