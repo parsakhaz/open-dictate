@@ -286,11 +286,13 @@ button.capsule:hover {
 }
 .rwhat {
   color: var(--text);
+  overflow-wrap: anywhere;
+}
+.rtab {
+  max-width: 96px;
+  font-size: 11px;
+  color: var(--text-3);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.rtab {
-  font-size: 11px;
-  color: var(--text-3);
 }

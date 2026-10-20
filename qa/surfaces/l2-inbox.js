@@ -192,8 +192,8 @@ module.exports = {
         check('the summary shows the counts', summary?.top?.kind === 'round-summary' && /1 approved, 1 answered, 1 snoozed until \d\d:\d\d/.test(summary.top.title), summary);
         await shot('l2-j6-summary');
         cmd('inbox undo');
-        await sleep(500);
-        const undone = await cards();
+        // Cards wait a second after a recording ends (open listening's included), then the card is back.
+        const undone = await waitFor(cards, (c) => c?.top?.title === 'Review the welcome copy?', sleep, 15);
         check('Undo restores the last card', undone?.top?.title === 'Review the welcome copy?', undone);
         cmd('inbox shortcut round');
         await sleep(800);
