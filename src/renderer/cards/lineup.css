@@ -1,1 +1,64 @@
 /* Cards: the lineup card: its strip of thumbnails (L4). */
+
+.lu-strip {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  cursor: default;
+}
+.lu-tile {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 54px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  display: grid;
+  place-items: center;
+}
+.lu-tile:hover {
+  border-color: var(--accent);
+}
+.lu-tile canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.lu-tile .lu-l {
+  padding: 0 6px 0 22px;
+  font-size: 10.5px;
+  line-height: 13px;
+  color: var(--text-2);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+.lu-tile .lu-n {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  z-index: 1;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: 5px;
+  background: rgba(20, 20, 20, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+}
+.lu-say {
+  align-self: center;
+  font-size: 11px;
+  color: var(--text-3);
+}
