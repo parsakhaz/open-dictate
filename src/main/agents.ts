@@ -195,8 +195,20 @@ export class Agents {
       },
       this.host.log,
     );
-    this.pane.start();
+    this.applyPaneWatch();
     void this.applyRegistration();
+  }
+
+  /**
+   * Follows Pane's tabs only when "Show Pane's agent alerts on the pill" is on. Off, no watch runs, so Pane sees no
+   * consumer and keeps its own notifications. Agents' notify and ask don't depend on it.
+   */
+  applyPaneWatch(): void {
+    if (this.host.settings().agentPaneAlerts) this.pane.start();
+    else {
+      this.pane.stop();
+      this.hub.dropPaneCards();
+    }
   }
 
   stop(): void {

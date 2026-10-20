@@ -191,6 +191,15 @@ describe('Pane events', () => {
     await hub.paneEvent({ type: 'finished', paneId: 'P', panelId: 'X' });
     expect(hub.queue.view(Date.now()).all.map((c) => c.title)).toEqual(['PR is up']);
   });
+
+  it("turning Pane alerts off drops the cards made from Pane's events, not the agents' own", async () => {
+    const { hub } = setup();
+    await hub.paneEvent({ type: 'blocked', paneId: 'P', panelId: 'Y' });
+    await hub.call(inTab(), 'notify', { title: 'Approve the migration?' }, sig());
+    await hub.paneEvent({ type: 'blocked', paneId: 'P', panelId: 'X' });
+    hub.dropPaneCards();
+    expect(hub.queue.view(Date.now()).all.map((c) => c.title)).toEqual(['Approve the migration?']);
+  });
 });
 
 describe('replies to a tab', () => {

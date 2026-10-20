@@ -1169,6 +1169,7 @@ function updateSettings(patch: Partial<Settings>): void {
   if (patch.startAtLogin !== undefined) applyLoginItem();
   if (patch.autoUpdate !== undefined) updater?.setEnabled(settings.autoUpdate);
   if (patch.agentsEnabled !== undefined && patch.agentsEnabled !== before.agentsEnabled) void agents?.applyRegistration().then(() => pushState());
+  if (patch.agentPaneAlerts !== undefined && patch.agentPaneAlerts !== before.agentPaneAlerts) agents?.applyPaneWatch();
   if (patch.agentAlertsPaused !== undefined && agents && agents.hub.queue.paused !== settings.agentAlertsPaused) agents.setPaused(settings.agentAlertsPaused);
   if (patch.portableShortcut !== undefined || patch.portableShortcutEnabled !== undefined) applyPortableShortcut();
   if (['cleanup', 'llamaServer', 'modelsDir', 'vocabulary', 'batteryEmberonOnly', 'batteryUnloadMinutes'].some((k) => k in patch)) cleanup.update(settings);

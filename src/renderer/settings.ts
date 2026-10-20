@@ -986,7 +986,7 @@ function agentsPage(): (Node | null)[] {
       : willWrite ? 'Dictate adds a note to its instructions when it starts:' : 'Its instructions have no Dictate note:';
     return [` ${text}`, h('code', {}, f.file)];
   };
-  const paneLine = !a ? '' : a.pane.attached ? 'Following your Pane tabs: a tab that needs you shows on the pill.' : a.pane.installed ? 'Pane isn’t running. Dictate picks it up when it starts.' : 'Pane isn’t installed. Agents can still reach you through the pill.';
+  const paneLine = !a ? '' : !s.agentPaneAlerts ? 'Off: Pane shows its own notifications. Cards your agents send still show here.' : a.pane.attached ? 'Following your Pane tabs: a tab that needs you shows on the pill.' : a.pane.installed ? 'Pane isn’t running. Dictate picks it up when it starts.' : 'Pane isn’t installed. Agents can still reach you through the pill.';
   const copy = (text: string) => (e: Event) => {
     void dictate.invoke('dictate:agents-copy', text);
     (e.target as HTMLButtonElement).textContent = 'Copied';
@@ -997,7 +997,7 @@ function agentsPage(): (Node | null)[] {
     card('Let coding agents use Dictate', 'Adds Dictate’s tools to Claude Code, Codex and Cursor each time Dictate starts, and a short note on when to use them to Claude Code’s and Codex’s own instructions. Off removes them again; a “dictate” entry you wrote yourself and the rest of those files are never touched.', toggle(s.agentsEnabled, (v) => set({ agentsEnabled: v }), 'Let coding agents use Dictate')),
     ...(a?.registration ?? []).map((r) => card(AGENT_NAMES[r.agent], h('span', {}, regLine(r), ...noteLine(r.agent)))),
     a && !a.registrationAllowed ? h('p.muted.small', {}, 'This is a development build: it doesn’t change your agents’ settings.') : null,
-    card('Pane', paneLine),
+    card('Show Pane’s agent alerts on the pill', paneLine, toggle(s.agentPaneAlerts, (v) => set({ agentPaneAlerts: v }), 'Show Pane’s agent alerts on the pill')),
     card('Pause agent alerts', 'Cards wait, and the tray shows how many. Questions from agents return “do not disturb”.', toggle(s.agentAlertsPaused, (v) => set({ agentAlertsPaused: v }), 'Pause agent alerts')),
     card('Chime when an agent needs you', 'One soft chime for cards that need you. Finished tabs stay silent.', toggle(s.agentChime, (v) => set({ agentChime: v }), 'Chime')),
     h('h2', {}, 'Other agents'),

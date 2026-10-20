@@ -373,4 +373,11 @@ export class AgentHub {
       createdAt: this.deps.now(),
     });
   }
+
+  /** Pane alerts were turned off: the cards Dictate made from Pane's own events go; agents' notes stay. */
+  dropPaneCards(): void {
+    let changed = false;
+    for (const c of this.queue.view(0).all) if (c.origin === 'pane' && this.queue.remove(c.id)) changed = true;
+    if (changed) this.deps.changed();
+  }
 }

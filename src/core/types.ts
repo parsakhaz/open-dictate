@@ -122,6 +122,8 @@ export interface Settings {
   agentAlertsPaused: boolean;
   /** One soft chime when a card that needs the person appears. */
   agentChime: boolean;
+  /** "Show Pane's agent alerts on the pill": Dictate follows Pane's blocked and finished tabs. Off by default, so Pane keeps its own notifications. */
+  agentPaneAlerts: boolean;
   /** Agents may ask to read dictation history, with consent on the pill each time. Off by default. */
   agentHistory: boolean;
 }
