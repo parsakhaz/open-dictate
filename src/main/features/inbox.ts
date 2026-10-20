@@ -179,6 +179,8 @@ class Inbox {
 
   private poll(): void {
     this.q.returnTo = this.host.settings().snooze.returnTo;
+    // The toast's card came back (its time, Now): pressing the shortcut again starts over at the first length.
+    if (this.toast && this.q.get(this.toast.id)?.snoozedUntil === undefined) this.setToast(null);
     const snooze = this.snoozeClaimed();
     const round = this.roundClaimed();
     if (snooze !== this.claims.snooze || round !== this.claims.round) {

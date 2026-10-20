@@ -82,7 +82,7 @@ function draw(): void {
   const caps: HTMLElement[] = [];
   const waiting = extra.waiting ?? 0;
   if (waiting && extra.reason === 'talking') caps.push(h('div.capsule.held', {}, h('span.pause', {}, '❚❚'), 'Held while you talk', h('span.dim', {}, `· ${waiting}`)));
-  else if (waiting && !hasTop && extra.reason !== 'round' && extra.reason !== 'paused') caps.push(h('button.capsule.waiting', { title: 'Start a decision round', onclick: () => invoke('round') }, h('span.dot'), `${waiting} waiting`));
+  else if (waiting && !hasTop && extra.reason !== 'round' && extra.reason !== 'paused') caps.push(h('button.capsule.waiting', { title: 'Start a decision round', onclick: () => invoke('round') }, h('span.wdot'), `${waiting} waiting`));
   if (snoozed.length && extra.reason !== 'round') caps.push(h('button.capsule.snoozed', { title: shelfOpen ? 'Close' : 'Show snoozed cards', onclick: () => { shelfOpen = !shelfOpen; draw(); } }, h('span.clock', {}, '◷'), `${snoozed.length} snoozed`));
   if (caps.length) parts.push(h('div.caps', {}, ...caps));
   if (!snoozed.length) shelfOpen = false;
@@ -113,6 +113,10 @@ export const inbox: PillExtra = {
     strip = h('div.inbox');
     const status = root.querySelector('.status');
     root.insertBefore(strip, status);
+    // Listening before the cards do, so a card drawn for this view already sees its "Back from snooze".
+    dictate.on('dictate:cards', (v: CardsView) => {
+      extra = (v.extra ?? {}) as Extra;
+    });
     dictate.on('dictate:inbox:toast', (t: typeof toast) => {
       toast = t;
       draw();

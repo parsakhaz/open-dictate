@@ -27,7 +27,7 @@ export const roundSummary: CardBody = {
         'div.rrow',
         { 'data-action': r.action },
         h('span.rtag', {}, LABEL[r.action] ?? r.action),
-        h('span.rwhat', {}, r.action === 'answered' && r.text ? `“${r.text}”` : r.action === 'snoozed' && r.back ? `${plainTitle(r.title)}, back at ${r.back}` : plainTitle(r.title)),
+        h('span.rwhat', {}, r.action === 'answered' && r.text ? `“${r.text}”` : r.action === 'snoozed' && r.back ? `${plainTitle(r.title)} · back at ${r.back}` : plainTitle(r.title)),
         h('span.rtab', {}, r.tab),
       ),
     );

@@ -141,14 +141,19 @@ module.exports = {
       async run(ctx) {
         const { session, cmd, qa, cards, sheet, shot, sheetShot, sleep, check, MODELS } = ctx;
         await clear(ctx);
-        cmd('inbox keydown');
         const agents = [0, 1, 2].map((i) => session({ client: 'codex-mcp-client', title: `Agent ${i}` }));
-        const asks = [
-          agents[0].call('ask', { question: 'Where should the coupon field go?', message: 'Four places fit. Most mobile shoppers never scroll past the order summary.', choices: ['Under summary', 'Behind a link', 'Payment step', 'Leave it out'], timeout_s: 120 }),
-          agents[1].call('ask', { question: 'Run the migration on staging?', choices: ['Run it', 'Wait'], timeout_s: 120 }),
-          agents[2].call('ask', { question: 'Review the welcome copy?', choices: ['Looks good', 'Rewrite'], timeout_s: 120 }),
+        const questions = [
+          { question: 'Where should the coupon field go?', message: 'Four places fit. Most mobile shoppers never scroll past the order summary.', choices: ['Under summary', 'Behind a link', 'Payment step', 'Leave it out'], timeout_s: 120 },
+          { question: 'Run the migration on staging?', choices: ['Run it', 'Wait'], timeout_s: 120 },
+          { question: 'Review the welcome copy?', choices: ['Looks good', 'Rewrite'], timeout_s: 120 },
         ];
-        await sleep(800);
+        // One after another, so the round (oldest first) takes them in this order.
+        const asks = [];
+        for (const [i, q] of questions.entries()) {
+          cmd('inbox keydown');
+          asks.push(agents[i].call('ask', q));
+          await waitFor(() => qa('inbox dump', INBOX), (d) => d?.extra.waiting === i + 1, sleep, 25);
+        }
         const held = await qa('inbox dump', INBOX);
         check('three cards wait while the person types', held?.extra.waiting === 3 && !held.top, held);
         await shot('l2-j6-three-waiting');

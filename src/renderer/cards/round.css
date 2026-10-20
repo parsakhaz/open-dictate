@@ -43,7 +43,7 @@
 button.capsule:hover {
   background: rgba(48, 48, 48, 0.96);
 }
-.capsule .dot {
+.capsule .wdot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
