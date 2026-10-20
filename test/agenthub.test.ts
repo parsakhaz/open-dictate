@@ -191,6 +191,32 @@ describe('Pane events', () => {
     await hub.paneEvent({ type: 'finished', paneId: 'P', panelId: 'X' });
     expect(hub.queue.view(Date.now()).all.map((c) => c.title)).toEqual(['PR is up']);
   });
+
+  it("turning Pane alerts off drops the cards made from Pane's events, not the agents' own", async () => {
+    const { hub } = setup();
+    await hub.paneEvent({ type: 'blocked', paneId: 'P', panelId: 'Y' });
+    await hub.call(inTab(), 'notify', { title: 'Approve the migration?' }, sig());
+    await hub.paneEvent({ type: 'blocked', paneId: 'P', panelId: 'X' });
+    hub.dropPaneCards();
+    expect(hub.queue.view(Date.now()).all.map((c) => c.title)).toEqual(['Approve the migration?']);
+  });
+
+  it("turning Pane alerts off gives an agent's note merged with its blocked tab back its own kind and urgency", async () => {
+    const { hub } = setup();
+    await hub.call(inTab(), 'notify', { title: 'Tests pass' }, sig());
+    await hub.paneEvent({ type: 'blocked', paneId: 'P', panelId: 'X' });
+    expect(hub.queue.view(Date.now()).top).toMatchObject({ kind: 'pane-blocked', urgency: 'needs_you' });
+    hub.dropPaneCards();
+    expect(hub.queue.view(Date.now()).all).toEqual([expect.objectContaining({ title: 'Tests pass', kind: 'notify', urgency: 'info', origin: 'agent' })]);
+  });
+
+  it('a Pane event still looking up its tab when Pane alerts are turned off adds no card', async () => {
+    const { hub } = setup();
+    const pending = hub.paneEvent({ type: 'blocked', paneId: 'P', panelId: 'Y' });
+    hub.dropPaneCards();
+    await pending;
+    expect(hub.queue.view(Date.now()).all).toHaveLength(0);
+  });
 });
 
 describe('replies to a tab', () => {

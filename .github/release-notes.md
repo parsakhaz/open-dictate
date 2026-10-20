@@ -1,5 +1,14 @@
 Fully local dictation: hold a key, speak, and clean text appears where you type. Nothing leaves your computer.
 
+## What's new in 0.1.2
+
+Automatic gain ([#11](https://github.com/parsakhaz/open-dictate/pull/11)): Dictate now raises a quiet voice by itself instead of applying one fixed boost, aiming at a normal speech level without turning up the room hiss in every pause. It is on by default in Settings → **Microphone**, up to each mic's **Maximum boost**; a boost you had set before becomes that maximum.
+
+Agent cards on the pill ([#9](https://github.com/parsakhaz/open-dictate/issues/9)):
+
+- Agents are told how to write a card you can act on: what the work is for, what just happened and what they need from you, in plain words and plain text, with good and bad examples.
+- Pane's own "Needs your input" and "Finished" alerts no longer show on the pill by default, so they don't double up with Pane's notifications. Turn them back on in Settings → Agents → **Show Pane's agent alerts on the pill**. Cards your agents send are unchanged.
+
 ## What's new in 0.1.1
 
 Agent cards on the pill ([#9](https://github.com/parsakhaz/open-dictate/issues/9)):

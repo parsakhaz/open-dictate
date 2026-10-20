@@ -34,7 +34,7 @@ How open-dictate is put together, for contributors. Each claim here points at th
 | Native mic worker | [src/native/mic-worker.ts](../../src/native/mic-worker.ts) | Windows only: WASAPI capture on its own thread. |
 | llama-server ×2 | [src/engine/llama.ts](../../src/engine/llama.ts) | One child process per cleanup model (Gemma, Emberon), on a free port on 127.0.0.1. |
 | MCP bridge, one per agent session | [src/bridge/dictate-mcp.ts](../../src/bridge/dictate-mcp.ts) → `<data>/agents/dictate-mcp.js` | Started by a coding agent, not by Dictate: MCP over stdio, forwarded to the app's local channel. See [agents.md](agents.md). |
-| `runpane watch` | Pane's CLI | Follows Pane's agent states for the pill's cards; restarted with backoff while Pane is away. |
+| `runpane watch` | Pane's CLI | Follows Pane's agent states for the pill's cards, only while "Show Pane's agent alerts on the pill" is on; restarted with backoff while Pane is away. |
 | Lifetime watchdog | [src/native/posix-lifetime.ts](../../src/native/posix-lifetime.ts) | macOS/Linux only: kills the llama-servers if main dies abruptly. Windows uses a job object instead. |
 
 ## One dictation, end to end

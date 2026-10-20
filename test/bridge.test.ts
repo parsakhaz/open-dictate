@@ -82,6 +82,26 @@ describe('the bridge without Dictate running', () => {
     expect(tools.filter((t) => t.annotations.readOnlyHint).map((t) => t.name)).toEqual(['status', 'list_vocabulary', 'read_history']);
   });
 
+  it('tells every agent how to write a card: the approved rule, in the instructions and in notify and ask', async () => {
+    const b = startBridge();
+    const init = await initialized(b);
+    const rule =
+      'In plain words, say what this work is for (the outcome, not the file), what just happened, and what you need from them.';
+    const instructions = (init.result as { instructions: string }).instructions;
+    expect(instructions).toContain('The person is juggling many tasks and has lost the thread.');
+    expect(instructions).toContain(rule);
+    expect(instructions).toContain("Don't repeat where you are: Dictate adds that. Always notify (needs_you) or ask when you truly need them.");
+    expect(instructions).toContain('Bad: "Approve the migration?"');
+    expect(instructions).toContain('Good: "Pill cards now stay up while you answer"');
+    const tools = (await b.request('tools/list')).result?.tools as { name: string; description: string }[];
+    const plain = 'Write plain text only: no Markdown, headings, lists or code blocks; line breaks are fine.';
+    expect(instructions).toContain(plain);
+    for (const name of ['notify', 'ask']) {
+      expect(tools.find((t) => t.name === name)?.description).toContain(rule);
+      expect(tools.find((t) => t.name === name)?.description).toContain(plain);
+    }
+  });
+
   it("says Dictate isn't running instead of hanging", async () => {
     const b = startBridge();
     await initialized(b);

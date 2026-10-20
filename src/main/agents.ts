@@ -84,6 +84,8 @@ export interface AgentsHost {
   registration: { allowed: boolean; executable: string; env: Record<string, string | undefined> };
   /** The tray's "Pause agent alerts" label changed. */
   trayChanged(): void;
+  /** Something Settings → Agents shows changed, such as the Pane watch attaching. */
+  stateChanged(): void;
 }
 
 export interface CardDto {
@@ -180,7 +182,11 @@ export class Agents {
     this.pane = new PaneLink({
       paneDir,
       log: host.log,
-      onEvent: (e) => void this.hub.paneEvent(actionFor(e)).catch((err) => host.log('warn', `agents: Pane event failed (${(err as Error).message})`)),
+      onAttached: () => host.stateChanged(),
+      onEvent: (e) => {
+        if (!host.settings().agentPaneAlerts) return;
+        void this.hub.paneEvent(actionFor(e)).catch((err) => host.log('warn', `agents: Pane event failed (${(err as Error).message})`));
+      },
     });
   }
 
@@ -195,8 +201,20 @@ export class Agents {
       },
       this.host.log,
     );
-    this.pane.start();
+    this.applyPaneWatch();
     void this.applyRegistration();
+  }
+
+  /**
+   * Follows Pane's tabs only when "Show Pane's agent alerts on the pill" is on. Off, no watch runs, so Pane sees no
+   * consumer and keeps its own notifications. Agents' notify and ask don't depend on it.
+   */
+  applyPaneWatch(): void {
+    if (this.host.settings().agentPaneAlerts) this.pane.start();
+    else {
+      this.pane.stop();
+      this.hub.dropPaneCards();
+    }
   }
 
   stop(): void {

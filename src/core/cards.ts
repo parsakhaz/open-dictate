@@ -35,6 +35,8 @@ export interface Card {
   /** When an info card was first on screen; it fades a few seconds later (moved on by the time it was hovered). */
   shownAt?: number;
   faded?: boolean;
+  /** An agent's note that Pane's "blocked" merged into: what it was before, to go back to when Pane alerts are off. */
+  beforePane?: Pick<Card, 'kind' | 'urgency' | 'shownAt' | 'faded'>;
 }
 
 export type AddResult = 'shown' | 'queued' | 'dnd' | 'replaced';
@@ -82,7 +84,8 @@ export class CardQueue {
       if (card.kind === 'pane-ready' && (old.origin === 'agent' || rank(old.urgency) < rank(card.urgency))) return this.paused ? 'dnd' : 'queued';
       // Pane saying a tab is blocked keeps the agent's own headline from that tab, and offers Reply.
       if (card.kind === 'pane-blocked' && old.origin === 'agent' && old.kind === 'notify') {
-        next = { ...old, kind: 'pane-blocked', urgency: 'needs_you', target: card.target ?? old.target, faded: false, shownAt: undefined };
+        const beforePane = { kind: old.kind, urgency: old.urgency, shownAt: old.shownAt, faded: old.faded };
+        next = { ...old, kind: 'pane-blocked', urgency: 'needs_you', target: card.target ?? old.target, faded: false, shownAt: undefined, beforePane };
       }
       this.cards.splice(i, 1);
       replaced = true;
@@ -92,6 +95,21 @@ export class CardQueue {
     if (this.paused) return 'dnd';
     if (replaced) return 'replaced';
     return this.isHeld(now) || this.view(now).top?.id !== next.id ? 'queued' : 'shown';
+  }
+
+  /** Pane alerts were turned off: Pane's cards go, and agents' notes it merged into are as they were. True if any changed. */
+  dropPane(): boolean {
+    const before = this.cards.length;
+    let restored = false;
+    this.cards = this.cards.flatMap((c) => {
+      if (c.origin === 'pane') return [];
+      if (!c.beforePane) return [c];
+      restored = true;
+      const { beforePane, ...rest } = c;
+      return [{ ...rest, ...beforePane }];
+    });
+    this.sort();
+    return restored || this.cards.length !== before;
   }
 
   remove(id: string): Card | undefined {

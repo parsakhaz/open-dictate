@@ -56,6 +56,12 @@ describe('parseSettings', () => {
     expect(d.vocabularyPending).toEqual([]);
   });
 
+  it("leaves Pane's own alerts to Pane by default, also for a profile from before 0.1.2, and keeps a choice to show them", () => {
+    expect(d.agentPaneAlerts).toBe(false);
+    expect(parseSettings({ version: 2, onboarded: true, agentsEnabled: true, agentChime: true }, d).agentPaneAlerts).toBe(false);
+    expect(parseSettings({ agentPaneAlerts: true }, d).agentPaneAlerts).toBe(true);
+  });
+
   it('loads a file from before agents, and keeps a valid review queue while dropping a bad item', () => {
     const s = parseSettings({ agentHistory: 'yes', vocabularyPending: [{ term: 'Supabase', aliases: ['super base'], reason: 'db', source: 'repo · Codex', at: '2026-10-19T20:00:00Z' }, { term: 'a => b', aliases: [] }] }, d);
     expect(s.agentHistory).toBe(false);

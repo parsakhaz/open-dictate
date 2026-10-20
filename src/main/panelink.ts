@@ -63,6 +63,8 @@ export class PaneLink {
     this.watch?.kill();
     this.watch = undefined;
     this.setAttached(false);
+    // Nothing keeps them current from here on, and a restarted watch only reports what happens next.
+    this.names.clear();
   }
 
   private setAttached(on: boolean): void {
@@ -92,6 +94,8 @@ export class PaneLink {
     child.stdout?.on(
       'data',
       lineReader((m) => {
+        // Output a stopped watch had already buffered is not followed.
+        if (this.watch !== child) return;
         const e = parseWatchEntry(m, startedAt);
         if (!this.attached) {
           this.setAttached(true);
@@ -111,6 +115,7 @@ export class PaneLink {
     child.on('close', (code) => {
       if (this.watch !== child) return;
       this.watch = undefined;
+      this.names.clear();
       this.setAttached(false);
       // A watch that ran a while was healthy: start the backoff again from the beginning.
       if (Date.now() - startedAt > 30_000) this.failures = 0;
@@ -144,15 +149,19 @@ export class PaneLink {
 
   /** The Pane name, tab title and agent of one tab: from the watch when it has seen it, else asked once. */
   async tabNames(paneId: string, panelId: string): Promise<TabNames | null> {
-    const known = this.names.get(panelId);
+    // Names are kept current only by a running watch's events; without one, ask runpane each time.
+    const known = this.watch ? this.names.get(panelId) : undefined;
     if (known && known.paneId === paneId) return known;
+    const watch = this.watch;
     try {
       const panes = await this.run<{ panes: { id: string; name: string }[] }>(['panes', 'list']);
       const pane = panes.panes.find((p) => p.id === paneId);
       if (!pane) return null;
       const panels = await this.run<{ panels: { id: string; title: string; agentType?: string }[] }>(['panels', 'list', '--pane', paneId]);
-      for (const p of panels.panels) this.names.set(p.id, { paneId, paneName: pane.name, panelTitle: p.title, agentType: p.agentType });
-      return this.names.get(panelId) ?? null;
+      const found = panels.panels.map((p): [string, TabNames] => [p.id, { paneId, paneName: pane.name, panelTitle: p.title, agentType: p.agentType }]);
+      // Kept only while the watch that was running when the lookup began still runs to keep them current.
+      if (watch && this.watch === watch) for (const [id, names] of found) this.names.set(id, names);
+      return found.find(([id]) => id === panelId)?.[1] ?? null;
     } catch {
       return null;
     }

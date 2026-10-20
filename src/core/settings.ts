@@ -61,6 +61,7 @@ export function defaultSettings(vocabulary: VocabTerm[] = []): Settings {
     agentsEnabled: true,
     agentAlertsPaused: false,
     agentChime: true,
+    agentPaneAlerts: false,
     agentHistory: false,
   };
 }
@@ -168,6 +169,8 @@ export function parseSettings(data: unknown, defaults: Settings): Settings {
     agentsEnabled: bool(d.agentsEnabled, defaults.agentsEnabled),
     agentAlertsPaused: bool(d.agentAlertsPaused, defaults.agentAlertsPaused),
     agentChime: bool(d.agentChime, defaults.agentChime),
+    // Before 0.1.2 there was no such setting and Dictate always followed Pane; those profiles start off too.
+    agentPaneAlerts: bool(d.agentPaneAlerts, defaults.agentPaneAlerts),
     agentHistory: bool(d.agentHistory, defaults.agentHistory),
   };
 }

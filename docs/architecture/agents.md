@@ -2,8 +2,10 @@
 
 Coding agents reach the person through Dictate's pill. A card says where it came from and what the agent needs. The person can open that Pane tab, click an answer, or hold the dictation key over the card and answer by voice. Two things raise cards:
 
-- **Pane.** Dictate follows Pane through its published CLI, `runpane`. A tab that is blocked or finished becomes a card with no change to the agent.
 - **The agents themselves,** through six MCP tools: `notify`, `ask`, `status`, `propose_vocabulary`, `list_vocabulary` and `read_history`.
+- **Pane, only when the person turns it on.** With Settings → Agents → "Show Pane's agent alerts on the pill" on, Dictate follows Pane through its published CLI, `runpane`, and a tab that is blocked or finished becomes a card with no change to the agent. It is off by default, also for profiles from before 0.1.2: these generic cards competed with Pane's own notifications and say less than an agent's own `notify` ([#9](https://github.com/parsakhaz/open-dictate/issues/9)). Off, no watch runs, so Pane sees no consumer and keeps its own notifications.
+
+The server instructions and the `notify` and `ask` descriptions carry the maintainer's rule for writing a card, with good and bad examples ([src/core/agenttools.ts](../../src/core/agenttools.ts)): say what the work is for, what just happened and what you need, in plain words and plain text, and leave out where you are. The Markdown subset the pill renders (below) is for agents that don't follow it.
 
 ```
  agent (Claude Code, Codex, Cursor, …)
@@ -47,7 +49,7 @@ The **source line** is always Dictate's own words. In Pane it is "<Pane name> ·
 
 [src/main/panelink.ts](../../src/main/panelink.ts) only ever runs the `runpane` CLI, never Pane's daemon socket. On Windows it reads the `runpane.cmd` shim and runs Pane's own executable with the bundled script, so a dictated reply never passes through `cmd.exe`.
 
-The watch is `runpane watch --follow --as dictate --from now --json`. It covers blocked, ready, busy, report, exit and gone. Blocked settles after 5 s and ready after 10 s, with no batching. Lines from the start-up snapshot, or from before the watch attached, are skipped, so a restart never replays old events as cards. While Pane is away, the watch restarts with backoff of at most a minute.
+The watch runs only while "Show Pane's agent alerts on the pill" is on; turning it off stops the watch and drops the cards it made. It is `runpane watch --follow --as dictate --from now --json`. It covers blocked, ready, busy, report, exit and gone. Blocked settles after 5 s and ready after 10 s, with no batching. Lines from the start-up snapshot, or from before the watch attached, are skipped, so a restart never replays old events as cards. While Pane is away, the watch restarts with backoff of at most a minute.
 
 | Event | Card |
 | --- | --- |
