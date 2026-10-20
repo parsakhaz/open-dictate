@@ -1616,6 +1616,7 @@ function startAgents(): void {
     allowForeground: () => void allowForegroundHandoff(),
     registration: registrationOptions(),
     trayChanged: () => rebuildTrayMenu(),
+    stateChanged: () => pushState(),
   });
   void agents.start().catch((e) => log('error', `agents did not start: ${(e as Error).message}`));
 }

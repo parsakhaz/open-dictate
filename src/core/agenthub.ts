@@ -76,6 +76,8 @@ export class AgentHub {
   readonly queue = new CardQueue();
   readonly grants = new GrantBook();
   private next = 1;
+  /** Bumped when Pane alerts are turned off: an event still looking up its tab then adds nothing. */
+  private paneEpoch = 0;
   private asks = new Map<string, Waiter<AskResult>>();
   private consents = new Map<string, Waiter<ConsentAnswer | 'timeout' | 'dismissed'>>();
 
@@ -355,8 +357,10 @@ export class AgentHub {
     }
     if (a.type === 'clear') return;
     if (a.type === 'finished' && this.deps.pane.inFront()) return;
+    const epoch = this.paneEpoch;
     const tab = await this.deps.pane.tab(a.paneId, a.panelId).catch(() => null);
     const message = a.message ?? cleanMessage(await this.deps.pane.lastMessage(a.panelId).catch(() => null), CAPS.message).text;
+    if (epoch !== this.paneEpoch) return;
     const blocked = a.type === 'blocked';
     this.add({
       id: this.id(),
@@ -376,6 +380,7 @@ export class AgentHub {
 
   /** Pane alerts were turned off: the cards Dictate made from Pane's own events go; agents' notes stay. */
   dropPaneCards(): void {
+    this.paneEpoch++;
     let changed = false;
     for (const c of this.queue.view(0).all) if (c.origin === 'pane' && this.queue.remove(c.id)) changed = true;
     if (changed) this.deps.changed();

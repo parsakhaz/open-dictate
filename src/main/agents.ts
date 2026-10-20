@@ -84,6 +84,8 @@ export interface AgentsHost {
   registration: { allowed: boolean; executable: string; env: Record<string, string | undefined> };
   /** The tray's "Pause agent alerts" label changed. */
   trayChanged(): void;
+  /** Something Settings → Agents shows changed, such as the Pane watch attaching. */
+  stateChanged(): void;
 }
 
 export interface CardDto {
@@ -180,6 +182,7 @@ export class Agents {
     this.pane = new PaneLink({
       paneDir,
       log: host.log,
+      onAttached: () => host.stateChanged(),
       onEvent: (e) => void this.hub.paneEvent(actionFor(e)).catch((err) => host.log('warn', `agents: Pane event failed (${(err as Error).message})`)),
     });
   }

@@ -200,6 +200,14 @@ describe('Pane events', () => {
     hub.dropPaneCards();
     expect(hub.queue.view(Date.now()).all.map((c) => c.title)).toEqual(['Approve the migration?']);
   });
+
+  it('a Pane event still looking up its tab when Pane alerts are turned off adds no card', async () => {
+    const { hub } = setup();
+    const pending = hub.paneEvent({ type: 'blocked', paneId: 'P', panelId: 'Y' });
+    hub.dropPaneCards();
+    await pending;
+    expect(hub.queue.view(Date.now()).all).toHaveLength(0);
+  });
 });
 
 describe('replies to a tab', () => {
