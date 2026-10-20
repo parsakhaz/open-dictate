@@ -60,7 +60,7 @@ export interface AgentState {
 const LABEL: Record<AgentId, string> = { claude: 'Claude Code', codex: 'Codex', cursor: 'Cursor' };
 const CLI_TIMEOUT_MS = 30_000;
 
-function homeDir(env: Env, platform: NodeJS.Platform): string {
+export function homeDir(env: Env, platform: NodeJS.Platform): string {
   return (platform === 'win32' ? env.USERPROFILE || env.HOME : env.HOME) || os.homedir();
 }
 
@@ -123,7 +123,7 @@ function readIfExists(file: string): string | undefined {
 const exists = (p: string) => fs.existsSync(p);
 
 /** Temp file, then rename, following a symlinked config to its target and keeping its mode. */
-function writeAtomic(file: string, text: string): void {
+export function writeAtomic(file: string, text: string): void {
   let target = file;
   try {
     target = fs.realpathSync(file);
