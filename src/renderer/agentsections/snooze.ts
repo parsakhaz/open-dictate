@@ -32,8 +32,8 @@ export const snooze: Section = ({ st, set }) => {
 
   return [
     h('h2', {}, 'Inbox and snooze'),
-    card('Decision round', 'Works through the cards waiting for you, right above the pill: 1–4 choose, Enter approves, S snoozes, → skips, Esc ends. While it is open you can also just say “approve”, “next” or your answer.', keyRecorder(inbox.roundKey, (b) => void set({ inbox: { ...inbox, roundKey: b } }), () => void set({ inbox: { ...inbox, roundKey: null } }))),
-    card('Snooze shortcut', 'Snoozes the card on top, from any app, only while a card is up. Press again while “Snoozed” shows to snooze longer.', keyRecorder(s.key, (b) => void set({ snooze: { ...s, key: b } }), () => void set({ snooze: { ...s, key: null } }))),
+    card('Decision round', 'Clears the waiting cards one by one, right above the pill, by keys or by saying “approve”, “next” or your answer.', keyRecorder(inbox.roundKey, (b) => void set({ inbox: { ...inbox, roundKey: b } }), () => void set({ inbox: { ...inbox, roundKey: null } }))),
+    card('Snooze shortcut', 'Snoozes the card on top while one is up. Press again to snooze longer.', keyRecorder(s.key, (b) => void set({ snooze: { ...s, key: b } }), () => void set({ snooze: { ...s, key: null } }))),
     card('Snooze lengths', 'One to three, 1–120 minutes. Each press steps to the next; the first is the one-press default. Type a number and press Enter to add one.', null, lengths),
     card(
       'Snooze returns',
