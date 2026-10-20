@@ -116,6 +116,7 @@ describe.skipIf(!have)('automatic gain on the speech fixture, through Nemotron',
     }
     // the original is already at a normal level: it is left alone
     expect(Math.abs(row('0 dB', 'auto, first dictation').endGain as number)).toBeLessThan(3);
-    expect(row('0 dB', 'auto, first dictation').wer).toBe(0);
+    // (compared with the same input unboosted: the clean reference itself can differ by a word on some platforms)
+    expect(row('0 dB', 'auto, first dictation').wer).toBeLessThanOrEqual(row('0 dB', 'none').wer as number);
   }, 180_000);
 });
