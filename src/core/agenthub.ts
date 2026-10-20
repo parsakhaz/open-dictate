@@ -270,7 +270,8 @@ export class AgentHub {
     this.grants.ended(sessionId);
     for (const w of [...this.asks.values()]) if (w.session === sessionId) w.resolve({ answered: false, reason: 'cancelled' });
     for (const w of [...this.consents.values()]) if (w.session === sessionId) w.resolve('dismissed');
-    const c = this.queue.byKey(`session:${sessionId}`) ?? this.queue.byKey(`vocab:${sessionId}`);
+    // The vocabulary review stays: the terms wait in Settings whether or not the agent is still connected.
+    const c = this.queue.byKey(`session:${sessionId}`);
     if (c && c.urgency === 'info' && this.queue.remove(c.id)) this.deps.changed();
   }
 
@@ -329,8 +330,9 @@ export class AgentHub {
     this.deps.changed();
   }
 
-  setDictating(on: boolean): void {
-    this.queue.setDictating(on, this.deps.now());
+  /** `replyTo`: the card this dictation answers by voice, kept on the pill meanwhile. */
+  setDictating(on: boolean, replyTo?: string): void {
+    this.queue.setDictating(on, this.deps.now(), replyTo);
     this.deps.changed();
   }
 
