@@ -19,14 +19,24 @@ module.exports = {
     {
       id: 'J0.2',
       name: 'a card looks as it did, drawn by the standard body with cards.css',
-      async run({ session, sleep, cmd, qa, shot, check }) {
+      async run({ session, sleep, cmd, qa, cards, shot, check }) {
         const agent = session({ client: 'codex-mcp-client', title: 'Codex' });
-        const ask = agent.call('ask', { question: 'Which region should the nightly backup go to?', message: 'Both are ready. EU keeps the data in one place; US is closer to the servers.', choices: ['EU', 'US'], timeout_s: 60 });
-        await sleep(900);
+        const question = 'Which region should the nightly backup go to?';
+        const ask = agent.call('ask', { question, message: 'Both are ready. EU keeps the data in one place; US is closer to the servers.', choices: ['EU', 'US'], timeout_s: 60 });
+        // Wait on the state itself, not a fixed time: a busy machine is slow to start the bridge.
+        for (let i = 0; i < 50 && (await cards())?.top?.title !== question; i++) await sleep(200);
         cmd('cards-hover on');
-        await sleep(600);
+        let l = null;
+        for (let i = 0; i < 25; i++) {
+          l = await qa('card-layout', /QA card-layout (.+)\n/);
+          if (l?.buttons.includes('EU')) break;
+          await sleep(200);
+        }
+        await sleep(400);
+        // The first capture of a fresh pill window can come back empty, as in the cards journeys.
+        await shot('p0-warmup');
+        await sleep(300);
         await shot('p0-card-hovered');
-        const l = await qa('card-layout', /QA card-layout (.+)\n/);
         check('the card shows its title, message and choices', l && !l.titleClipped && ['EU', 'US'].every((c) => l.buttons.includes(c)) && l.text.includes('nightly backup'), l);
         check('the card has its styled height (cards.css loaded)', l && l.cardHeight >= 80 && l.cardHeight <= 300, l);
         await qa('card-click EU', /QA card-click "EU" (.+)\n/);

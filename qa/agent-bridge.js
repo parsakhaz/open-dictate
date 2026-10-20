@@ -3,7 +3,8 @@
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 
-const ELECTRON = path.join(__dirname, '..', 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
+// DICTATE_QA_ELECTRON: another copy of the same Electron, for a checkout whose own binary can't run yet.
+const ELECTRON = process.env.DICTATE_QA_ELECTRON || path.join(__dirname, '..', 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
 
 function agentSession(dataDir, { client = 'claude-code', title = 'Claude Code', env = {}, cwd = process.cwd() } = {}) {
   const base = { ...process.env };
