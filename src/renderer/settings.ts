@@ -786,7 +786,7 @@ function microphone(): Node[] {
     const gain = gainSpec(s, d.label).db;
     const slider = h('input.slider', {
       type: 'range',
-      min: s.autoGain ? '0' : '-10',
+      min: s.autoGain ? String(Math.min(0, gain)) : '-10',
       max: '30',
       step: '1',
       value: String(gain),
