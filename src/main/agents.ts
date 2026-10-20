@@ -17,6 +17,7 @@ import { approveTerm, rejectTerm } from '../core/vocabproposals';
 import { type AgentHandlers, AgentServer } from './agentserver';
 import type { Logger } from './log';
 import { PaneLink } from './panelink';
+import { type InstructionsFile, instructionsStatus, syncInstructions } from './instructions';
 import { type AgentState, agentStatus, registerAgents, unregisterAgents } from './registration';
 import { debouncedWriter, loadJson } from './store';
 
@@ -130,6 +131,7 @@ export class Agents {
   server: AgentServer | undefined;
   accessLog: AccessRecord[];
   registrationState: AgentState[] = [];
+  instructionsState: InstructionsFile[] = [];
   /** A card the person chose to answer by voice (the Reply button, or the key held over it). */
   armed: string | null = null;
   private saveLog: ReturnType<typeof debouncedWriter>;
@@ -312,19 +314,23 @@ export class Agents {
 
   // ---------- registration ----------
 
-  /** Writes or removes Dictate's entries per the setting. Serialised: launch and the toggle never overlap. */
+  /** Writes or removes Dictate's entries and instruction blocks per the setting. Serialised: launch and the toggle never overlap. */
   applyRegistration(): Promise<unknown> {
     const run = async () => {
       const r = this.host.registration;
       if (!r.allowed) {
         this.host.log('info', 'agents: registration skipped (not a packaged build)');
         this.registrationState = await agentStatus({ env: r.env }).catch(() => []);
+        this.instructionsState = instructionsStatus({ env: r.env });
         return;
       }
       const opts = { env: r.env, executable: r.executable, bridgePath: path.join(agentsDir(this.host.userData), BRIDGE_FILE), log: this.host.log };
       // The writers log each change themselves.
-      await (this.host.settings().agentsEnabled ? registerAgents(opts) : unregisterAgents(opts));
+      const enabled = this.host.settings().agentsEnabled;
+      await (enabled ? registerAgents(opts) : unregisterAgents(opts));
+      syncInstructions(opts, enabled);
       this.registrationState = await agentStatus({ env: r.env }).catch(() => []);
+      this.instructionsState = instructionsStatus({ env: r.env });
     };
     this.registering = this.registering.then(run, run).catch((err) => this.host.log('warn', `agents: registration failed (${(err as Error).message})`));
     return this.registering;
@@ -345,6 +351,7 @@ export class Agents {
       channel: !!this.server,
       pane: { installed: this.pane.installed, attached: this.pane.attached },
       registration: this.registrationState,
+      instructions: this.instructionsState,
       registrationAllowed: this.host.registration.allowed,
       snippets: this.snippets(),
       sessions: [...(this.server?.sessions.values() ?? [])].map((s) => ({ id: s.id, client: s.client.title || s.client.name, inPane: !!s.pane, connectedAt: s.connectedAt })),
