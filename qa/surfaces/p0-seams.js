@@ -5,11 +5,13 @@ module.exports = {
   journeys: [
     {
       id: 'J0.1',
-      name: 'the bridge lists only the six tools while no lane has turned one on',
+      name: 'the bridge lists the six built-in tools, then only the surface tools a lane has turned on',
       async run({ session, check }) {
         const agent = session({ client: 'claude-code', title: 'Claude Code' });
         const tools = await agent.list();
-        check('tools/list is the six built-in tools', JSON.stringify(tools) === JSON.stringify(['notify', 'ask', 'status', 'propose_vocabulary', 'list_vocabulary', 'read_history']), tools);
+        const builtIn = ['notify', 'ask', 'status', 'propose_vocabulary', 'list_vocabulary', 'read_history'];
+        const surfaces = ['decide', 'approve', 'card_status', 'lineup', 'peek'];
+        check('tools/list is the six built-in tools, then surface tools only', JSON.stringify(tools.slice(0, 6)) === JSON.stringify(builtIn) && tools.slice(6).every((t) => surfaces.includes(t)), tools);
         const r = await agent.call('decide', { title: 'x', questions: [] });
         check('calling a hidden surface tool is refused', !!r.error || r.result === undefined, r);
         const status = await agent.call('status');

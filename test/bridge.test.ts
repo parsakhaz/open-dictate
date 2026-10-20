@@ -6,6 +6,7 @@ import path from 'node:path';
 import { build } from 'esbuild';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { channelPath } from '../src/core/agentwire';
+import { listedTools } from '../src/core/tools';
 import { type AgentHandlers, AgentServer, type AgentSession } from '../src/main/agentserver';
 
 let dir: string;
@@ -72,14 +73,17 @@ async function initialized(b: Bridge, name = 'claude-code') {
 const text = (r: { result?: Record<string, unknown> }) => (r.result!.content as { text: string }[])[0].text;
 
 describe('the bridge without Dictate running', () => {
-  it('answers the handshake and lists the six tools', async () => {
+  it('answers the handshake and lists the six built-in tools, then the surfaces turned on', async () => {
     const b = startBridge();
     const init = await initialized(b);
     expect(init.result).toMatchObject({ protocolVersion: '2025-06-18', serverInfo: { name: 'dictate', version: '9.9.9' }, capabilities: { tools: {} } });
     const list = await b.request('tools/list');
     const tools = list.result?.tools as { name: string; annotations: { readOnlyHint?: boolean } }[];
-    expect(tools.map((t) => t.name)).toEqual(['notify', 'ask', 'status', 'propose_vocabulary', 'list_vocabulary', 'read_history']);
-    expect(tools.filter((t) => t.annotations.readOnlyHint).map((t) => t.name)).toEqual(['status', 'list_vocabulary', 'read_history']);
+    // Each lane turns its tools on in its own module; this list follows them.
+    expect(tools.map((t) => t.name)).toEqual(listedTools().map((t) => t.name));
+    const builtIn = tools.slice(0, 6);
+    expect(builtIn.map((t) => t.name)).toEqual(['notify', 'ask', 'status', 'propose_vocabulary', 'list_vocabulary', 'read_history']);
+    expect(builtIn.filter((t) => t.annotations.readOnlyHint).map((t) => t.name)).toEqual(['status', 'list_vocabulary', 'read_history']);
   });
 
   it('tells every agent how to write a card: the approved rule, in the instructions and in notify and ask', async () => {
