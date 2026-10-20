@@ -171,6 +171,17 @@ export function batterySaverOn(): boolean {
   return GetSystemPowerStatus(st) && (st.SystemStatusFlag & 1) === 1;
 }
 
+const shell32 = koffi.load('shell32.dll');
+const SHQueryUserNotificationState = shell32.func('__stdcall', 'SHQueryUserNotificationState', 'int32', [koffi.out(koffi.pointer('int32'))]);
+
+/**
+ * What Windows says about notifications right now (QUERY_USER_NOTIFICATION_STATE: 2 a full-screen app, 3 a game,
+ * 4 presenting, 5 free…), or 0 when it can't say. The flow guard holds cards while it means busy.
+ */
+export function notificationState(): number {
+  const out = [0];
+  return SHQueryUserNotificationState(out) === 0 ? out[0] : 0;
+}
 export function postThreadMessage(tid: number, msg: number): boolean {
   return PostThreadMessageW(tid, msg, 0, 0);
 }

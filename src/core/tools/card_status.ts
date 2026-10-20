@@ -1,13 +1,14 @@
 // card_status: where a card an agent raised is now (held, shown, snoozed, answered…), and a late answer. The
-// definition only; lane L2 turns it on and registers its handler. Pure.
+// definition; the inbox feature (src/main/features/inbox.ts) answers it from the card queue. Pure.
 import type { ToolModule } from './types';
 
 export const cardStatus: ToolModule = {
-  enabled: false,
+  enabled: true,
   def: {
     name: 'card_status',
     title: 'Card status',
-    description: 'Where a card you raised is now: held, shown, snoozed (with until), answered (with the answer, even one given after your call returned), dismissed or expired. Pass the card_id a tool returned.',
+    description:
+      'Where a card you raised is now. Pass the card_id a tool returned. Returns {state, until?, answer?}: held (waiting while the person is busy), shown, snoozed (until: when it comes back), answered (answer: what they said or picked, even after your call returned, e.g. to a question you were told was snoozed), dismissed, expired (your wait ran out), cancelled, or gone (no longer on the pill: an info card that faded, or a card Dictate no longer knows how it ended). Unknown ids return {state: "unknown"}.',
     inputSchema: {
       type: 'object',
       properties: { card_id: { type: 'string', description: 'The card_id from notify, ask, decide, approve, lineup or peek.' } },

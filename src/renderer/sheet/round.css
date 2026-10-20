@@ -1,1 +1,265 @@
-/* Sheet: The decision round: queue chips, "1 of 3", one decision with its previews, the key legend (L2). */
+/* The decision round (L2): right above the pill, 480 px, nothing dimmed. Header with progress, queue chips, one
+   decision with numbered tiles, the open-listening line and the key legend. */
+
+body[data-kind='round'] .sheet {
+  box-shadow: 0 0 0 1.5px var(--accent), 0 6px 12px rgba(0, 0, 0, 0.4);
+}
+.rhead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.rhead .ttl {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.rbar {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+  max-width: 150px;
+}
+.rbar .seg {
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.14);
+}
+.rbar .seg.done {
+  background: rgba(96, 205, 255, 0.55);
+}
+.rbar .seg.now {
+  background: var(--accent);
+}
+.rhead .pos {
+  font-weight: 600;
+  color: var(--text);
+}
+.rhead .leave {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-3);
+  font-size: 11px;
+}
+.rchips {
+  display: flex;
+  gap: 6px;
+  padding: 0 14px 9px;
+  border-bottom: 1px solid var(--divider);
+  overflow: hidden;
+}
+.rchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--stroke-strong);
+  background: var(--card);
+  color: var(--text-3);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+}
+.rchip .tick {
+  color: var(--green);
+}
+.rchip .cdot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+}
+.rchip.now {
+  color: var(--text);
+  border-color: var(--accent);
+  background: rgba(96, 205, 255, 0.12);
+}
+.rchip.next:hover {
+  background: var(--card-hover);
+  color: var(--text-2);
+}
+.rcard {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 14px 4px;
+  display: grid;
+  gap: 5px;
+  align-content: start;
+}
+.rcard .src {
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rtitle {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.rcard .msg {
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--text-2);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.rcard .msg strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.rcard .msg code {
+  font-family: 'Cascadia Mono', Consolas, ui-monospace, monospace;
+  font-size: 11.5px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.rtiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+.rtile {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--stroke-strong);
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: default;
+}
+.rtile:hover {
+  background: var(--card-hover);
+}
+.rtile.first {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.rtile .num {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--stroke-strong);
+  color: var(--text-2);
+}
+.rtile.first .num {
+  background: var(--accent);
+  border-color: transparent;
+  color: #000;
+}
+.rtile .lab {
+  overflow-wrap: anywhere;
+}
+.rlisten {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 14px 0;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--stroke);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 12px;
+  color: var(--text-2);
+}
+.rlisten .mic {
+  color: var(--text-4);
+  font-size: 10px;
+}
+.rlisten.on .mic {
+  color: var(--accent);
+  animation: rlisten 1.2s ease-in-out infinite;
+}
+.rlisten b {
+  color: var(--accent);
+  font-weight: 600;
+}
+.rlisten .heard {
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: 11px;
+}
+@keyframes rlisten {
+  50% {
+    opacity: 0.35;
+  }
+}
+.rfoot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px 11px;
+}
+.rfoot .grow {
+  flex: 1;
+}
+.rbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--stroke-strong);
+  background: var(--card);
+  border-radius: 6px;
+  padding: 3px 9px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--text);
+  cursor: default;
+}
+.rbtn:hover {
+  background: var(--card-hover);
+}
+.rbtn.primary {
+  background: var(--accent);
+  color: #000;
+  border-color: transparent;
+  font-weight: 600;
+}
+.rhead kbd,
+.rbtn kbd {
+  font: inherit;
+  font-size: 10.5px;
+  line-height: 14px;
+  padding: 0 4px;
+  border-radius: 4px;
+  border: 1px solid var(--stroke-strong);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-2);
+}
+.rbtn.primary kbd {
+  border-color: rgba(0, 0, 0, 0.25);
+  background: rgba(0, 0, 0, 0.08);
+  color: rgba(0, 0, 0, 0.7);
+}
