@@ -104,6 +104,8 @@ export interface CardsView {
   top: CardDto | null;
   more: number;
   list: CardDto[];
+  /** The top card is being answered by voice right now. */
+  replying: boolean;
 }
 
 export type CardAction =
@@ -212,7 +214,7 @@ export class Agents {
     this.hub.queue.tick(now);
     const v = this.hub.queue.view(now);
     if (this.armed && !this.hub.queue.get(this.armed)) this.armed = null;
-    this.host.showCards({ top: v.top ? dto(v.top) : null, more: v.more, list: v.all.map(dto) });
+    this.host.showCards({ top: v.top ? dto(v.top) : null, more: v.more, list: v.all.map(dto), replying: !!v.top && v.top.id === this.hub.queue.replyingTo });
     clearTimeout(this.dueTimer);
     const due = this.hub.queue.nextDue(now);
     if (due !== null) this.dueTimer = setTimeout(() => this.render(), Math.max(50, due - now));
@@ -238,8 +240,15 @@ export class Agents {
     if (top) this.hub.dismiss(top.id);
   }
 
-  setDictating(on: boolean): void {
-    this.hub.setDictating(on);
+  /** `replyTo`: the card this dictation answers; it stays on the pill until the dictation is over. */
+  setDictating(on: boolean, replyTo?: string): void {
+    this.hub.setDictating(on, replyTo);
+  }
+
+  /** The pointer is over the cards: info cards stop fading until it leaves. */
+  setHovered(on: boolean): void {
+    this.hub.queue.setHovered(on, Date.now());
+    this.render();
   }
 
   setPaused(on: boolean): void {

@@ -1,9 +1,9 @@
 // Attention cards on the pill: what agents and Pane tabs need from the person. One card per tab (or per agent
-// session outside Pane), ranked most urgent and oldest first, held while the person dictates and while alerts are
-// paused. Pure: time comes in as arguments.
+// session outside Pane), ranked most urgent and oldest first, held while the person dictates (except the card being
+// answered by voice) and while alerts are paused. Pure: time comes in as arguments.
 import type { ActionHint } from './agenttools';
 
-/** consent and needs_you stay until handled; info fades after a few seconds. */
+/** consent and needs_you stay until handled; info fades after a few seconds, except the vocabulary review. */
 export type CardUrgency = 'info' | 'needs_you' | 'consent';
 
 export interface CardTarget {
@@ -32,20 +32,24 @@ export interface Card {
   /** The Pane tab this card opens and replies to; none outside Pane. */
   target: CardTarget | null;
   createdAt: number;
-  /** When an info card was first on screen; it fades a few seconds later. */
+  /** When an info card was first on screen; it fades a few seconds later (moved on by the time it was hovered). */
   shownAt?: number;
   faded?: boolean;
 }
 
 export type AddResult = 'shown' | 'queued' | 'dnd' | 'replaced';
 
-export const INFO_MS = 5000;
+export const INFO_MS = 4500;
+/** After the pointer leaves, an info card stays at least this long. */
+export const HOVER_GRACE_MS = 2000;
 /** Faded info cards are kept for the list this long. */
 export const FADED_KEEP_MS = 10 * 60_000;
 /** After a dictation ends, cards wait this long before appearing. */
 export const AFTER_DICTATION_MS = 1000;
 
 const rank = (u: CardUrgency) => (u === 'consent' ? 0 : u === 'needs_you' ? 1 : 2);
+/** Info cards fade; the vocabulary review asks the person to act, so it stays like a card that needs them. */
+const fades = (c: Card) => c.urgency === 'info' && c.kind !== 'vocab';
 
 export interface CardView {
   /** The card on the pill, if any is due. */
@@ -61,6 +65,10 @@ export class CardQueue {
   /** The person is dictating (or just finished): nothing new appears until `holdUntil`. */
   private dictating = false;
   private holdUntil = 0;
+  /** The card the person is answering by voice: it stays on screen through the dictation. */
+  private replying: string | null = null;
+  /** Since when the pointer has been over the cards: info cards don't fade meanwhile. */
+  private hoveredSince: number | null = null;
   paused = false;
 
   /** Adds a card, or merges it into the card already there for the same tab or session. */
@@ -109,14 +117,37 @@ export class CardQueue {
     return this.cards.filter((c) => !c.faded).length;
   }
 
-  setDictating(on: boolean, now: number): void {
-    if (this.dictating && !on) this.holdUntil = now + AFTER_DICTATION_MS;
+  /** `replyTo`: the card this dictation answers, kept on screen until the dictation is over. */
+  setDictating(on: boolean, now: number, replyTo?: string): void {
+    // After a reply the cards come straight back: the person was already looking at them.
+    if (this.dictating && !on && !this.replying) this.holdUntil = now + AFTER_DICTATION_MS;
+    // An info card that was answered but is still here gets its full time again.
+    const answered = this.replying ? this.get(this.replying) : undefined;
+    if (!on && answered && fades(answered) && answered.shownAt !== undefined) answered.shownAt = now;
     this.dictating = on;
+    this.replying = on && replyTo && this.get(replyTo) ? replyTo : null;
+  }
+
+  get replyingTo(): string | null {
+    return this.replying && this.get(this.replying) ? this.replying : null;
+  }
+
+  /** The pointer is over the cards: info cards wait, then get the rest of their time when it leaves, at least 2 s. */
+  setHovered(on: boolean, now: number): void {
+    if (on && this.hoveredSince === null) this.hoveredSince = now;
+    if (!on && this.hoveredSince !== null) {
+      const paused = now - this.hoveredSince;
+      for (const c of this.cards) {
+        if (!fades(c) || c.faded || c.shownAt === undefined) continue;
+        c.shownAt = Math.max(c.shownAt + paused, now + HOVER_GRACE_MS - INFO_MS);
+      }
+      this.hoveredSince = null;
+    }
   }
 
   /** Unpausing shows the cards that still need the person; info that arrived meanwhile is dropped. */
   setPaused(on: boolean): void {
-    if (this.paused && !on) this.cards = this.cards.filter((c) => c.urgency !== 'info');
+    if (this.paused && !on) this.cards = this.cards.filter((c) => !fades(c));
     this.paused = on;
   }
 
@@ -128,9 +159,9 @@ export class CardQueue {
   tick(now: number): boolean {
     let changed = false;
     const top = this.isHeld(now) ? null : this.visible()[0];
-    if (top && top.urgency === 'info' && top.shownAt === undefined) top.shownAt = now;
+    if (top && fades(top) && top.shownAt === undefined) top.shownAt = now;
     for (const c of this.cards) {
-      if (c.urgency === 'info' && !c.faded && c.shownAt !== undefined && now - c.shownAt >= INFO_MS) {
+      if (this.ticking(c) && now - c.shownAt! >= INFO_MS) {
         c.faded = true;
         changed = true;
       }
@@ -145,17 +176,24 @@ export class CardQueue {
     const times: number[] = [];
     if (!this.paused && !this.dictating && now < this.holdUntil) times.push(this.holdUntil);
     for (const c of this.cards) {
-      if (c.urgency === 'info' && !c.faded && c.shownAt !== undefined) times.push(c.shownAt + INFO_MS);
+      if (this.ticking(c)) times.push(c.shownAt! + INFO_MS);
       if (c.faded) times.push(c.createdAt + FADED_KEEP_MS);
     }
-    if (!this.isHeld(now) && this.visible()[0]?.shownAt === undefined && this.visible()[0]?.urgency === 'info') times.push(now);
+    const top = this.isHeld(now) ? undefined : this.visible()[0];
+    if (top && fades(top) && top.shownAt === undefined) times.push(now);
     return times.length ? Math.max(now, Math.min(...times)) : null;
   }
 
   view(now: number): CardView {
     const all = [...this.cards];
-    const top = this.isHeld(now) ? null : (this.visible()[0] ?? null);
+    const replying = this.replyingTo;
+    const top = replying ? this.get(replying)! : this.isHeld(now) ? null : (this.visible()[0] ?? null);
     return { top, more: top ? all.length - 1 : 0, all };
+  }
+
+  /** An info card whose time is running: shown, not hovered, not being answered. */
+  private ticking(c: Card): boolean {
+    return fades(c) && !c.faded && c.shownAt !== undefined && this.hoveredSince === null && c.id !== this.replying;
   }
 
   private visible(): Card[] {

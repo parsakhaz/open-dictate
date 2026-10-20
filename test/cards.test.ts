@@ -101,6 +101,91 @@ describe('CardQueue', () => {
     expect(q.view(FADED_KEEP_MS + 1).all).toHaveLength(0);
   });
 
+  it('shows an info card for about 4.5 s', () => {
+    const q = new CardQueue();
+    const fyi = card({ urgency: 'info' });
+    q.add(fyi, 0);
+    q.tick(0);
+    q.tick(4400);
+    expect(q.view(4400).top?.id).toBe(fyi.id);
+    q.tick(4500);
+    expect(q.view(4500).top).toBeNull();
+  });
+
+  it('pauses an info card while the pointer is over it, then gives it the rest of its time', () => {
+    const q = new CardQueue();
+    const fyi = card({ urgency: 'info' });
+    q.add(fyi, 0);
+    q.tick(0);
+    q.setHovered(true, 1000);
+    expect(q.nextDue(1000)).toBeNull();
+    q.tick(30_000);
+    expect(q.view(30_000).top?.id).toBe(fyi.id);
+    q.setHovered(false, 30_000);
+    // 1 s had passed before the hover: 3.5 s are left.
+    expect(q.nextDue(30_000)).toBe(33_500);
+    q.tick(33_499);
+    expect(q.view(33_499).top?.id).toBe(fyi.id);
+    q.tick(33_500);
+    expect(q.view(33_500).top).toBeNull();
+  });
+
+  it('gives an info card at least 2 s more after the pointer leaves it, however little time it had left', () => {
+    const q = new CardQueue();
+    const fyi = card({ urgency: 'info' });
+    q.add(fyi, 0);
+    q.tick(0);
+    // Pointed at with 0.3 s left.
+    q.setHovered(true, 4200);
+    q.tick(9000);
+    expect(q.view(9000).top?.id).toBe(fyi.id);
+    q.setHovered(false, 9000);
+    expect(q.nextDue(9000)).toBe(11_000);
+    q.tick(10_999);
+    expect(q.view(10_999).top?.id).toBe(fyi.id);
+    q.tick(11_000);
+    expect(q.view(11_000).top).toBeNull();
+  });
+
+  it('keeps the vocabulary card until it is reviewed or dismissed, also across a pause', () => {
+    const q = new CardQueue();
+    const vocab = card({ kind: 'vocab', urgency: 'info', origin: 'dictate', key: 'vocab:s1' });
+    q.add(vocab, 0);
+    q.tick(0);
+    q.tick(10 * 60_000);
+    expect(q.view(10 * 60_000).top?.id).toBe(vocab.id);
+    expect(q.nextDue(10 * 60_000)).toBeNull();
+    q.setPaused(true);
+    q.setPaused(false);
+    expect(q.view(10 * 60_000).top?.id).toBe(vocab.id);
+  });
+
+  it('keeps the card being answered by voice on screen while the person dictates, and holds the rest', () => {
+    const q = new CardQueue();
+    const ask = card({ kind: 'ask', title: 'Staging or prod?' });
+    q.add(ask, 0);
+    q.setDictating(true, 100, ask.id);
+    expect(q.view(100).top?.id).toBe(ask.id);
+    expect(q.replyingTo).toBe(ask.id);
+    const urgent = card({ urgency: 'consent', kind: 'consent', key: 'consent:1' });
+    expect(q.add(urgent, 200)).toBe('queued');
+    expect(q.view(200).top?.id).toBe(ask.id);
+    // Released and still there (the reply was cancelled): no pause before the cards come back.
+    q.setDictating(false, 5000);
+    expect(q.replyingTo).toBeNull();
+    expect(q.view(5000).top?.id).toBe(urgent.id);
+  });
+
+  it('never fades an info card while it is being answered by voice', () => {
+    const q = new CardQueue();
+    const done = card({ kind: 'pane-ready', urgency: 'info' });
+    q.add(done, 0);
+    q.tick(0);
+    q.setDictating(true, 1000, done.id);
+    q.tick(20_000);
+    expect(q.view(20_000).top?.id).toBe(done.id);
+  });
+
   it('keeps "needs you" cards until they are handled', () => {
     const q = new CardQueue();
     const c = card();

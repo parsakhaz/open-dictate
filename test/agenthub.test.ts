@@ -221,6 +221,13 @@ describe('vocabulary from agents (J12)', () => {
     expect(hub.queue.view(Date.now()).top).toMatchObject({ kind: 'vocab', title: 'Suggests 3 terms · Review', source: 'dictate-mcp · Codex' });
     expect(await hub.call(inTab(), 'list_vocabulary', {}, sig())).toEqual({ terms: [{ term: 'Pane' }], pending: 3 });
   });
+
+  it('keeps the review card after the agent disconnects, since it still asks the person to act', async () => {
+    const { hub } = setup();
+    await hub.call(inTab(), 'propose_vocabulary', { terms: [{ term: 'Supabase' }] }, sig());
+    hub.sessionClosed('s-X');
+    expect(hub.queue.view(Date.now()).top).toMatchObject({ kind: 'vocab', title: 'Suggests 1 term · Review' });
+  });
 });
 
 describe('history (J13, J14)', () => {

@@ -35,11 +35,13 @@ Honest limit: other processes running as the same user can read the token. The r
 - Ranking: consent first, then "needs you", then info; oldest first within each, with "+N" for the rest.
 - "Finished" never replaces a card that needs the person, or an agent's own note.
 - An agent's `notify` followed by its tab becoming blocked stays one card. It keeps the agent's title and offers Reply.
-- Nothing appears while the person dictates. A held card shows a second after the text goes out.
+- Nothing new appears while the person dictates. A held card shows a second after the text goes out. The card being answered by voice is the exception: it stays up through the whole reply, marked "Replying by voice…".
 - Paused alerts hold everything. `notify` returns `dnd`, and unpausing drops the info cards.
-- Info cards fade after about 5 s.
+- Info cards fade after about 4.5 s on screen. The timer waits while the pointer is over the cards, and when it leaves the card stays at least 2 s more. The vocabulary review is info, but it stays until it is reviewed or dismissed, also after the agent disconnects.
 
-The **source line** is always Dictate's own words. In Pane it is "<Pane name> · <tab>", looked up through runpane from the session's ids. Outside Pane it is "<client> · <folder>". Agent text is untrusted: [src/core/agenttext.ts](../../src/core/agenttext.ts) strips escape codes, control and bidi characters and tags, and applies the caps. Links must be https and open only on a click.
+On the pill ([src/renderer/cards.ts](../../src/renderer/cards.ts)) the top card shows its source, its whole title and its message; pointing at it adds the buttons. Its body eases to each new height (no motion with reduced motion) and scrolls past 236 px. The pill window is click-through. While a card is up, main polls the pointer against the card's rectangle and takes clicks only over it. On Windows a click-through window gets no pointer moves, so the page can't detect the hover itself ([#9](https://github.com/parsakhaz/open-dictate/issues/9)).
+
+The **source line** is always Dictate's own words. In Pane it is "<Pane name> · <tab>", looked up through runpane from the session's ids. Outside Pane it is "<client> · <folder>". Agent text is untrusted: [src/core/agenttext.ts](../../src/core/agenttext.ts) strips escape codes, control and bidi characters and tags, and applies the caps. Links must be https and open only on a click. A message keeps its line breaks, and tags stay as their characters. On the pill ([src/core/cardtext.ts](../../src/core/cardtext.ts)) a title loses every Markdown mark. A message keeps **bold**, *italic* and `inline code`, built as DOM elements holding text nodes and never as HTML. Headings and list markers become plain lines, and a link becomes its text.
 
 ## Pane
 

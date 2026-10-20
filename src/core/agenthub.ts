@@ -1,7 +1,7 @@
 // What happens when an agent calls one of Dictate's tools, when Pane reports a tab, and when the person clicks a
 // card: the rules between the tools, the card queue, consent and Pane. Everything outside (the pill, runpane,
 // history, settings, time) comes in through HubDeps. Pure.
-import { cleanText } from './agenttext';
+import { cleanMessage } from './agenttext';
 import { CAPS, parseAsk, parseHistoryRequest, parseNotify, ToolInputError } from './agenttools';
 import type { ClientInfo, PaneIds } from './agentwire';
 import { type AddResult, type Card, type CardTarget, CardQueue } from './cards';
@@ -270,7 +270,8 @@ export class AgentHub {
     this.grants.ended(sessionId);
     for (const w of [...this.asks.values()]) if (w.session === sessionId) w.resolve({ answered: false, reason: 'cancelled' });
     for (const w of [...this.consents.values()]) if (w.session === sessionId) w.resolve('dismissed');
-    const c = this.queue.byKey(`session:${sessionId}`) ?? this.queue.byKey(`vocab:${sessionId}`);
+    // The vocabulary review stays: the terms wait in Settings whether or not the agent is still connected.
+    const c = this.queue.byKey(`session:${sessionId}`);
     if (c && c.urgency === 'info' && this.queue.remove(c.id)) this.deps.changed();
   }
 
@@ -329,8 +330,9 @@ export class AgentHub {
     this.deps.changed();
   }
 
-  setDictating(on: boolean): void {
-    this.queue.setDictating(on, this.deps.now());
+  /** `replyTo`: the card this dictation answers by voice, kept on the pill meanwhile. */
+  setDictating(on: boolean, replyTo?: string): void {
+    this.queue.setDictating(on, this.deps.now(), replyTo);
     this.deps.changed();
   }
 
@@ -354,7 +356,7 @@ export class AgentHub {
     if (a.type === 'clear') return;
     if (a.type === 'finished' && this.deps.pane.inFront()) return;
     const tab = await this.deps.pane.tab(a.paneId, a.panelId).catch(() => null);
-    const message = a.message ?? cleanText(await this.deps.pane.lastMessage(a.panelId).catch(() => null), CAPS.message).text;
+    const message = a.message ?? cleanMessage(await this.deps.pane.lastMessage(a.panelId).catch(() => null), CAPS.message).text;
     const blocked = a.type === 'blocked';
     this.add({
       id: this.id(),
