@@ -99,10 +99,11 @@ module.exports = {
         await sleep(300);
         d = await qa('inbox dump', INBOX);
         check('pressed again while the toast shows, it is 5', d?.toast?.minutes === 5 && d.extra.snoozed.length === 1, d);
+        await qa('inbox pill snoozed', PILL);
         const now = await qa(`inbox pill now ${id}`, PILL);
         await sleep(300);
         const nowBack = await cards();
-        check('the shelf’s Now brings the card back', (now?.clicked || now?.shelf?.length === 0) && nowBack?.top?.title === 'Roll the new checkout out to 10%?', { now, nowBack });
+        check('the shelf’s Now brings the card back', now?.clicked === true && nowBack?.top?.title === 'Roll the new checkout out to 10%?', { now, nowBack });
         cmd('card dismiss');
         await sleep(5500);
         d = await qa('inbox dump', INBOX);
@@ -138,7 +139,7 @@ module.exports = {
       id: 'J6',
       name: 'a decision round above the pill: keys, open listening, the summary, Undo, and Esc',
       async run(ctx) {
-        const { session, cmd, qa, cards, sheet, shot, sheetShot, sleep, check } = ctx;
+        const { session, cmd, qa, cards, sheet, shot, sheetShot, sleep, check, MODELS } = ctx;
         await clear(ctx);
         cmd('inbox keydown');
         const agents = [0, 1, 2].map((i) => session({ client: 'codex-mcp-client', title: `Agent ${i}` }));
@@ -158,7 +159,8 @@ module.exports = {
         check('it is 480 px wide (plus its shadow margin) and centred over the pill', s && s.bounds.width === 480 + 24 && Math.abs(s.bounds.x + s.bounds.width / 2 - (s.pill.x + s.pill.width / 2)) <= 1, s?.bounds);
         check('it shows chips and "1 of 3"', s && /1 of 3/.test(s.page.text) && /Where should the coupon field go/.test(s.page.text), s?.page);
         let d = await qa('inbox dump', INBOX);
-        check('open listening is on while the round is open', d?.listening === true && d.recording === true, d);
+        // Without the speech model the mic can't open (the pill says the model is loading); the round still listens for keys.
+        check('open listening is on while the round is open', d?.listening === true && (d.recording === true || !MODELS), d);
         check('the pill shows no card during the round', d && !d.top, d);
         await sheetShot('l2-j6-round');
         cmd('inbox key 2');
@@ -190,7 +192,8 @@ module.exports = {
         check('Undo restores the last card', undone?.top?.title === 'Review the welcome copy?', undone);
         cmd('inbox shortcut round');
         await sleep(800);
-        cmd('escape');
+        // Esc with the mic open goes through the key hook; without the model there is no recording, so the page's Esc.
+        cmd(MODELS ? 'escape' : 'inbox key Escape');
         await sleep(800);
         const esc = await sheet();
         d = await qa('inbox dump', INBOX);
