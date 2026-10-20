@@ -100,7 +100,8 @@ async function callApp(rpcId: Id, tool: string, args: unknown): Promise<AppToBri
   }
   const id = nextCall++;
   const call = frame({ t: 'call', id, tool, args: args ?? {} });
-  if (call.length > MAX_LINE) return { t: 'result', id, error: tooBig('This call', call.length) };
+  // The frame's newline isn't part of the line the app reads.
+  if (call.length - 1 > MAX_LINE) return { t: 'result', id, error: tooBig('This call', call.length) };
   inFlight.set(rpcId, id);
   return new Promise((resolve) => {
     l.calls.set(id, (m) => {
@@ -116,14 +117,34 @@ async function callApp(rpcId: Id, tool: string, args: unknown): Promise<AppToBri
 
 const tooBig = (what: string, chars: number) => `${what} is ${megabytes(chars)}; Dictate takes at most ${MAX_LINE_SIZE} per call. Send less, or split it into several calls.`;
 
-// A request's id, from the ends of a line too long to read: first when written by hand, last as the MCP SDK writes it.
+// A request's id, from the ends of a line too long to read: in its start when it comes before the params, as most
+// clients write it, or last, as the MCP SDK writes it.
 const ID = String.raw`"id"\s*:\s*(-?\d+|"(?:[^"\\]|\\.)*")`;
-const HEAD_ID = new RegExp(String.raw`^\{\s*(?:"jsonrpc"\s*:\s*"2\.0"\s*,\s*)?${ID}`);
 const TAIL_ID = new RegExp(String.raw`[,{]\s*${ID}\s*\}$`);
+const VALUE_ID = /^\s*:\s*(-?\d+|"(?:[^"\\]|\\.)*")/;
+
+/** The top-level "id" in the start of a JSON object, skipping strings and anything nested (an "id" in the params). */
+function headId(head: string): RegExpExecArray | null {
+  let depth = 0;
+  for (let i = 0; i < head.length; i++) {
+    const c = head[i];
+    if (c === '"') {
+      const end = /^"(?:[^"\\]|\\.)*"/.exec(head.slice(i));
+      if (!end) return null;
+      i += end[0].length - 1;
+      if (depth === 1 && end[0] === '"id"') {
+        const v = VALUE_ID.exec(head.slice(i + 1));
+        if (v) return v;
+      }
+    } else if (c === '{' || c === '[') depth++;
+    else if (c === '}' || c === ']') depth--;
+  }
+  return null;
+}
 
 /** Answers a request too long to read, so the agent hears why instead of waiting out its timeout. */
 function refuseLong(line: LongLine): void {
-  const found = HEAD_ID.exec(line.head) ?? TAIL_ID.exec(line.tail);
+  const found = headId(line.head) ?? TAIL_ID.exec(line.tail);
   if (!found) {
     process.stderr.write(`dictate: dropped a ${megabytes(line.length)} message with no id to answer\n`);
     return;

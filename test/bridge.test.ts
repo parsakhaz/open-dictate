@@ -210,6 +210,11 @@ describe('the bridge with Dictate running', () => {
     // The MCP SDK writes the id last.
     const idLast = await b.raw(77, JSON.stringify({ method: 'tools/call', params: { name: 'propose_vocabulary', arguments: bigVocab() }, jsonrpc: '2.0', id: 77 }));
     expect(idLast.error?.code).toBe(-32600);
+    // Some clients write the id after the method, before the params; a nested "id" in the params is not it.
+    const idMid = await b.raw(78, `{"jsonrpc":"2.0","method":"tools/call","id":78,"params":{"name":"propose_vocabulary","arguments":${JSON.stringify(bigVocab())}}}`);
+    expect(idMid.error?.code).toBe(-32600);
+    const nested = await b.raw(79, `{"jsonrpc":"2.0","params":{"meta":{"id":5},"name":"propose_vocabulary","arguments":${JSON.stringify(bigVocab())}},"method":"tools/call","id":79}`);
+    expect(nested.error?.code).toBe(-32600);
     expect((await b.request('tools/call', { name: 'status', arguments: {} })).result?.structuredContent).toEqual({ ok: true, tool: 'status' });
   });
 

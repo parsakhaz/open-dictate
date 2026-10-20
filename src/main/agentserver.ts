@@ -84,7 +84,7 @@ export class AgentServer {
       if (socket.destroyed) return;
       const f = frame(m);
       // The bridge can't read a line this long; an error it can read beats an answer that never arrives.
-      if (f.length > MAX_LINE && m.t === 'result') socket.write(frame({ t: 'result', id: m.id, error: `The answer is ${megabytes(f.length)}, and the bridge reads at most ${MAX_LINE_SIZE}.` }));
+      if (f.length - 1 > MAX_LINE && m.t === 'result') socket.write(frame({ t: 'result', id: m.id, error: `The answer is ${megabytes(f.length)}, and the bridge reads at most ${MAX_LINE_SIZE}.` }));
       else socket.write(f);
     };
     // A connection that doesn't say hello promptly is dropped.
