@@ -38,7 +38,8 @@ return { ...(await answer), card_id };
 
 `hub.settle(id, value)` ends the wait (`keepCard` leaves the card up, for a snoozed question). Timeouts, the agent
 cancelling, its connection closing and ✕ end it with `{ answered: false, reason }`. Every card-raising result
-carries `card_id`. `hub.extendStatus(() => ({ focus, waiting }))` adds to the status tool.
+carries `card_id`. `hub.onEnded((cardId, how, value) => …)` hears every card end (`answered`, `dismissed`,
+`expired`, `cancelled`), for card_status; a wait settled with `keepCard` hasn't ended. `hub.extendStatus(() => ({ focus, waiting }))` adds to the status tool.
 
 **A card kind.** The kinds are declared in `src/core/cards.ts` (`CARD_KINDS`); a card carries its own `data`. The
 body is `src/renderer/cards/<kind>.ts` (a `CardBody` drawing title, message and buttons as text nodes, never HTML).
@@ -62,7 +63,7 @@ keys: hold to talk, release to send, a tap does nothing. They are bound only onc
 `host.route('agent', { label, began, partial, cancelled, deliver })`. `deliver(text, raw)` gets the cleaned words
 instead of a paste; it previews (`host.preview(to, text)`) or reviews them itself and returns what the pill says. The
 pill shows `label` while recording and has `data-route` for styling. Open listening records without a key:
-`host.recording.start('round')`.
+`host.recording.start('round')`; Esc cancels it (the route's `cancelled` fires), as it does a key's recording.
 
 The snooze (`settings.snooze.key`, Ctrl+Alt+Z) and round (`settings.inbox.roundKey`, Ctrl+Alt+Space) shortcuts are
 bound only while their feature claims them: `host.shortcut('snooze', { claimed: () => cardUp, pressed })`, and

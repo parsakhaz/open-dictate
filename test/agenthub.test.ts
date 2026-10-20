@@ -402,6 +402,27 @@ describe('the surfaces seams', () => {
     expect(seen).toEqual([`reply ${id} Staging. staging`, `action ${id} pick {"q":0,"option":1}`]);
   });
 
+  it('says how each card ended: answered, dismissed, expired or cancelled; a kept (snoozed) card has not ended', async () => {
+    const { hub, advance } = setup();
+    const ends: string[] = [];
+    hub.onEnded((id, how) => ends.push(`${id} ${how}`));
+    const ids = [hub.newId(), hub.newId(), hub.newId(), hub.newId(), hub.newId()];
+    const ac = new AbortController();
+    for (const [i, id] of ids.entries()) {
+      void hub.wait(id, { session: `s-${i}`, kind: 'decide', timeoutMs: i === 2 ? 1000 : 60_000, signal: i === 3 ? ac.signal : sig() });
+      hub.raise({ ...card(id), key: `k:${id}` });
+    }
+    hub.settle(ids[0], { answered: true });
+    hub.dismiss(ids[1]);
+    await advance(1000);
+    ac.abort();
+    hub.settle(ids[4], { answered: false, reason: 'snoozed' }, true);
+    const plain = hub.newId();
+    hub.raise({ ...card(plain), key: `k:${plain}` });
+    hub.dismiss(plain);
+    expect(ends).toEqual([`${ids[0]} answered`, `${ids[1]} dismissed`, `${ids[2]} expired`, `${ids[3]} cancelled`, `${plain} dismissed`]);
+  });
+
   it('adds what features contribute to status', async () => {
     const { hub } = setup();
     hub.extendStatus(() => ({ focus: 'free', waiting: 0 }));

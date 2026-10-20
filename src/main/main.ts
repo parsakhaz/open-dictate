@@ -965,6 +965,7 @@ function onHook(e: FromHook): void {
     cancelAfterRelease();
     return;
   }
+  if (e.down && e.vk === VK.Escape && escapeKeyless()) return;
   if (picker.isOpen) {
     if (!platformCapabilities().canSwallowKeys) return;
     // Alt and Win combos (Alt+Tab, Win+D) are the person leaving: let them through and close.
@@ -974,6 +975,16 @@ function onHook(e: FromHook): void {
   }
   if (e.down) machine.down(e.vk, e.t);
   else machine.up(e.vk, e.t);
+}
+
+/**
+ * Esc while a recording runs that no key started (a surface's open listening): the machine is idle and would ignore
+ * it, and the hook swallows Esc while recording, so it cancels here. True when it did.
+ */
+function escapeKeyless(): boolean {
+  if (!rec || machine.recording) return false;
+  onHotkey({ type: 'cancel', reason: 'escape' });
+  return true;
 }
 
 function bindings(): Bindings {
@@ -1562,7 +1573,10 @@ async function main(): Promise<void> {
         const t = performance.now();
         if (line === 'down') machine.down(key, t);
         else if (line === 'up') machine.up(key, t);
-        else if (line === 'escape') { machine.down(VK.Escape, t); machine.up(VK.Escape, t + 1); }
+        else if (line === 'escape') {
+          if (!escapeKeyless()) machine.down(VK.Escape, t);
+          machine.up(VK.Escape, t + 1);
+        }
         else if (line === 'quit') app.quit();
         // Bring Settings to the front, as a click would (Getting started's practice box needs it focused).
         else if (line === 'focus') { app.focus({ steal: true }); settingsWin?.show(); settingsWin?.focus(); }

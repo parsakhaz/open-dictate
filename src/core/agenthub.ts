@@ -70,6 +70,9 @@ export interface WaitOptions<E> {
   ends?: { timeout: E; cancelled: E; dismissed: E };
 }
 
+/** How a card left the pill: answered (a wait settled with an answer, or a reply delivered to its tab), dismissed, expired or cancelled (the agent went). */
+export type CardEnd = 'answered' | 'dismissed' | 'expired' | 'cancelled';
+
 /** A surface tool's handler: the arguments as the agent sent them; what it returns goes back as the tool's result. */
 export type ToolHandler = (session: HubSession, args: unknown, signal: AbortSignal) => Promise<unknown>;
 
@@ -116,6 +119,7 @@ export class AgentHub {
   private tools = new Map<string, ToolHandler>();
   private kinds = new Map<CardKind, CardHandler>();
   private statusParts: (() => Record<string, unknown>)[] = [];
+  private enders: ((cardId: string, how: CardEnd, value: unknown) => void)[] = [];
 
   constructor(private deps: HubDeps) {}
 
@@ -134,6 +138,15 @@ export class AgentHub {
   /** More fields for the status tool (the inbox adds focus and waiting). */
   extendStatus(part: () => Record<string, unknown>): void {
     this.statusParts.push(part);
+  }
+
+  /** Told whenever a card ends: how, and with what (the wait's value, or the words sent to its tab). card_status reads this. */
+  onEnded(cb: (cardId: string, how: CardEnd, value: unknown) => void): void {
+    this.enders.push(cb);
+  }
+
+  private ended(cardId: string, how: CardEnd, value: unknown): void {
+    for (const cb of this.enders) cb(cardId, how, value);
   }
 
   newId(): string {
@@ -176,6 +189,8 @@ export class AgentHub {
     this.waits.delete(cardId);
     if (!keepCard && this.queue.remove(cardId)) this.deps.changed();
     w.resolve(value);
+    // A wait settled with keepCard (a snoozed question) hasn't ended: its card is still in Dictate.
+    if (!keepCard) this.ended(cardId, value === w.ends.timeout ? 'expired' : value === w.ends.cancelled ? 'cancelled' : value === w.ends.dismissed ? 'dismissed' : 'answered', value);
     return true;
   }
 
@@ -372,7 +387,10 @@ export class AgentHub {
   dismiss(cardId: string): void {
     const w = this.waits.get(cardId);
     if (w) this.settle(cardId, w.ends.dismissed);
-    else if (this.queue.remove(cardId)) this.deps.changed();
+    else if (this.queue.remove(cardId)) {
+      this.deps.changed();
+      this.ended(cardId, 'dismissed', undefined);
+    }
   }
 
   consent(cardId: string, answer: ConsentAnswer): void {
@@ -421,7 +439,10 @@ export class AgentHub {
       this.deps.log('warn', `agents: reply to a Pane tab was not delivered (${r.blocked ?? 'no reason'})`);
       return { ok: false, message: "Couldn't send · opened the tab" };
     }
-    if (this.queue.remove(card.id)) this.deps.changed();
+    if (this.queue.remove(card.id)) {
+      this.deps.changed();
+      this.ended(card.id, 'answered', { text });
+    }
     return { ok: true, message: `Sent to ${tab}` };
   }
 
