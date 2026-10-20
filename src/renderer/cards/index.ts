@@ -3,6 +3,7 @@
 // Every word is shown as plain text. Only the cards take clicks: main watches the pointer, lets the window catch it
 // while it is over a card, and says so here. The card's body eases to its new height whenever what it shows changes.
 // The frame (head, list, easing) is here; each kind's body is its own module (bodies.ts).
+import { type Rect, resizeReach } from '../../core/cardpointer';
 import { plainTitle } from '../../core/cardtext';
 import { dictate, h } from '../bridge';
 import { BODIES } from './bodies';
@@ -31,8 +32,11 @@ export function mountCards(parent: HTMLElement, before: Node): void {
   /** The card on screen, kept while the same card is on top so redraws never replace it under the pointer. */
   let shown: { id: string; el: HTMLElement; body: HTMLElement; head: HTMLElement; drawn: string } | null = null;
   let resize: Animation | undefined;
+  /** Everywhere the card is drawn while it resizes, for main's hit test. */
+  let reach: Rect | null = null;
 
-  // From main, which watches the pointer against the card's rectangle (sent below).
+  // From main, which watches the pointer against the card's rectangle (sent below), and opens the card once the
+  // pointer is on its body.
   dictate.on('dictate:card-hover', (on: boolean) => {
     if (hovered === on) return;
     hovered = on;
@@ -100,6 +104,7 @@ export function mountCards(parent: HTMLElement, before: Node): void {
   function animateBody(body: HTMLElement, from: number | null): void {
     const was = resize;
     resize = undefined;
+    reach = null;
     was?.cancel();
     body.style.overflow = '';
     if (reducedMotion() || !body.isConnected) return;
@@ -107,12 +112,16 @@ export function mountCards(parent: HTMLElement, before: Node): void {
     // A new card starts from its first line of title.
     const start = from ?? Math.min(to, (body.firstElementChild as HTMLElement | null)?.getBoundingClientRect().height ?? to);
     if (Math.abs(start - to) < 1) return;
+    // Main takes clicks wherever the card is on its way, not where it was before (#26).
+    const final = body.parentElement?.getBoundingClientRect();
+    reach = final ? resizeReach(final, start, to) : null;
     body.style.overflow = 'hidden';
     const a = body.animate([{ height: `${start}px` }, { height: `${to}px` }], { duration: from === null ? OPEN_MS : RESIZE_MS, easing: EASE });
     const done = () => {
       if (resize !== a) return;
       body.style.overflow = '';
       resize = undefined;
+      reach = null;
       sendRect();
     };
     a.onfinish = done;
@@ -135,11 +144,17 @@ export function mountCards(parent: HTMLElement, before: Node): void {
     );
   }
 
-  /** Main checks the pointer against this at key down: holding the key over the card answers it. */
+  /**
+   * Main takes clicks inside this, opens the card once the pointer is below its head, and checks the pointer against it
+   * at key down: holding the key over the card answers it.
+   */
   function sendRect(): void {
     requestAnimationFrame(() => {
-      const r = box.firstElementChild?.getBoundingClientRect();
-      dictate.send('dictate:card-rect', r && view.top ? { x: r.x, y: r.y, width: r.width, height: r.height } : null);
+      const el = box.firstElementChild;
+      const now = el?.getBoundingClientRect();
+      const r = reach ?? now;
+      const head = now && shown?.el === el ? shown.head.getBoundingClientRect().bottom - now.y : 0;
+      dictate.send('dictate:card-rect', r && view.top ? { x: r.x, y: r.y, width: r.width, height: r.height, id: shown?.el === el ? shown.id : null, head } : null);
     });
   }
 
@@ -149,9 +164,11 @@ export function mountCards(parent: HTMLElement, before: Node): void {
     if (armed && !view.list.some((c) => c.id === armed)) armed = null;
     if (!top) {
       shown = null;
+      reach = null;
       box.replaceChildren();
     } else if (listOpen) {
       shown = null;
+      reach = null;
       box.replaceChildren(listEl(view.list));
     } else {
       fill(top, shown?.id !== top.id);
