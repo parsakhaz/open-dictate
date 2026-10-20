@@ -78,7 +78,7 @@ export interface FeatureHost {
    */
   replyTarget(fn: () => ReplyTarget | null): void;
   route(name: string, route: Route): void;
-  /** Records for a route without a key: open listening while a round is open. */
+  /** Records for a route without a key: open listening while a round is open. cancel() is quiet (the pill just hides); the person's Esc says "Cancelled". */
   recording: { start(route: string): void; stop(): void; cancel(): void; active(): boolean };
   shortcut(name: ShortcutName, s: Shortcut): void;
   /** A shortcut's claim may have changed: bindings go to the key hook again. */

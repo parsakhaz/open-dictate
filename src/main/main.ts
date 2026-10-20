@@ -1737,9 +1737,10 @@ function startSurfaces(a: Agents): void {
         machine.reset();
         void stopRecording();
       },
+      // The feature ended it (a round done), so the pill just hides: only the person's Esc says "Cancelled".
       cancel: () => {
         machine.reset();
-        onHotkey({ type: 'cancel', reason: 'escape' });
+        onHotkey({ type: 'cancel', reason: 'shortcut' });
       },
       active: () => !!rec,
     },
