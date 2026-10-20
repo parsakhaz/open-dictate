@@ -204,6 +204,21 @@ export class ToolInputError extends Error {}
 
 const obj = (x: unknown): Record<string, unknown> => (x && typeof x === 'object' && !Array.isArray(x) ? (x as Record<string, unknown>) : {});
 
+const listing = (xs: readonly unknown[]) => {
+  const q = xs.map((x) => `'${x}'`);
+  return q.length > 1 ? `${q.slice(0, -1).join(', ')} or ${q.at(-1)}` : q.join('');
+};
+
+/** Holds a tool's arguments to its own schema's names and enums, so a typo is an error the agent sees, not a quiet default. */
+function checkArgs(tool: ToolName, a: Record<string, unknown>): void {
+  const props = (TOOLS.find((t) => t.name === tool)?.inputSchema.properties ?? {}) as Record<string, { enum?: readonly unknown[] }>;
+  for (const [key, value] of Object.entries(a)) {
+    const prop = props[key];
+    if (!prop) throw new ToolInputError(`${tool} doesn't take ${key}`);
+    if (prop.enum && value !== undefined && value !== null && !prop.enum.includes(value)) throw new ToolInputError(`${key} must be ${listing(prop.enum)}`);
+  }
+}
+
 function choiceList(x: unknown): string[] {
   if (!Array.isArray(x)) return [];
   const out: string[] = [];
@@ -217,6 +232,7 @@ function choiceList(x: unknown): string[] {
 
 export function parseNotify(input: unknown): NotifyArgs {
   const a = obj(input);
+  checkArgs('notify', a);
   const title = cleanText(a.title, CAPS.title);
   if (!title.text) throw new ToolInputError('notify needs a title');
   const message = cleanMessage(a.message, CAPS.message);
@@ -235,6 +251,7 @@ export function parseNotify(input: unknown): NotifyArgs {
 
 export function parseAsk(input: unknown): AskArgs {
   const a = obj(input);
+  checkArgs('ask', a);
   const question = cleanText(a.question, CAPS.question);
   if (!question.text) throw new ToolInputError('ask needs a question');
   const message = cleanMessage(a.message, CAPS.message);
