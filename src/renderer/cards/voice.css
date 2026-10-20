@@ -1,1 +1,26 @@
 /* Cards: talking to agents: the voice-draft card, and the pill while the agent key records ([data-route=agent]) (L3). */
+
+/* The agent key records in the accent colour, so it never reads as dictation that will be typed. */
+.pill[data-route='agent'] .dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.pill[data-route='agent'][data-starting='true'] .dot {
+  background: var(--text-4);
+  box-shadow: none;
+}
+.pill[data-route='agent'][data-silent='false'][data-starting='false'] .bar {
+  background: var(--accent);
+}
+
+/* "You said …": the words that weren't sent, quoted under the message. */
+.card[data-kind='voice-draft'] .vsaid {
+  margin-top: 4px;
+  color: var(--text-3);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.card[data-kind='voice-draft'] .vsaid q {
+  color: var(--text-2);
+  font-style: italic;
+}

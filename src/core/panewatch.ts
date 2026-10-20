@@ -141,6 +141,37 @@ export function clientSourceLine(client: { name: string; title?: string }, cwd: 
   return folder ? `${name} · ${folder}` : name;
 }
 
+/** A Pane Session, as `runpane sessions list|get|create --json` gives it: its chat panel is `panelIds[agent]`. */
+export interface PaneSession {
+  id: string;
+  name: string;
+  archived: boolean;
+  agent: string;
+  /** The hidden Pane that owns the Session's chat (what its panels report as their Pane). */
+  internalSessionId: string;
+  panelIds: Record<string, string>;
+}
+
+export function parseSession(x: unknown): PaneSession | null {
+  const s = x as Record<string, unknown>;
+  if (!s || typeof s !== 'object' || typeof s.id !== 'string' || !s.id) return null;
+  const panelIds: Record<string, string> = {};
+  if (s.panelIds && typeof s.panelIds === 'object') for (const [k, v] of Object.entries(s.panelIds)) if (typeof v === 'string' && v) panelIds[k] = v;
+  return {
+    id: s.id,
+    name: typeof s.name === 'string' ? s.name : '',
+    archived: s.archived === true,
+    agent: typeof s.agent === 'string' ? s.agent : 'claude',
+    internalSessionId: typeof s.internalSessionId === 'string' ? s.internalSessionId : '',
+    panelIds,
+  };
+}
+
+/** The Session's chat panel: the one for its current agent. */
+export function sessionPanel(s: PaneSession): string | null {
+  return s.panelIds[s.agent] ?? null;
+}
+
 /** The pane:// link that opens one tab; Pane validates it. */
 export function paneLink(paneId: string, panelId: string): string {
   return `pane://open?pane=${encodeURIComponent(paneId)}&panel=${encodeURIComponent(panelId)}`;

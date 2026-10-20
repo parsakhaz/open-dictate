@@ -3,7 +3,7 @@
 import { type ChildProcess, execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import { lineReader } from '../core/agentwire';
-import { backoffMs, type Launch, paneLink, parseWatchEntry, runpaneLaunch, type WatchEvent, watchArgs } from '../core/panewatch';
+import { backoffMs, type Launch, type PaneSession, paneLink, parseSession, parseWatchEntry, runpaneLaunch, type WatchEvent, watchArgs } from '../core/panewatch';
 import type { Logger } from './log';
 
 export interface TabNames {
@@ -156,7 +156,7 @@ export class PaneLink {
     try {
       const panes = await this.run<{ panes: { id: string; name: string }[] }>(['panes', 'list']);
       const pane = panes.panes.find((p) => p.id === paneId);
-      if (!pane) return null;
+      if (!pane) return await this.sessionTab(paneId, panelId);
       const panels = await this.run<{ panels: { id: string; title: string; agentType?: string }[] }>(['panels', 'list', '--pane', paneId]);
       const found = panels.panels.map((p): [string, TabNames] => [p.id, { paneId, paneName: pane.name, panelTitle: p.title, agentType: p.agentType }]);
       // Kept only while the watch that was running when the lookup began still runs to keep them current.
@@ -165,6 +165,12 @@ export class PaneLink {
     } catch {
       return null;
     }
+  }
+
+  /** A Session's own chat: "Session · <its name>", e.g. the Voice orchestrator's cards read "Session · Voice". */
+  private async sessionTab(paneId: string, panelId: string): Promise<TabNames | null> {
+    const s = (await this.sessions()).find((x) => x.internalSessionId === paneId || Object.values(x.panelIds).includes(panelId));
+    return s ? { paneId, paneName: 'Session', panelTitle: s.name } : null;
   }
 
   /** What the agent in a tab last said, from its transcript; null when Pane can't tell. */
@@ -188,13 +194,24 @@ export class PaneLink {
     }
   }
 
-  /** Types and submits the person's reply in that tab. Only ever after their key press. */
-  async send(panelId: string, text: string): Promise<{ delivered: boolean; blocked?: string }> {
+  /**
+   * Types and submits the person's words in that tab. Only ever after their key press. `asFilePointer`: Pane writes
+   * the words to a file and sends "Read and follow <path>". `state`: the agent took it, or queued it for after its turn.
+   */
+  async send(panelId: string, text: string, opts: { asFilePointer?: boolean } = {}): Promise<{ delivered: boolean; blocked?: string; state?: 'taken' | 'queued' }> {
     try {
-      const r = await this.run<{ delivered?: boolean; blocked?: string }>(['agents', 'send', '--panel', panelId, '--text', text, '--yes'], 20_000);
-      return { delivered: r.delivered === true, ...(r.blocked ? { blocked: r.blocked } : {}) };
+      const args = ['agents', 'send', '--panel', panelId, '--text', text, ...(opts.asFilePointer ? ['--as-file-pointer'] : []), '--yes'];
+      const r = await this.run<{ delivered?: boolean; delivery?: unknown; blocked?: string }>(args, 20_000);
+      const state = r.delivery === 'queued' || (r.delivery as { state?: unknown } | undefined)?.state === 'queued' ? 'queued' : 'taken';
+      return { delivered: r.delivered === true, ...(r.blocked ? { blocked: r.blocked } : {}), ...(r.delivered === true ? { state } : {}) };
     } catch (err) {
       return { delivered: false, blocked: (err as Error).message };
     }
+  }
+
+  /** Pane's Sessions (Session chats are owned by a hidden Pane that `panes list` leaves out). */
+  async sessions(): Promise<PaneSession[]> {
+    const r = await this.run<{ sessions?: unknown }>(['sessions', 'list']);
+    return Array.isArray(r.sessions) ? r.sessions.flatMap((s) => parseSession(s) ?? []) : [];
   }
 }
