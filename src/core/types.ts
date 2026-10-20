@@ -70,8 +70,12 @@ export interface Settings {
   doubleTapMs: number;
   /** Preferred microphones, most preferred first; empty = the system default. */
   micOrder: MicPref[];
-  /** Input gain per micKey(label); a mic missing here gets defaultGainDb(label). */
+  /** Automatic gain: speech is brought towards a normal level, up to gainDb ("Maximum boost"). Off: gainDb is a fixed gain. */
+  autoGain: boolean;
+  /** Input gain per micKey(label), the maximum boost with autoGain; a mic missing here gets defaultGainDb(label, autoGain). */
   gainDb: Record<string, number>;
+  /** The gain automatic gain had reached at the end of the last dictation on each mic, so the next one starts there. */
+  agcGainDb: Record<string, number>;
   cleanup: CleanupChain;
   output: OutputMode;
   sounds: boolean;

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { type CaptureBackend, CaptureController, type CaptureEvents, type MicStream, type SttMsg, type WorkletMsg } from '../src/core/capture';
-import { CHUNK, Chunker, type ChunkerOut } from '../src/core/chunker';
+import { CHUNK, Chunker, type ChunkerOut, LEVEL_EVERY } from '../src/core/chunker';
+
+/** A fixed 0 dB gain, so test samples reach the recognizer unchanged. */
+const FLAT = { auto: false, db: 0 };
 
 const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
 
@@ -46,8 +49,8 @@ function harness(opts: { openDelay?: number; failOpen?: (deviceId: string | null
       suspended = true;
     },
     worklet: (m: WorkletMsg) => {
-      if (m.type === 'session') chunker.session(m.sid, m.gainDb);
-      else if (m.type === 'gain') chunker.setGain(m.db);
+      if (m.type === 'session') chunker.session(m.sid, m.gain);
+      else if (m.type === 'gain') chunker.setGain(m.gain);
       else if (m.type === 'flush') chunker.flush(m.sid);
       else chunker.reset();
     },
@@ -63,6 +66,7 @@ function harness(opts: { openDelay?: number; failOpen?: (deviceId: string | null
     failed: (id) => events.push(`failed:${id}`),
     silent: () => undefined,
     level: () => undefined,
+    gain: (id, label, db) => events.push(`gain:${id}:${label}:${Math.round(db)}`),
   };
   ctrl = new CaptureController(backend, ev);
   /** Pushes `n` samples of value `v` through the worklet, as the audio thread would. */
@@ -73,7 +77,7 @@ function harness(opts: { openDelay?: number; failOpen?: (deviceId: string | null
 describe('CaptureController', () => {
   it('runs a recording: begin, frames, flushed tail, end, mic closed', async () => {
     const h = harness();
-    await h.ctrl.start(1, 'boya', 0);
+    await h.ctrl.start(1, 'boya', FLAT);
     h.audio(0.1, CHUNK + 100);
     await h.ctrl.stop(1);
     expect(h.stt).toEqual(['begin:1', 'end:1']);
@@ -84,10 +88,10 @@ describe('CaptureController', () => {
 
   it('never lets a new recording overlap the flush of the previous one (M1)', async () => {
     const h = harness();
-    await h.ctrl.start(1, null, 0);
+    await h.ctrl.start(1, null, FLAT);
     h.audio(0.1, 800);
     const stopping = h.ctrl.stop(1);
-    const starting = h.ctrl.start(2, null, 0);
+    const starting = h.ctrl.start(2, null, FLAT);
     await Promise.all([stopping, starting]);
     h.audio(0.2, CHUNK);
     await tick();
@@ -107,7 +111,7 @@ describe('CaptureController', () => {
 
   it('ends a recording whose mic was still opening when the key came up', async () => {
     const h = harness({ openDelay: 30 });
-    const a = h.ctrl.start(1, null, 0);
+    const a = h.ctrl.start(1, null, FLAT);
     const b = h.ctrl.stop(1);
     await Promise.all([a, b]);
     expect(h.stt).toEqual(['begin:1', 'end:1']);
@@ -117,10 +121,10 @@ describe('CaptureController', () => {
 
   it('drops the buffered audio of a cancelled recording (M2)', async () => {
     const h = harness();
-    await h.ctrl.start(1, null, 0);
+    await h.ctrl.start(1, null, FLAT);
     h.audio(0.9, 128); // less than a chunk: still in the worklet
     await h.ctrl.cancel(1);
-    await h.ctrl.start(2, null, 0);
+    await h.ctrl.start(2, null, FLAT);
     h.audio(0.2, CHUNK);
     await h.ctrl.stop(2);
     expect(h.stt).toEqual(['begin:1', 'cancel:1', 'begin:2', 'end:2']);
@@ -129,7 +133,7 @@ describe('CaptureController', () => {
 
   it('moves to the default mic when the active one ends, even the system default (M4)', async () => {
     const h = harness();
-    await h.ctrl.start(1, null, 0);
+    await h.ctrl.start(1, null, FLAT);
     h.streams[0].end();
     await h.ctrl.stop(1).then(() => undefined);
     expect(h.events).toEqual(['started:1', 'lost:1']);
@@ -139,10 +143,10 @@ describe('CaptureController', () => {
 
   it('keeps recording on the new mic after it moved', async () => {
     const h = harness();
-    await h.ctrl.start(1, 'boya', 0);
+    await h.ctrl.start(1, 'boya', FLAT);
     h.audio(0.1, CHUNK);
     h.streams[0].end();
-    await h.ctrl.switchDevice(1, null, 0); // a queued op: runs after the reopen
+    await h.ctrl.switchDevice(1, null, FLAT); // a queued op: runs after the reopen
     h.audio(0.3, CHUNK);
     await h.ctrl.stop(1);
     expect(h.frames.map((f) => f.id)).toEqual([1, 1]);
@@ -152,7 +156,7 @@ describe('CaptureController', () => {
   it('reports a failure when no mic can be reopened, so main can finish with what was heard', async () => {
     let fail = false;
     const h = harness({ failOpen: () => fail });
-    await h.ctrl.start(1, null, 0);
+    await h.ctrl.start(1, null, FLAT);
     fail = true;
     h.streams[0].end();
     await h.ctrl.stop(1);
@@ -162,14 +166,14 @@ describe('CaptureController', () => {
 
   it('falls back to the default mic when the chosen one cannot be opened', async () => {
     const h = harness({ failOpen: (id) => id === 'boya' });
-    await h.ctrl.start(1, 'boya', 0);
+    await h.ctrl.start(1, 'boya', FLAT);
     expect(h.streams[0].label).toBe('default');
     expect(h.events).toEqual(['started:1']);
   });
 
   it('cancels the recognizer stream when no mic opens at all', async () => {
     const h = harness({ failOpen: () => true });
-    await h.ctrl.start(1, null, 0);
+    await h.ctrl.start(1, null, FLAT);
     expect(h.stt).toEqual(['begin:1', 'cancel:1']);
     expect(h.events[0]).toMatch(/^error:1/);
     await h.ctrl.stop(1);
@@ -177,13 +181,46 @@ describe('CaptureController', () => {
   });
 });
 
+describe('CaptureController gain', () => {
+  it('reports the gain a recording ended with, on the mic it ended on', async () => {
+    const h = harness();
+    await h.ctrl.start(1, 'boya', { auto: false, db: 12 });
+    h.audio(0.01, 1024);
+    await h.ctrl.stop(1);
+    expect(h.events.filter((e) => e.startsWith('gain:'))).toEqual(['gain:1:boya:12']);
+  });
+
+  it('reports nothing for a recording that heard no audio, or was cancelled', async () => {
+    const h = harness();
+    await h.ctrl.start(1, 'boya', FLAT);
+    await h.ctrl.stop(1);
+    await h.ctrl.start(2, 'boya', FLAT);
+    h.audio(0.01, 1024);
+    await h.ctrl.cancel(2);
+    expect(h.events.filter((e) => e.startsWith('gain:'))).toEqual([]);
+  });
+});
+
 describe('Chunker', () => {
+  it('reports the gain it applied with each level, and carries it into the next session', () => {
+    const out: ChunkerOut[] = [];
+    const c = new Chunker((m) => out.push(m));
+    c.session(1, { auto: true, db: 30, startDb: 9 });
+    c.push(new Float32Array(LEVEL_EVERY));
+    const level = out.find((m) => m.type === 'level');
+    expect(level).toMatchObject({ gainDb: expect.closeTo(9, 3) });
+    // silence held it at 9 dB; a session that does not say where to start carries on from there
+    c.session(2, { auto: true, db: 30 });
+    c.push(new Float32Array(LEVEL_EVERY));
+    expect(out.at(-1)).toMatchObject({ type: 'level', sid: 2, gainDb: expect.closeTo(9, 3) });
+  });
+
   it('tags chunks with their session and drops a partial chunk on a new session', () => {
     const out: ChunkerOut[] = [];
     const c = new Chunker((m) => out.push(m));
-    c.session(1, 0);
+    c.session(1, FLAT);
     c.push(new Float32Array(100).fill(0.5));
-    c.session(2, 0);
+    c.session(2, FLAT);
     c.push(new Float32Array(CHUNK).fill(0.25));
     const chunks = out.filter((m) => m.type === 'chunk');
     expect(chunks).toHaveLength(1);
@@ -195,7 +232,7 @@ describe('Chunker', () => {
     const out: ChunkerOut[] = [];
     const c = new Chunker((m) => out.push(m));
     c.push(new Float32Array(CHUNK));
-    c.session(3, 0);
+    c.session(3, FLAT);
     c.push(new Float32Array(10));
     c.flush(2);
     c.flush(3);

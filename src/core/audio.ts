@@ -1,37 +1,28 @@
-// Input gain with a clipping guard, levels, and the near-silence check. Pure; browser-safe.
+// Default gains, the clipping guard, levels, and the near-silence check. Pure; browser-safe.
 
 /** The laptop's built-in array measures about -37 dBFS speech even close up, so it starts with +30 dB. */
 export const QUIET_MIC = /Microphone Array \(AMD Audio Device\)/i;
 
-export function defaultGainDb(label: string | undefined): number {
-  return label && QUIET_MIC.test(label) ? 30 : 0;
+/**
+ * The gain for a mic the person has not set: +30 dB for the quiet built-in array. With automatic gain this is
+ * the maximum boost, and any other mic may be raised up to +20 dB; a fixed gain leaves other mics alone.
+ */
+export function defaultGainDb(label: string | undefined, auto = false): number {
+  if (label && QUIET_MIC.test(label)) return 30;
+  return auto ? 20 : 0;
+}
+
+/** Where automatic gain starts on a mic it has not heard yet: the quiet array's -37 dBFS needs about +17 dB. */
+export function defaultStartDb(label: string | undefined): number {
+  return label && QUIET_MIC.test(label) ? 17 : 0;
 }
 
 /** Above this the signal is compressed smoothly towards 1 instead of clipping hard. */
-const KNEE = 0.8;
+export const KNEE = 0.8;
 
-/**
- * Applies `gainDb` in place. Samples past the knee are soft-limited (tanh), so boosted speech never wraps
- * or clips flat; `limited` counts how many were.
- */
-export function applyGain(samples: Float32Array, gainDb: number): { peak: number; rms: number; limited: number } {
-  const g = 10 ** (gainDb / 20);
-  let peak = 0;
-  let sum = 0;
-  let limited = 0;
-  for (let i = 0; i < samples.length; i++) {
-    let x = samples[i] * g;
-    const a = Math.abs(x);
-    if (a > KNEE) {
-      x = Math.sign(x) * (KNEE + (1 - KNEE) * Math.tanh((a - KNEE) / (1 - KNEE)));
-      limited++;
-    }
-    samples[i] = x;
-    const b = Math.abs(x);
-    if (b > peak) peak = b;
-    sum += x * x;
-  }
-  return { peak, rms: samples.length ? Math.sqrt(sum / samples.length) : 0, limited };
+/** A sample past the knee, compressed (tanh) so it never reaches full scale and keeps its sign. */
+export function softLimit(x: number): number {
+  return Math.sign(x) * (KNEE + (1 - KNEE) * Math.tanh((Math.abs(x) - KNEE) / (1 - KNEE)));
 }
 
 export function dbfs(rms: number): number {

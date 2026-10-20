@@ -3,6 +3,7 @@
 // While a stream is open the thread loops on the capture event and reads commands between packets; with no
 // stream it idles in the event loop. DICTATE_FAKE_MIC plays a WAV through the same path for QA.
 import { type MessagePort, parentPort, receiveMessageOnPort, workerData } from 'node:worker_threads';
+import type { GainSpec } from '../core/agc';
 import { Chunker, type ChunkerOut } from '../core/chunker';
 import { Resampler } from '../core/resample';
 import { readWav } from '../engine/wav';
@@ -15,8 +16,8 @@ export type ToMic =
   | { type: 'forward'; on: boolean }
   /** Closes stream `gen` (an older one, replaced by a switch, is already closed). */
   | { type: 'close'; gen: number }
-  | { type: 'session'; sid: number; gainDb: number }
-  | { type: 'gain'; db: number }
+  | { type: 'session'; sid: number; gain: GainSpec }
+  | { type: 'gain'; gain: GainSpec }
   | { type: 'flush'; sid: number }
   | { type: 'reset' }
   | { type: 'endpoints' };
@@ -169,11 +170,11 @@ function apply(m: ToMic): void {
     case 'session':
       sid = m.sid;
       fakeStart = null;
-      chunker.session(m.sid, m.gainDb);
+      chunker.session(m.sid, m.gain);
       if (stream) firstFor = { sid, t0 };
       return;
     case 'gain':
-      chunker.setGain(m.db);
+      chunker.setGain(m.gain);
       return;
     case 'flush':
       chunker.flush(m.sid);
