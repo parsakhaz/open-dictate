@@ -48,6 +48,13 @@ describe('decide arguments', () => {
     expect(() => parseDecide({ title: 't', questions: [{ ...q, options: opts('a', 'b', 'c', 'd', 'e') }] })).toThrow(/more than four/);
   });
 
+  it('refuses two questions with the same id, and gives a missing id a default no question took (#27)', () => {
+    const q = { header: 'h', question: 'q', options: opts('a', 'b') };
+    expect(() => parseDecide({ title: 't', questions: [{ ...q, id: 'same' }, { ...q, id: 'same' }] })).toThrow(/questions 1 and 2 share the id "same"/);
+    expect(() => parseDecide({ title: 't', questions: [{ ...q, id: ' same ' }, { ...q, id: 'same' }] })).toThrow(ToolInputError);
+    expect(parseDecide({ title: 't', questions: [q, { ...q, id: 'q1' }] }).questions.map((x) => x.id)).toEqual(['q1_', 'q1']);
+  });
+
   it('keeps a preview as text with its lines and indentation, without escape codes, cut at 1,200 characters', () => {
     expect(cleanPreview({ kind: 'code', content: '\n- a = 1;\n+ a = {\n\tb: 2,\u001b[0m\n};\n\n' })).toEqual({ kind: 'code', content: '- a = 1;\n+ a = {\n  b: 2,\n};' });
     expect(cleanPreview({ kind: 'html', content: '<b>x</b>' })).toEqual({ kind: 'text', content: '<b>x</b>' });

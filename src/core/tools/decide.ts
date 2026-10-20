@@ -28,7 +28,7 @@ const option = {
 const question = {
   type: 'object',
   properties: {
-    id: { type: 'string', description: 'Your id for the answer; default q1, q2…' },
+    id: { type: 'string', description: 'Your id for the answer, different for each question; default q1, q2…' },
     header: { type: 'string', maxLength: 12, description: 'One or two words naming the question, e.g. "Where".' },
     question: { type: 'string', maxLength: 120 },
     options: { type: 'array', minItems: 2, maxItems: 4, items: option },
@@ -123,7 +123,13 @@ export function parseDecide(input: unknown): DecideArgs {
   let truncated = title.truncated || message.truncated;
   if (!Array.isArray(a.questions) || a.questions.length < 1) throw new ToolInputError('decide needs one to four questions');
   if (a.questions.length > DECIDE_CAPS.questions) throw new ToolInputError('decide takes at most four questions; ask the rest in a second call');
-  const ids = new Set<string>();
+  // The agent matches answers by its own ids, so a clash is refused rather than renamed (#27).
+  const given = a.questions.map((raw) => cleanText(obj(raw).id, DECIDE_CAPS.id).text);
+  given.forEach((id, i) => {
+    const first = given.indexOf(id);
+    if (id && first < i) throw new ToolInputError(`questions ${first + 1} and ${i + 1} share the id "${id}"; give each question its own id`);
+  });
+  const ids = new Set(given.filter(Boolean));
   const questions = a.questions.map((raw, i): DecideQuestion => {
     const q = obj(raw);
     const text = cleanText(q.question, DECIDE_CAPS.question);
@@ -140,10 +146,12 @@ export function parseDecide(input: unknown): DecideArgs {
     }
     if (options.length < 2) throw new ToolInputError(`question ${i + 1} needs two to four options with different labels`);
     if (options.length > DECIDE_CAPS.options) throw new ToolInputError(`question ${i + 1} has more than four options`);
-    let id = cleanText(q.id, DECIDE_CAPS.id).text;
-    if (!id || ids.has(id)) id = `q${i + 1}`;
-    while (ids.has(id)) id = `${id}_`;
-    ids.add(id);
+    let id = given[i];
+    if (!id) {
+      id = `q${i + 1}`;
+      while (ids.has(id)) id = `${id}_`;
+      ids.add(id);
+    }
     return { id, header: header.text || `Q${i + 1}`, question: text.text, options, multi: q.multi === true, other: q.other !== false };
   });
   const t = typeof a.timeout_s === 'number' && Number.isFinite(a.timeout_s) ? a.timeout_s : DECIDE_TIMEOUT_S;
