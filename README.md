@@ -141,7 +141,7 @@ Models are downloaded by you, from their official sources, and keep their own li
 
 **It got a name wrong.** Add it in Settings → **Vocabulary**, with what it heard under "sounds like".
 
-**My mic is too quiet.** Raise its input gain in Settings → **Microphone**.
+**My mic is too quiet.** Dictate raises a quiet voice by itself (Automatic gain, in Settings → **Microphone**), up to each mic's **Maximum boost**; raise that if it is still too quiet.
 
 **Windows says "Windows protected your PC".** The installer isn't code-signed. Click **More info → Run anyway**. With Smart App Control switched on there is no Run anyway; see [installers](docs/release/README.md#installers).
 
