@@ -169,7 +169,7 @@ export function parseSettings(data: unknown, defaults: Settings): Settings {
     agentsEnabled: bool(d.agentsEnabled, defaults.agentsEnabled),
     agentAlertsPaused: bool(d.agentAlertsPaused, defaults.agentAlertsPaused),
     agentChime: bool(d.agentChime, defaults.agentChime),
-    // 0.1.0 had no such setting and always followed Pane; those profiles start off too.
+    // Before 0.1.2 there was no such setting and Dictate always followed Pane; those profiles start off too.
     agentPaneAlerts: bool(d.agentPaneAlerts, defaults.agentPaneAlerts),
     agentHistory: bool(d.agentHistory, defaults.agentHistory),
   };

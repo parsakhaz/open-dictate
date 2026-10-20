@@ -3,9 +3,9 @@
 Coding agents reach the person through Dictate's pill. A card says where it came from and what the agent needs. The person can open that Pane tab, click an answer, or hold the dictation key over the card and answer by voice. Two things raise cards:
 
 - **The agents themselves,** through six MCP tools: `notify`, `ask`, `status`, `propose_vocabulary`, `list_vocabulary` and `read_history`.
-- **Pane, only when the person turns it on.** With Settings → Agents → "Show Pane's agent alerts on the pill" on, Dictate follows Pane through its published CLI, `runpane`, and a tab that is blocked or finished becomes a card with no change to the agent. It is off by default, also for 0.1.0 profiles: these generic cards competed with Pane's own notifications and say less than an agent's own `notify` ([#9](https://github.com/parsakhaz/open-dictate/issues/9)). Off, no watch runs, so Pane sees no consumer and keeps its own notifications.
+- **Pane, only when the person turns it on.** With Settings → Agents → "Show Pane's agent alerts on the pill" on, Dictate follows Pane through its published CLI, `runpane`, and a tab that is blocked or finished becomes a card with no change to the agent. It is off by default, also for profiles from before 0.1.2: these generic cards competed with Pane's own notifications and say less than an agent's own `notify` ([#9](https://github.com/parsakhaz/open-dictate/issues/9)). Off, no watch runs, so Pane sees no consumer and keeps its own notifications.
 
-The server instructions and the `notify` and `ask` descriptions carry the maintainer's rule for writing a card, with good and bad examples ([src/core/agenttools.ts](../../src/core/agenttools.ts)): say what the work is for, what just happened and what you need, in plain words, and leave out where you are.
+The server instructions and the `notify` and `ask` descriptions carry the maintainer's rule for writing a card, with good and bad examples ([src/core/agenttools.ts](../../src/core/agenttools.ts)): say what the work is for, what just happened and what you need, in plain words and plain text, and leave out where you are. The Markdown subset the pill renders (below) is for agents that don't follow it.
 
 ```
  agent (Claude Code, Codex, Cursor, …)

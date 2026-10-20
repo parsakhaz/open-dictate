@@ -1,5 +1,12 @@
 Fully local dictation: hold a key, speak, and clean text appears where you type. Nothing leaves your computer.
 
+## What's new in 0.1.2
+
+Agent cards on the pill ([#9](https://github.com/parsakhaz/open-dictate/issues/9)):
+
+- Agents are told how to write a card you can act on: what the work is for, what just happened and what they need from you, in plain words and plain text, with good and bad examples.
+- Pane's own "Needs your input" and "Finished" alerts no longer show on the pill by default, so they don't double up with Pane's notifications. Turn them back on in Settings → Agents → **Show Pane's agent alerts on the pill**. Cards your agents send are unchanged.
+
 ## What's new in 0.1.1
 
 Agent cards on the pill ([#9](https://github.com/parsakhaz/open-dictate/issues/9)):
