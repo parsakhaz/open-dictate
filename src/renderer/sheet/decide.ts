@@ -45,6 +45,12 @@ async function send(via: 'click' | 'keys'): Promise<void> {
   }
 }
 
+/** "Other… (hold to say)": the next sentence over this card answers the open question in their own words. */
+async function armOther(id: string): Promise<void> {
+  if (await invoke<boolean>('other', id, cur)) note = 'Hold your key and say it';
+  draw();
+}
+
 function go(q: number): void {
   if (!p) return;
   cur = (q + p.questions.length) % p.questions.length;
@@ -133,7 +139,7 @@ function draw(): void {
     h(
       'div.sfoot',
       {},
-      q.other ? h('button.cbtn.armed', { onclick: () => void invoke('other', d.cardId, cur).then(() => ((note = 'Hold your key and say it'), draw())) }, 'Other… (hold to say)') : null,
+      q.other ? h('button.cbtn.armed', { onclick: () => void armOther(d.cardId) }, 'Other… (hold to say)') : null,
       note
         ? h('span.dhint', {}, note)
         : h('span.dhint', {}, h('kbd', {}, '↑'), h('kbd', {}, '↓'), ' compare · ', h('kbd', {}, `1–${q.options.length}`), ' pick · ', h('kbd', {}, '←'), h('kbd', {}, '→'), ' question'),
@@ -168,8 +174,10 @@ export const decide: SheetPage = {
       draw();
       return true;
     }
-    if (e.key === 'ArrowRight' || (e.key === 'Tab' && !e.shiftKey)) return go(cur + 1), true;
-    if (e.key === 'ArrowLeft' || (e.key === 'Tab' && e.shiftKey)) return go(cur - 1), true;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || e.key === 'Tab') {
+      go(cur + (e.key === 'ArrowLeft' || (e.key === 'Tab' && e.shiftKey) ? -1 : 1));
+      return true;
+    }
     if (/^[1-4]$/.test(e.key) && Number(e.key) <= q.options.length) {
       void choose(cur, q.options[Number(e.key) - 1].label, 'keys');
       return true;

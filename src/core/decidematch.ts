@@ -77,7 +77,7 @@ function mentions(text: string, questions: DecideQuestion[]): Mention[] {
   const found: Mention[] = [];
   // Labels first, longest first, so "charge failed" wins over "failed".
   const labels = new Map<string, { need: string[]; options: { q: number; o: number }[] }>();
-  questions.forEach((q, qi) =>
+  questions.forEach((q, qi) => {
     q.options.forEach((o, oi) => {
       const need = needed(o.label);
       if (!need.length) return;
@@ -85,8 +85,8 @@ function mentions(text: string, questions: DecideQuestion[]): Mention[] {
       const e = labels.get(k) ?? { need, options: [] };
       e.options.push({ q: qi, o: oi });
       labels.set(k, e);
-    }),
-  );
+    });
+  });
   const taken = new Array(said.length).fill(false);
   const free = (s: number, e: number) => taken.slice(s, e + 1).every((t) => !t);
   const take = (s: number, e: number) => taken.fill(true, s, e + 1);
@@ -103,7 +103,11 @@ function mentions(text: string, questions: DecideQuestion[]): Mention[] {
     const set = YES.has(said[i]) ? 'yes' : NO.has(said[i]) ? 'no' : null;
     if (!set) continue;
     const options: { q: number; o: number }[] = [];
-    questions.forEach((q, qi) => q.options.forEach((o, oi) => words(o.label)[0] === set && options.push({ q: qi, o: oi })));
+    questions.forEach((q, qi) => {
+      q.options.forEach((o, oi) => {
+        if (words(o.label)[0] === set) options.push({ q: qi, o: oi });
+      });
+    });
     if (options.length) {
       take(i, i);
       found.push({ start: i, end: i, options });
