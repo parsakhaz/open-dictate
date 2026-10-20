@@ -1,7 +1,7 @@
 // Pane through its published CLI, runpane: how to launch it safely, the watch that follows agent states, and what
 // each event means for the pill. Never Pane's raw daemon socket. Pure.
 import path from 'node:path';
-import { cleanText } from './agenttext';
+import { cleanMessage, cleanText } from './agenttext';
 import { CAPS } from './agenttools';
 
 export interface Launch {
@@ -115,7 +115,7 @@ export function actionFor(e: WatchEvent): PaneAction {
       return { type: 'clear', ...at };
     case 'agent.report': {
       const r = e.report ?? {};
-      const summary = cleanText(r.summary, CAPS.message).text || undefined;
+      const summary = cleanMessage(r.summary, CAPS.message).text || undefined;
       if (r.state === 'blocked') return { type: 'blocked', ...at, title: cleanText(r.question, CAPS.title).text || WORDS.blocked, message: summary };
       if (r.state === 'failed') return { type: 'blocked', ...at, title: WORDS.failed, message: summary };
       if (r.state === 'done' || r.state === 'ready') return { type: 'finished', ...at, title: WORDS.finished, message: summary };

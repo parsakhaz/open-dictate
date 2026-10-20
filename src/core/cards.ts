@@ -40,6 +40,8 @@ export interface Card {
 export type AddResult = 'shown' | 'queued' | 'dnd' | 'replaced';
 
 export const INFO_MS = 4500;
+/** After the pointer leaves, an info card stays at least this long. */
+export const HOVER_GRACE_MS = 2000;
 /** Faded info cards are kept for the list this long. */
 export const FADED_KEEP_MS = 10 * 60_000;
 /** After a dictation ends, cards wait this long before appearing. */
@@ -130,12 +132,15 @@ export class CardQueue {
     return this.replying && this.get(this.replying) ? this.replying : null;
   }
 
-  /** The pointer is over the cards: info cards wait, and get the rest of their time when it leaves. */
+  /** The pointer is over the cards: info cards wait, then get the rest of their time when it leaves, at least 2 s. */
   setHovered(on: boolean, now: number): void {
     if (on && this.hoveredSince === null) this.hoveredSince = now;
     if (!on && this.hoveredSince !== null) {
       const paused = now - this.hoveredSince;
-      for (const c of this.cards) if (fades(c) && !c.faded && c.shownAt !== undefined) c.shownAt += paused;
+      for (const c of this.cards) {
+        if (!fades(c) || c.faded || c.shownAt === undefined) continue;
+        c.shownAt = Math.max(c.shownAt + paused, now + HOVER_GRACE_MS - INFO_MS);
+      }
       this.hoveredSince = null;
     }
   }

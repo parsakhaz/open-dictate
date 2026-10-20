@@ -1,6 +1,6 @@
 // The six MCP tools Dictate offers coding agents: their definitions (the bridge lists them even when Dictate isn't
 // running) and the checks that turn an agent's arguments into something the pill may show. Pure.
-import { cleanText, safeLink } from './agenttext';
+import { cleanMessage, cleanText, safeLink } from './agenttext';
 
 export const TOOL_NAMES = ['notify', 'ask', 'status', 'propose_vocabulary', 'list_vocabulary', 'read_history'] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
@@ -172,7 +172,7 @@ export function parseNotify(input: unknown): NotifyArgs {
   const a = obj(input);
   const title = cleanText(a.title, CAPS.title);
   if (!title.text) throw new ToolInputError('notify needs a title');
-  const message = cleanText(a.message, CAPS.message);
+  const message = cleanMessage(a.message, CAPS.message);
   if (a.link !== undefined && a.link !== null && a.link !== '' && !safeLink(a.link)) throw new ToolInputError('link must be an https URL');
   const action = (['reply', 'approve', 'review', 'choose', 'fyi'] as const).find((x) => x === a.action) ?? null;
   return {
@@ -190,7 +190,7 @@ export function parseAsk(input: unknown): AskArgs {
   const a = obj(input);
   const question = cleanText(a.question, CAPS.question);
   if (!question.text) throw new ToolInputError('ask needs a question');
-  const message = cleanText(a.message, CAPS.message);
+  const message = cleanMessage(a.message, CAPS.message);
   const t = typeof a.timeout_s === 'number' && Number.isFinite(a.timeout_s) ? a.timeout_s : ASK_TIMEOUT.defaultS;
   return {
     question: question.text,

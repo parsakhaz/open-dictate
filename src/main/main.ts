@@ -1507,7 +1507,7 @@ async function main(): Promise<void> {
         // Whether the top card's title is cut off, and how tall the card is (CSS pixels).
         else if (line === 'card-layout') {
           void pill.webContents
-            .executeJavaScript(`(() => { const c = document.querySelector('.cards .card'); const t = c && c.querySelector('.title'); const b = c && c.querySelector('.cbody'); return c && { titleClipped: t.scrollWidth > t.clientWidth + 1 || t.scrollHeight > t.clientHeight + 1, cardHeight: Math.round(c.getBoundingClientRect().height), bodyScrolls: b ? b.scrollHeight > b.clientHeight + 1 : false, buttons: [...c.querySelectorAll('button.cbtn')].map((x) => x.textContent), replying: c.dataset.replying === 'true', text: c.innerText }; })()`)
+            .executeJavaScript(`(() => { const c = document.querySelector('.cards .card'); const t = c && c.querySelector('.title'); const b = c && c.querySelector('.cbody'); return c && { titleClipped: t.scrollWidth > t.clientWidth + 1 || t.scrollHeight > t.clientHeight + 1, cardHeight: Math.round(c.getBoundingClientRect().height), bodyScrolls: b ? b.scrollHeight > b.clientHeight + 1 : false, buttons: [...c.querySelectorAll('button.cbtn')].map((x) => x.textContent), replying: c.dataset.replying === 'true', text: c.innerText, styled: [...c.querySelectorAll('.msg strong, .msg em, .msg code')].map((x) => x.tagName.toLowerCase() + ':' + x.textContent), elements: c.querySelectorAll('.msg *:not(strong):not(em):not(code), .title *').length }; })()`)
             .then((r) => log('info', `QA card-layout ${JSON.stringify(r)}`));
         }
         // Where the top card is on screen (physical pixels, for a real pointer), and what the queue holds.

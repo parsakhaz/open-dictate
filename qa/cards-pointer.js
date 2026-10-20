@@ -95,13 +95,13 @@ async function main() {
     }
     await sleep(600);
     pointer('shot', 0, 0, path.join(OUT, '01-hover.png'));
-    const prod = await where('card-locate Prod', /QA card-locate "Prod" (.+)\n/);
-    check('hovering expands the card and shows its choices', !!prod, prod);
-    if (!prod) return;
-    pointer('click', prod.x, prod.y);
+    const pick = await where('card-locate Neither', /QA card-locate "Neither" (.+)\n/);
+    check('hovering expands the card and shows its choices', !!pick, pick);
+    if (!pick) return;
+    pointer('click', pick.x, pick.y);
     const answer = await Promise.race([ask, sleep(4000).then(() => null)]);
     pointer('shot', 0, 0, path.join(OUT, '02-after-click.png'));
-    check('a real click on "Prod" returns that choice to the agent', answer?.result?.answered === true && answer.result.choice === 'Prod', answer ?? log().split('\n').filter((l) => /QA card/.test(l)));
+    check('a real click on "Neither" (mid-row, where the hidden pill sat) returns that choice to the agent', answer?.result?.answered === true && answer.result.choice === 'Neither', answer ?? log().split('\n').filter((l) => /QA card/.test(l)));
   } finally {
     await agent?.close();
     execFileSync('taskkill', ['/PID', String(app.pid), '/T', '/F'], { stdio: 'ignore' });

@@ -2,6 +2,7 @@
 // Dictate's own buttons; the list behind "+N". While the person answers it by voice it stays up, marked as such.
 // Every word is shown as plain text. Only the cards take clicks: main watches the pointer, lets the window catch it
 // while it is over a card, and says so here. The card's body eases to its new height whenever what it shows changes.
+import { messageLines, plainTitle } from '../core/cardtext';
 import { dictate, h } from './bridge';
 
 export interface CardDto {
@@ -95,11 +96,21 @@ export function mountCards(parent: HTMLElement, before: Node): void {
 
   /** The title and message always; the buttons on hover (consent always); a note while it is being answered. */
   function bodyParts(c: CardDto, expanded: boolean): HTMLElement[] {
-    const parts: HTMLElement[] = [h('div.title', {}, c.title)];
-    if (c.message) parts.push(h('div.msg', {}, c.message));
+    const parts: HTMLElement[] = [h('div.title', {}, plainTitle(c.title))];
+    if (c.message) parts.push(message(c.message));
     if (view.replying) parts.push(h('div.creply', {}, h('span.rdot'), 'Replying by voice…'));
     else if (expanded || c.kind === 'consent') parts.push(buttons(c));
     return parts;
+  }
+
+  /** Bold, italic and inline code as elements holding text nodes; everything else is plain text. Never HTML. */
+  function message(md: string): HTMLElement {
+    const el = h('div.msg');
+    messageLines(md).forEach((line, i) => {
+      if (i) el.append('\n');
+      for (const r of line) el.append(r.style === 'b' ? h('strong', {}, r.text) : r.style === 'i' ? h('em', {}, r.text) : r.style === 'code' ? h('code', {}, r.text) : r.text);
+    });
+    return el;
   }
 
   /** Sets the card's contents, and eases its body from the old height to the new one. */
@@ -160,7 +171,7 @@ export function mountCards(parent: HTMLElement, before: Node): void {
       ...cards.map((c) =>
         h('div.item', { 'data-urgency': c.urgency, onclick: () => c.canOpen && act({ id: c.id, action: 'open' }) },
           h('span.src', {}, c.source),
-          h('span.title', {}, c.title),
+          h('span.title', {}, plainTitle(c.title)),
           h('button.x', { title: 'Dismiss', onclick: (e: Event) => { e.stopPropagation(); act({ id: c.id, action: 'dismiss' }); } }, '✕'),
         ),
       ),

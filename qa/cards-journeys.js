@@ -100,6 +100,34 @@ async function main() {
     cmd('cards-hover off');
     await sleep(500);
 
+    // Every button of a short card takes its click while the pill is idle, the middle ones included (the hidden
+    // pill used to sit under the middle of the button row and swallow them).
+    for (const pick of ['Neither', 'Both']) {
+      const short = claude.call('ask', { question: 'Which region?', choices: ['Staging', 'Prod', 'Both', 'Neither'], timeout_s: 60 });
+      await sleep(900);
+      cmd('cards-hover on');
+      await sleep(500);
+      const hit = await qa(`card-click ${pick}`, new RegExp(`QA card-click "${pick}" (.+)\n`));
+      check('click', `on a short card, "${pick}" (middle of the row) takes the click`, hit?.hit === 'button', hit);
+      const got = await Promise.race([short, sleep(3000).then(() => null)]);
+      check('click', `clicking "${pick}" returns it to the agent`, got?.result?.choice === pick, got);
+      if (!got) cmd('card dismiss');
+      cmd('cards-hover off');
+      await sleep(400);
+    }
+
+    // Markdown: bold, italic and code styled; other marks dropped; HTML shown as its characters.
+    const md = claude.call('ask', { question: '## **Ship** the `v2` API?', message: '**Breaking:** renames `user_id`.\n- see [the plan](https://example.com)\n- <img src=x onerror=alert(1)> stays *text*', timeout_s: 60 });
+    await sleep(900);
+    await shot('08-markdown');
+    l = await layout();
+    check('markdown', 'the title shows without its marks', l && l.text.includes('Ship the v2 API?') && !/[#*`]/.test(l.text.split('\n')[1] ?? ''), l);
+    check('markdown', 'bold, code and italic are styled, the link is its text, lists are lines', l && ['strong:Breaking:', 'code:user_id', 'em:text'].every((x) => l.styled.includes(x)) && l.text.includes('\nsee the plan\n'), l);
+    check('markdown', 'an <img onerror> tag shows as its characters and is never an element', l && l.text.includes('<img src=x onerror=alert(1)> stays text') && l.elements === 0, l);
+    cmd('card dismiss');
+    await md;
+    await sleep(400);
+
     // A very long title and message: shown whole, the card capped and scrolling inside.
     const long = claude.call('ask', { question: `Before I continue: ${'should the importer keep the legacy column names and translate them on read, '.repeat(2)}or rename them now?`, message: 'Details. '.repeat(150).trim(), choices: ['Keep', 'Rename'], timeout_s: 120 });
     await sleep(900);
@@ -162,6 +190,18 @@ async function main() {
     check('timing', 'after the pointer leaves it gets the rest of its time', (await dump())?.top?.title === 'Deploy started');
     await sleep(2000);
     check('timing', 'and then fades', (await dump())?.top === null);
+    // Pointed at with almost no time left: it still stays about 2 s after the pointer leaves.
+    const t1 = Date.now();
+    await claude.call('notify', { title: 'Lint clean' });
+    await sleep(Math.max(0, 4000 - (Date.now() - t1)));
+    cmd('cards-hover on');
+    await sleep(3000);
+    check('timing', 'a card pointed at near the end of its time never fades while pointed at', (await dump())?.top?.title === 'Lint clean');
+    cmd('cards-hover off');
+    await sleep(1200);
+    check('timing', 'it is still up 1.2 s after the pointer leaves', (await dump())?.top?.title === 'Lint clean');
+    await sleep(2300);
+    check('timing', 'and gone by 3.5 s after', (await dump())?.top === null);
     const codex = session({ client: 'codex-mcp-client', title: 'Codex', cwd: path.join(ROOT, 'docs') });
     await codex.call('propose_vocabulary', { terms: [{ term: 'Turso' }, { term: 'pgvector' }, { term: 'Hono' }, { term: 'Drizzle' }, { term: 'Supabase' }, { term: 'Bun' }] });
     await codex.close();

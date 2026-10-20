@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cleanText, safeLink } from '../src/core/agenttext';
+import { cleanMessage, cleanText, safeLink } from '../src/core/agenttext';
 import { parseAsk, parseHistoryRequest, parseNotify, ToolInputError } from '../src/core/agenttools';
 
 describe('cleanText', () => {
@@ -26,6 +26,16 @@ describe('cleanText', () => {
   });
 });
 
+describe('cleanMessage', () => {
+  it('keeps line breaks (at most one blank line in a row) and tags as text, and cleans each line like cleanText', () => {
+    expect(cleanMessage('Plan:\r\n- one  \t two\n\n\n\n- \u001b[31mthree\u001b[0m <script>x</script>\u202E', 280).text).toBe('Plan:\n- one two\n\n- three <script>x</script>');
+  });
+
+  it('cuts at the cap like cleanText', () => {
+    expect(cleanMessage('a\n'.repeat(300), 280)).toMatchObject({ truncated: true });
+  });
+});
+
 describe('safeLink', () => {
   it('accepts https only, and names the host', () => {
     expect(safeLink('https://github.com/parsakhaz/open-dictate/pull/6')).toEqual({ url: 'https://github.com/parsakhaz/open-dictate/pull/6', host: 'github.com' });
@@ -44,6 +54,11 @@ describe('notify arguments', () => {
     const a = parseNotify({ title: 'Pick', choices: ['A', 'a', 'B', 'C', 'D', 'E'] });
     expect(a.urgency).toBe('info');
     expect(a.choices).toEqual(['A', 'B', 'C', 'D']);
+  });
+
+  it("keeps the message's line breaks, so a list reads as lines on the card", () => {
+    expect(parseNotify({ title: 'x', message: 'Steps:\n- build\n- test' }).message).toBe('Steps:\n- build\n- test');
+    expect(parseAsk({ question: 'q', message: 'a\nb' }).message).toBe('a\nb');
   });
 
   it('rejects a missing title and a link that is not https', () => {

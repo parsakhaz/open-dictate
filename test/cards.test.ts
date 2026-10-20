@@ -130,6 +130,23 @@ describe('CardQueue', () => {
     expect(q.view(33_500).top).toBeNull();
   });
 
+  it('gives an info card at least 2 s more after the pointer leaves it, however little time it had left', () => {
+    const q = new CardQueue();
+    const fyi = card({ urgency: 'info' });
+    q.add(fyi, 0);
+    q.tick(0);
+    // Pointed at with 0.3 s left.
+    q.setHovered(true, 4200);
+    q.tick(9000);
+    expect(q.view(9000).top?.id).toBe(fyi.id);
+    q.setHovered(false, 9000);
+    expect(q.nextDue(9000)).toBe(11_000);
+    q.tick(10_999);
+    expect(q.view(10_999).top?.id).toBe(fyi.id);
+    q.tick(11_000);
+    expect(q.view(11_000).top).toBeNull();
+  });
+
   it('keeps the vocabulary card until it is reviewed or dismissed, also across a pause', () => {
     const q = new CardQueue();
     const vocab = card({ kind: 'vocab', urgency: 'info', origin: 'dictate', key: 'vocab:s1' });

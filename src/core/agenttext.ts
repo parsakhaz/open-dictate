@@ -22,6 +22,22 @@ export function cleanText(input: unknown, cap: number): Clean {
   return { text: `${chars.slice(0, cap - 1).join('').trimEnd()}…`, truncated: true };
 }
 
+/**
+ * cleanText for a card's message, but line breaks stay (at most one blank line in a row) and tags are kept as the
+ * characters they are: the pill shows a message only as text nodes, and agents write code like `Vec<String>`.
+ */
+export function cleanMessage(input: unknown, cap: number): Clean {
+  if (typeof input !== 'string') return { text: '', truncated: false };
+  const lines = input
+    .replace(ANSI, '')
+    .split(/\r\n|\r|\n/)
+    .map((l) => l.replace(CONTROL, ' ').replace(/\s+/g, ' ').trim());
+  const s = lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  const chars = [...s];
+  if (chars.length <= cap) return { text: s, truncated: false };
+  return { text: `${chars.slice(0, cap - 1).join('').trimEnd()}…`, truncated: true };
+}
+
 /** A link a card may offer: https only, shown by its host name, opened only on a click. */
 export function safeLink(input: unknown): { url: string; host: string } | null {
   if (typeof input !== 'string' || input.length > 2000) return null;
