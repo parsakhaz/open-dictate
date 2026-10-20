@@ -1,9 +1,9 @@
 /* Cards: decide and approve cards: questions stacked with chips; the approval and its countdown (L1). */
 
-/* A grown card holds more than a message: a taller cap, still scrolling inside if four questions need it. */
+/* A grown card holds more than a message: a taller cap that still fits the pill window, scrolling inside when more\n   questions need it. */
 .card[data-kind='decide'] .cbody,
 .card[data-kind='approve'] .cbody {
-  max-height: 318px;
+  max-height: 270px;
 }
 
 .dtag {

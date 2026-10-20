@@ -285,7 +285,7 @@ body[data-kind='decide'] kbd {
 .dpre .a {
   background: rgba(108, 203, 95, 0.12);
 }
-.dpre .a::before {
+.dpre.code > .a::before {
   content: '+';
   color: var(--green);
 }
@@ -293,7 +293,7 @@ body[data-kind='decide'] kbd {
   background: rgba(255, 92, 92, 0.12);
   color: rgba(255, 255, 255, 0.55);
 }
-.dpre .d::before {
+.dpre.code > .d::before {
   content: '−';
   color: var(--red);
 }

@@ -302,7 +302,24 @@ class Decisions {
       const send = await this.host.preview(tab(top), arg);
       const r = send ? await agents.reply(top.id, arg, arg) : { ok: false, message: 'cancelled' };
       agents.setDictating(false);
+      this.host.pill.send('dictate:pill', r.ok ? { kind: 'done', message: r.message } : { kind: 'info', message: 'Cancelled · nothing sent' });
       log('info', `QA decide-said ${JSON.stringify(r)}`);
+    } else if (verb === 'click') {
+      // A click on a card button by its label, scrolled into view first as the person would (a grown card scrolls).
+      const pill = this.host.windows().find((w) => w.webContents.getURL().endsWith('pill.html'));
+      const at = (await pill?.webContents.executeJavaScript(`(() => {
+        const b = [...document.querySelectorAll('.cards button')].find((x) => x.textContent === ${JSON.stringify(arg)});
+        if (!b) return null;
+        b.scrollIntoView({ block: 'nearest' });
+        const r = b.getBoundingClientRect();
+        return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+      })()`)) as { x: number; y: number } | null | undefined;
+      if (pill && at) {
+        pill.webContents.sendInputEvent({ type: 'mouseMove', x: at.x, y: at.y });
+        pill.webContents.sendInputEvent({ type: 'mouseDown', x: at.x, y: at.y, button: 'left', clickCount: 1 });
+        pill.webContents.sendInputEvent({ type: 'mouseUp', x: at.x, y: at.y, button: 'left', clickCount: 1 });
+      }
+      log('info', `QA decide-click ${JSON.stringify({ label: arg, at: at ?? null })}`);
     } else if (verb === 'key') {
       const wc = this.host.sheet.window().webContents;
       wc.sendInputEvent({ type: 'keyDown', keyCode: arg });

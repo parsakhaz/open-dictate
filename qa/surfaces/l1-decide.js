@@ -38,6 +38,9 @@ async function onTop({ cards, sleep }, title) {
 /** This lane's cards and their answers, from the app. */
 const dump = ({ qa }) => qa('decide dump', /QA decide (.+)\n/);
 
+/** Clicks a card button by its label, scrolled into view first (a grown card scrolls inside). */
+const click = ({ qa }, label) => qa(`decide click ${label}`, /QA decide-click (.+)\n/);
+
 /** A result, or null if the call is still waiting after `ms`. */
 const within = (p, sleep, ms) => Promise.race([p, sleep(ms).then(() => null)]);
 
@@ -63,20 +66,20 @@ module.exports = {
         check('the grown card is on top', (await onTop(ctx, DECIDE.title))?.top?.kind === 'decide');
         await settle(ctx);
         const l = await qa('card-layout', /QA card-layout (.+)\n/);
-        check('it shows every question, every chip, "0 of 3 answered" and Send', l && ['Staging', 'Production', 'Backoff ×3', 'Once + email', "Don't retry", 'Charged twice', 'Charge failed', 'Nobody', 'Send answers'].every((b) => l.buttons.includes(b)) && /0 of 3 answered/.test(l.text), l);
+        check('it shows every question, every chip, "0 of 3 answered" and Send', l && ['Staging', 'Production', 'Backoff ×3', 'Once + email', "Don't retry", 'Charged twice', 'Charge failed', 'Nobody'].every((b) => l.text.includes(b)) && l.buttons.includes('Send answers') && /0 of 3 answered/.test(l.text), l);
         await shot('l1-j1-decide-card');
-        await qa('card-click Staging', /QA card-click "Staging" (.+)\n/);
-        await qa('card-click Once + email', /QA card-click "Once \+ email" (.+)\n/);
+        await click(ctx, 'Staging');
+        await click(ctx, 'Once + email');
         await sleep(300);
         let d = await dump(ctx);
         check('two picks show as answered', d?.cards[0]?.data.answers.filter((a) => a.picked.length).length === 2, d);
-        await qa('card-click Charged twice', /QA card-click "Charged twice" (.+)\n/);
-        await qa('card-click Charge failed', /QA card-click "Charge failed" (.+)\n/);
+        await click(ctx, 'Charged twice');
+        await click(ctx, 'Charge failed');
         await sleep(400);
         await shot('l1-j1-all-answered');
         const l2 = await qa('card-layout', /QA card-layout (.+)\n/);
         check('the card reads "3 of 3 answered" and "All answered"', l2 && /3 of 3 answered/.test(l2.text) && /All answered/.test(l2.text), l2);
-        await qa('card-click Send answers', /QA card-click "Send answers" (.+)\n/);
+        await click(ctx, 'Send answers');
         const r = (await within(call, sleep, 3000))?.result;
         check('Send returns every answer, by click, with its card_id', r?.answered === true && r.via === 'click' && typeof r.card_id === 'string' && JSON.stringify(r.answers) === JSON.stringify([
           { id: 'env', header: 'Target', picked: ['Staging'] },
@@ -87,7 +90,7 @@ module.exports = {
         const short = agent.call('decide', { ...DECIDE, title: 'Two calls, quickly', questions: QUESTIONS.slice(0, 2), timeout_s: 4 });
         await onTop(ctx, 'Two calls, quickly');
         await sleep(300);
-        await qa('card-click Production', /QA card-click "Production" (.+)\n/);
+        await click(ctx, 'Production');
         const t = (await within(short, sleep, 8000))?.result;
         check('a timeout with one answer returns it as partial', t?.answered === false && t.reason === 'timeout' && t.partial?.length === 1 && t.partial[0].picked[0] === 'Production' && typeof t.card_id === 'string', t);
         d = await dump(ctx);
@@ -119,7 +122,7 @@ module.exports = {
         check('both filled questions flash', JSON.stringify(d?.cards[0]?.data.flash?.qs) === '[0,1]', d?.cards[0]?.data.flash);
         const l = await qa('card-layout', /QA card-layout (.+)\n/);
         check('the card says by voice and 2 of 3 answered', l && /2 of 3 answered/.test(l.text) && /by voice/.test(l.text), l);
-        await qa('card-click Send answers', /QA card-click "Send answers" (.+)\n/);
+        await click(ctx, 'Send answers');
         const res = (await within(call, sleep, 3000))?.result;
         check('Send returns those answers, the open one empty, plus raw', res?.answered === true && res.raw === 'staging, and once then email' && res.answers[0].picked[0] === 'Staging' && res.answers[1].picked[0] === 'Once + email' && res.answers[2].picked.length === 0, res);
 
@@ -157,8 +160,7 @@ module.exports = {
         let d = await ctx.qa('decide dump', /QA decide (.+)\n/);
         check('hovering option 2 changes the preview, not the answer', /Previewing\s*2 · Once \+ email/.test(s?.page.text) && /attempts: 1/.test(s?.page.text) && d?.cards[0]?.data.answers[0].picked.length === 0, { text: s?.page.text, answers: d?.cards[0]?.data.answers });
         await sheetShot('l1-j3-hover');
-        cmd('decide key ArrowDown');
-        cmd('decide key ArrowDown');
+        cmd('decide key Down');
         await sleep(300);
         s = await sheet();
         check('↓ moves the preview on to option 3 (text)', /Previewing\s*3 · Don't retry/.test(s?.page.text), s?.page.text);
@@ -167,11 +169,11 @@ module.exports = {
         d = await ctx.qa('decide dump', /QA decide (.+)\n/);
         s = await sheet();
         check('the number key picks, by keys, and moves to the next question', d?.cards[0]?.data.answers[0].picked[0] === 'Backoff ×3' && d.cards[0].data.answers[0].via === 'keys' && /Where should the fix go first\?/.test(s?.page.text), { d, text: s?.page.text });
-        cmd('decide key ArrowLeft');
+        cmd('decide key Left');
         await sleep(300);
         s = await sheet();
         check('← goes back to the first question', /How should failed charges retry\?/.test(s?.page.text), s?.page.text);
-        cmd('decide key ArrowRight');
+        cmd('decide key Right');
         cmd('decide key 2');
         await sleep(400);
         await sheetShot('l1-j3-answered');
@@ -195,7 +197,7 @@ module.exports = {
         const l = await qa('card-layout', /QA card-layout (.+)\n/);
         check('approval A: the plan, the medium risk line, Approve and Hold to change', l && /idempotency key/.test(l.text) && /Medium risk/.test(l.text) && l.buttons.includes('Approve') && l.buttons.includes('Hold to change'), l);
         await shot('l1-j4-approval-a');
-        await qa('card-click Approve', /QA card-click "Approve" (.+)\n/);
+        await click(ctx, 'Approve');
         let r = (await within(call, sleep, 3000))?.result;
         check('clicking Approve returns approved', r?.approved === true && typeof r.card_id === 'string', r);
 
@@ -221,7 +223,7 @@ module.exports = {
         const said = await untilLog(/QA decide-said (.+)\n/, 6000, m2);
         const r2 = await within(call, sleep, 1000);
         check('at high risk, saying approve does not approve', said && /only a click approves/.test(said[1]) && r2 === null, { said: said?.[1], r2 });
-        await qa('card-click Approve', /QA card-click "Approve" (.+)\n/);
+        await click(ctx, 'Approve');
         r = (await within(call, sleep, 3000))?.result;
         check('a click still approves it', r?.approved === true, r);
       },
