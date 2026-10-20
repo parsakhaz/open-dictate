@@ -10,7 +10,7 @@ afterEach(() => {
   for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
 });
 
-/** A Pane folder whose runpane answers `panes list` and `panels list` from title.txt. */
+/** A Pane folder whose runpane answers `panes list` and `panels list` from title.txt; its watch stays quiet. */
 function fakePane(): { paneDir: string; setTitle(t: string): void } {
   const paneDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dictate-pane-'));
   dirs.push(paneDir);
@@ -25,6 +25,7 @@ const a = process.argv.slice(2);
 const title = fs.readFileSync(${JSON.stringify(titleFile)}, 'utf8');
 if (a[0] === 'panes') console.log(JSON.stringify({ panes: [{ id: 'P', name: 'dictate' }] }));
 else if (a[0] === 'panels') console.log(JSON.stringify({ panels: [{ id: 'X', title, agentType: 'codex' }] }));
+else if (a[0] === 'watch') setInterval(() => undefined, 1000);
 else console.log(JSON.stringify({ ok: false, error: { message: 'unknown' } }));
 `,
   );
@@ -45,5 +46,20 @@ describe('PaneLink tab names', () => {
     expect((await link.tabNames('P', 'X'))?.panelTitle).toBe('Build');
     pane.setTitle('Release');
     expect((await link.tabNames('P', 'X'))?.panelTitle).toBe('Release');
+  });
+
+  it('forgets the names it knew when the watch stops, so a tab renamed meanwhile shows its new name once it restarts', async () => {
+    const pane = fakePane();
+    const link = new PaneLink({ paneDir: pane.paneDir, log: () => undefined, onEvent: () => undefined });
+    link.start();
+    expect((await link.tabNames('P', 'X'))?.panelTitle).toBe('Build');
+    link.stop();
+    pane.setTitle('Release');
+    link.start();
+    try {
+      expect((await link.tabNames('P', 'X'))?.panelTitle).toBe('Release');
+    } finally {
+      link.stop();
+    }
   });
 });

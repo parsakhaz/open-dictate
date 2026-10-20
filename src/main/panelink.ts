@@ -63,6 +63,8 @@ export class PaneLink {
     this.watch?.kill();
     this.watch = undefined;
     this.setAttached(false);
+    // Nothing keeps them current from here on, and a restarted watch only reports what happens next.
+    this.names.clear();
   }
 
   private setAttached(on: boolean): void {
@@ -113,6 +115,7 @@ export class PaneLink {
     child.on('close', (code) => {
       if (this.watch !== child) return;
       this.watch = undefined;
+      this.names.clear();
       this.setAttached(false);
       // A watch that ran a while was healthy: start the backoff again from the beginning.
       if (Date.now() - startedAt > 30_000) this.failures = 0;
