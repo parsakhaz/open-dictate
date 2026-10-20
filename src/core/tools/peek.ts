@@ -126,16 +126,25 @@ export function checkTarget(target: string, o: { cwd: string; hosts: string[]; p
  * http(s) address) only after the person's "Allow once". Anything else never loads.
  */
 export function navigation(from: string, to: string): 'go' | 'ask' | 'refuse' {
-  let a: URL;
-  let b: URL;
+  const a = originOf(from);
+  const b = originOf(to);
+  if (a && a === b) return 'go';
+  return /^https?:/i.test(to) && b ? 'ask' : 'refuse';
+}
+
+/**
+ * A URL's origin, including for Dictate's own dictate-peek:// pages (URL gives "null" for schemes it doesn't know,
+ * but the browser treats a standard scheme's scheme and host as its origin). Null when it has none.
+ */
+export function originOf(url: string): string | null {
+  let u: URL;
   try {
-    a = new URL(from);
-    b = new URL(to);
+    u = new URL(url);
   } catch {
-    return 'refuse';
+    return null;
   }
-  if (a.origin === b.origin && a.origin !== 'null') return 'go';
-  return b.protocol === 'http:' || b.protocol === 'https:' ? 'ask' : 'refuse';
+  if (u.origin !== 'null') return u.origin;
+  return u.protocol === 'dictate-peek:' && u.host ? `${u.protocol}//${u.host.toLowerCase()}` : null;
 }
 
 /** What the card and the docked view's chip show for a page: host and path, without the scheme. */

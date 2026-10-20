@@ -125,6 +125,7 @@ class PeekFeature {
       file: target.kind === 'file',
       ask: a.ask,
       thumb: null,
+      live: false,
       loading: true,
       canPane: !!src.target,
       docked: false,
@@ -184,6 +185,7 @@ class PeekFeature {
       const d = this.cardData(item.cardId);
       if (!d) return;
       d.thumb = thumbOf(img);
+      d.live = true;
       d.loading = false;
       this.changed();
     });
@@ -202,6 +204,8 @@ class PeekFeature {
   private stopThumb(item: Item): void {
     if (item.thumb && !item.thumb.isDestroyed()) item.thumb.destroy();
     item.thumb = null;
+    const d = this.cardData(item.cardId);
+    if (d) d.live = false;
   }
 
   private async cardAction(card: Card, name: string): Promise<{ ok: boolean; message: string } | undefined> {

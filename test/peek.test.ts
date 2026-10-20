@@ -67,6 +67,12 @@ describe('peek navigation', () => {
     expect(navigation('http://localhost:5173/', 'http://localhost:5174/')).toBe('ask');
   });
 
+  it('lets a local report follow its own links, but not into another folder', () => {
+    expect(navigation('dictate-peek://fabc/reports/index.html', 'dictate-peek://fabc/reports/detail.html')).toBe('go');
+    expect(navigation('dictate-peek://fabc/index.html', 'dictate-peek://fdef/index.html')).toBe('refuse');
+    expect(navigation('dictate-peek://fabc/index.html', 'http://localhost:3000/')).toBe('ask');
+  });
+
   it('never goes to file:, data: or javascript:', () => {
     for (const to of ['file:///C:/x', 'data:text/html,x', 'javascript:alert(1)', 'chrome://settings']) expect(navigation('http://localhost/', to)).toBe('refuse');
   });

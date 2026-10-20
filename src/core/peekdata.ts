@@ -16,6 +16,8 @@ export interface PeekCardData {
   /** What the agent wants to hear about it. */
   ask: string;
   thumb: PeekThumb | null;
+  /** The thumbnail is still updating (it stops once the page has been docked; the card then keeps its last look). */
+  live: boolean;
   /** The thumbnail is still loading, or the page failed to load (its reason). */
   loading: boolean;
   failed?: string;

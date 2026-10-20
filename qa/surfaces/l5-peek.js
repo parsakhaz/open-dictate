@@ -49,7 +49,8 @@ async function setUp(OUT) {
   const main = await serve((req) => (req.url === '/posted' ? '<h1>posted</h1>' : PAGE(awayUrl)));
   const folder = path.join(OUT, 'peek-site');
   fs.mkdirSync(path.join(folder, 'reports'), { recursive: true });
-  fs.writeFileSync(path.join(folder, 'reports', 'index.html'), '<!doctype html><title>Report</title><h1>Local report</h1><p>Served from the working folder.</p>');
+  fs.writeFileSync(path.join(folder, 'reports', 'index.html'), '<!doctype html><title>Report</title><h1>Local report</h1><p>Served from the working folder.</p><p><a id="detail" href="detail.html">Details</a></p>');
+  fs.writeFileSync(path.join(folder, 'reports', 'detail.html'), '<!doctype html><title>Detail</title><h1>Detail page</h1>');
   fs.writeFileSync(path.join(OUT, 'outside.html'), '<h1>outside</h1>');
   site = { url: `http://127.0.0.1:${main.address().port}/`, awayUrl, folder, servers: [main, away] };
   return site;
@@ -200,6 +201,9 @@ module.exports = {
         check('✕ ends the peek as dismissed', closed?.answered === false && closed.reason === 'dismissed' && typeof closed.card_id === 'string', closed);
         const report = await raiseAndDock(ctx, agent, { title: 'The test report', target: 'reports/index.html' });
         check('a local .html inside the working folder shows through Dictate’s own protocol', /^dictate-peek:\/\/f[0-9a-f]+\/reports\/index\.html$/.test(report.docked?.dock?.url ?? ''), report.docked);
+        await qa('peek click #detail', /QA peek-click (.+)\n/);
+        const detail = await until(() => dump(qa), (v) => /\/reports\/detail\.html$/.test(v?.dock?.url ?? ''), sleep, 20);
+        check('the report follows its own links in its folder, with no strip', /\/reports\/detail\.html$/.test(detail?.dock?.url ?? '') && !detail.dock.blocked, detail);
         await qa('peek action close', /QA peek-action (.+)\n/);
         await Promise.race([report.call, sleep(3000)]);
         for (const srv of s.servers) srv.close();

@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { BrowserWindow, protocol, type Session, session, type WebContents } from 'electron';
-import { inside, navigation } from '../../core/tools/peek';
+import { inside, navigation, originOf } from '../../core/tools/peek';
 import type { Logger } from '../log';
 
 export const PEEK_SCHEME = 'dictate-peek';
@@ -114,13 +114,7 @@ export function peekSession(folders: PeekFolders, log: Logger): Session {
   return ses;
 }
 
-export const safeOrigin = (url: string) => {
-  try {
-    return new URL(url).origin;
-  } catch {
-    return 'a page';
-  }
-};
+export const safeOrigin = (url: string) => originOf(url) ?? 'a page';
 
 /** The Electron security checklist for a third-party page. */
 export function hardenedPrefs(ses: Session, extra: Electron.WebPreferences = {}): Electron.WebPreferences {

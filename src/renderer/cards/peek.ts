@@ -26,7 +26,7 @@ function thumb(c: CardDto, d: PeekCardData): HTMLElement {
     }
     box.append(cv.el);
   } else box.append(h('div.pthumb-note', {}, d.failed ? 'Couldn’t load' : 'Loading…'));
-  if (d.thumb && !d.docked && !d.failed) box.append(h('span.plive', {}, 'LIVE'));
+  if (d.thumb && d.live && !d.docked && !d.failed) box.append(h('span.plive', {}, 'LIVE'));
   if (d.docked) box.append(h('span.plive.open', {}, 'OPEN'));
   return box;
 }
