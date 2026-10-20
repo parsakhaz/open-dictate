@@ -65,7 +65,8 @@ module.exports = {
         const call = agent.call('decide', DECIDE);
         check('the grown card is on top', (await onTop(ctx, DECIDE.title))?.top?.kind === 'decide');
         await settle(ctx);
-        const l = await qa('card-layout', /QA card-layout (.+)\n/);
+        let l = null;
+        for (let i = 0; i < 10 && !l?.buttons.includes('Send answers'); i++) l = await qa('card-layout', /QA card-layout (.+)\n/);
         check('it shows every question, every chip, "0 of 3 answered" and Send', l && ['Staging', 'Production', 'Backoff ×3', 'Once + email', "Don't retry", 'Charged twice', 'Charge failed', 'Nobody'].every((b) => l.text.includes(b)) && l.buttons.includes('Send answers') && /0 of 3 answered/.test(l.text), l);
         await shot('l1-j1-decide-card');
         await click(ctx, 'Staging');
