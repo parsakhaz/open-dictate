@@ -27,14 +27,42 @@ const HISTORY = [
   { id: 'h3', at: new Date(Date.now() - 60 * 60_000).toISOString(), raw: 'lunch at noon', text: 'Lunch at noon.' },
 ];
 
-function launch(settings) {
+const CDP_PORT = 9341;
+
+function launch(settings, args = []) {
   fs.mkdirSync(DATA, { recursive: true });
   fs.writeFileSync(path.join(DATA, 'settings.json'), JSON.stringify({ onboarded: true, hotkeys: [{ keys: [0x81] }], toggle: null, picker: null, sounds: false, ...settings }));
   fs.writeFileSync(path.join(DATA, 'history.json'), JSON.stringify(HISTORY));
   fs.writeFileSync(CONTROL, '');
   const env = { ...process.env, DICTATE_DATA_DIR: DATA, DICTATE_QA_SINK: 'none', DICTATE_QA_CONTROL: CONTROL, DICTATE_PILL_SHOTS: path.join(OUT, 'shots'), PANE_SESSION_ID: '', PANE_PANEL_ID: '', PANE_DIR: path.join(OUT, 'no-pane') };
-  return spawn(ELECTRON, ['.'], { cwd: ROOT, env, stdio: 'ignore' });
+  return spawn(ELECTRON, ['.', ...args], { cwd: ROOT, env, stdio: 'ignore' });
 }
+
+/** Runs `expression` in the pill page over CDP: the same preload, and so the same IPC, as the Settings page. */
+async function inPill(expression) {
+  let target;
+  for (let i = 0; i < 100 && !target; i++) {
+    try {
+      const list = await (await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`)).json();
+      target = list.find((t) => t.type === 'page' && t.url.endsWith('pill.html'));
+    } catch {}
+    if (!target) await sleep(200);
+  }
+  if (!target) throw new Error('the pill page never loaded');
+  const ws = new WebSocket(target.webSocketDebuggerUrl);
+  await new Promise((res, rej) => {
+    ws.onopen = res;
+    ws.onerror = rej;
+  });
+  const reply = new Promise((res) => {
+    ws.onmessage = (m) => res(JSON.parse(m.data));
+  });
+  ws.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression, awaitPromise: true, returnByValue: true } }));
+  const m = await reply;
+  ws.close();
+  return m.result?.result?.value;
+}
+const setHistory = (on) => inPill(`dictate.invoke('dictate:set-settings', { agentHistory: ${on} }).then((s) => s.settings.agentHistory)`);
 
 async function untilLog(re, ms = 30_000, from = 0) {
   for (const t = Date.now(); Date.now() - t < ms; await sleep(150)) if (re.test(log().slice(from))) return true;
@@ -130,7 +158,7 @@ async function main() {
   const pending = settings.vocabularyPending?.map((t) => t.term);
   check('J12', 'the queue was saved with its source', pending?.join() === 'Turso,pgvector,Hono' && !!settings.vocabularyPending[0].source, settings.vocabularyPending);
   const mark = log().length;
-  const app2 = launch({ agentHistory: true, vocabularyPending: settings.vocabularyPending });
+  const app2 = launch({ agentHistory: true, vocabularyPending: settings.vocabularyPending }, [`--remote-debugging-port=${CDP_PORT}`]);
   try {
     check('setup', 'the app opened the agent channel again', await untilLog(/agents: channel open/, 30_000, mark));
     const a = session({ client: 'claude-code', title: 'Claude Code', cwd: ROOT });
@@ -153,14 +181,37 @@ async function main() {
     cmd('card consent deny');
     r = await p;
     check('J14', 'a new connection prompts again; Deny returns granted: false', r.result?.granted === false && r.result?.reason === 'denied', r);
+
+    // #29: turning history access off while a consent card waits withdraws it, and the agent gets a denial.
+    p = b.call('read_history', { limit: 5, include_raw: true });
+    await sleep(700);
+    let from = log().length;
+    cmd('cards-dump');
+    await untilLog(/QA cards /, 5000, from);
+    check('J14', 'the consent card is up before history access goes off', /QA cards \{"top":\{"title":"Read your dictation history\?"/.test(log().slice(from)), log().slice(from, from + 400));
+    const t0 = Date.now();
+    const off = await setHistory(false);
+    r = await Promise.race([p, sleep(5000).then(() => ({ pending: true }))]);
+    check('J14', 'turning history access off denies the waiting call at once (#29)', off === false && r.result?.granted === false && r.result?.reason === 'off' && Date.now() - t0 < 5000, r);
+    from = log().length;
+    cmd('cards-dump');
+    await untilLog(/QA cards /, 5000, from);
+    check('J14', 'and withdraws the consent card from the pill (#29)', /QA cards \{"top":null/.test(log().slice(from)), log().slice(from, from + 400));
+    // Back on, the connection that had "Allow for this session" is asked again: turning it off ended the grant.
+    await setHistory(true);
+    p = a.call('read_history', {});
+    await sleep(700);
+    cmd('card consent deny');
+    r = await Promise.race([p, sleep(5000).then(() => ({ pending: true }))]);
+    check('J14', 'and ends "Allow for this session": back on, that connection is asked again (#29)', r.result?.granted === false && r.result?.reason === 'denied', r);
     await sleep(500);
   } finally {
     for (const s of sessions.splice(0)) await s.close();
-    // J22: while it runs, nothing listens on TCP except llama-server (not started here: no models).
+    // J22: while it runs, nothing listens on TCP except llama-server (not started here: no models) and this QA's own debugging port.
     try {
       const pids = execFileSync('powershell', ['-NoProfile', '-Command', `(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*${DATA.replace(/\\/g, '\\\\')}*' -or $_.ParentProcessId -eq ${app2.pid} }).ProcessId -join ','`], { encoding: 'utf8' }).trim().split(',').filter(Boolean);
       const all = new Set([String(app2.pid), ...pids]);
-      const listening = execFileSync('netstat', ['-ano', '-p', 'TCP'], { encoding: 'utf8' }).split('\n').filter((l) => /LISTENING/.test(l) && all.has(l.trim().split(/\s+/).pop()));
+      const listening = execFileSync('netstat', ['-ano', '-p', 'TCP'], { encoding: 'utf8' }).split('\n').filter((l) => /LISTENING/.test(l) && all.has(l.trim().split(/\s+/).pop()) && !l.includes(`:${CDP_PORT} `));
       check('J22', 'Dictate listens on no TCP port', listening.length === 0, listening);
     } catch (err) {
       check('J22', 'netstat ran', false, err.message);
@@ -169,7 +220,7 @@ async function main() {
     await sleep(1500);
   }
   const accessLog = JSON.parse(fs.readFileSync(path.join(DATA, 'agents', 'access-log.json'), 'utf8'));
-  check('J15', 'every read is in the access log, refusals included', accessLog.map((x) => x.outcome).join() === 'off,allowed-once,allowed-session,session-grant,denied' || accessLog.map((x) => x.outcome).join() === 'allowed-once,allowed-session,session-grant,denied', accessLog.map((x) => x.outcome));
+  check('J15', 'every read is in the access log, refusals included', accessLog.map((x) => x.outcome).join() === 'off,allowed-once,allowed-session,session-grant,denied,off,denied' || accessLog.map((x) => x.outcome).join() === 'allowed-once,allowed-session,session-grant,denied,off,denied', accessLog.map((x) => x.outcome));
   check('J15', "the log file has each read and never the dictated text", (log().match(/read_history from/g) ?? []).length >= 4 && !/Ship the migration/.test(log()), null);
 
   fs.writeFileSync(path.join(OUT, 'report.json'), `${JSON.stringify({ at: new Date().toISOString(), checks }, null, 2)}\n`);

@@ -13,6 +13,7 @@ function setup(over: { inFront?: boolean; historyOn?: boolean; sendOk?: boolean 
   const access: AccessRecord[] = [];
   let pending: PendingTerm[] = [];
   let chimes = 0;
+  let historyOn = !!over.historyOn;
   const history = new HistoryStore([
     { id: 'a', at: '2026-10-19T19:30:00.000Z', raw: 'deploy the migration with key sk-abcdefghijklmnopqrstuvwx', text: 'Deploy the migration with key sk-abcdefghijklmnopqrstuvwx.' },
     { id: 'b', at: '2026-10-10T10:00:00.000Z', raw: 'old migration note', text: 'Old migration note.' },
@@ -41,7 +42,7 @@ function setup(over: { inFront?: boolean; historyOn?: boolean; sendOk?: boolean 
         return over.sendOk === false ? { delivered: false, blocked: 'exited' } : { delivered: true };
       },
     },
-    history: { enabled: () => !!over.historyOn, store: () => history, record: (r) => access.push(r) },
+    history: { enabled: () => historyOn, store: () => history, record: (r) => access.push(r) },
     vocab: { approved: () => [{ term: 'Pane' }], pending: () => pending, add: (t) => (pending = [...pending, ...t]) },
   };
   const hub = new AgentHub(deps);
@@ -53,7 +54,8 @@ function setup(over: { inFront?: boolean; historyOn?: boolean; sendOk?: boolean 
     }
     await new Promise((r) => setTimeout(r, 0));
   };
-  return { hub, sent, access, advance, chimes: () => chimes, pending: () => pending };
+  const setHistory = (on: boolean) => (historyOn = on);
+  return { hub, sent, access, advance, setHistory, chimes: () => chimes, pending: () => pending };
 }
 
 const inTab = (panelId = 'X'): HubSession => ({ id: `s-${panelId}`, client: { name: 'codex-mcp-client', title: 'Codex' }, pane: { sessionId: 'P', panelId }, cwd: 'C:\\repos\\dictate' });
@@ -308,6 +310,57 @@ describe('history (J13, J14)', () => {
     await advance(60_000);
     expect(await q).toEqual({ granted: false, reason: 'timeout' });
     expect(access.map((a) => a.outcome)).toEqual(['denied', 'timeout']);
+  });
+
+  it('turning history access off withdraws the consent card and denies the waiting call (#29)', async () => {
+    const { hub, access, setHistory } = setup({ historyOn: true });
+    const p = hub.call(inTab(), 'read_history', { include_raw: true }, sig());
+    await settle();
+    expect(hub.queue.view(Date.now()).top?.kind).toBe('consent');
+    setHistory(false);
+    hub.historyAccessOff();
+    expect(hub.queue.view(Date.now()).all).toHaveLength(0);
+    expect(await p).toEqual({ granted: false, reason: 'off' });
+    expect(access.map((a) => a.outcome)).toEqual(['off']);
+  });
+
+  it('"Allow once" after history access went off returns nothing, even if the card outlived the setting (#29)', async () => {
+    const { hub, access, setHistory } = setup({ historyOn: true });
+    const p = hub.call(inTab(), 'read_history', { include_raw: true }, sig());
+    await settle();
+    const card = hub.queue.view(Date.now()).top!;
+    setHistory(false);
+    hub.consent(card.id, 'once');
+    expect(await p).toEqual({ granted: false, reason: 'off' });
+    expect(access.map((a) => a.outcome)).toEqual(['off']);
+  });
+
+  it('"Allow for this session" after history access went off grants nothing, so turning it back on asks again (#29)', async () => {
+    const { hub, setHistory } = setup({ historyOn: true });
+    const p = hub.call(inTab(), 'read_history', {}, sig());
+    await settle();
+    const card = hub.queue.view(Date.now()).top!;
+    setHistory(false);
+    hub.consent(card.id, 'session');
+    expect(await p).toEqual({ granted: false, reason: 'off' });
+    setHistory(true);
+    void hub.call(inTab(), 'read_history', {}, sig());
+    await settle();
+    expect(hub.queue.view(Date.now()).top?.kind).toBe('consent');
+  });
+
+  it('turning history access off ends "Allow for this session" grants; turning it back on asks again (#29)', async () => {
+    const { hub, setHistory } = setup({ historyOn: true });
+    const p = hub.call(inTab(), 'read_history', {}, sig());
+    await settle();
+    hub.consent(hub.queue.view(Date.now()).top!.id, 'session');
+    await p;
+    setHistory(false);
+    hub.historyAccessOff();
+    setHistory(true);
+    void hub.call(inTab(), 'read_history', {}, sig());
+    await settle();
+    expect(hub.queue.view(Date.now()).top?.kind).toBe('consent');
   });
 });
 

@@ -340,9 +340,11 @@ export class AgentHub {
     else if (this.waitingOn(session.id, 'consent')) outcome = 'busy';
     else {
       const answer = await this.askConsent(session, src, a, signal);
-      if (answer === 'session') this.grants.grant(session.id, { source: src.line, client: session.client.name }, this.deps.now());
-      outcome = answer === 'once' ? 'allowed-once' : answer === 'session' ? 'allowed-session' : answer === 'timeout' ? 'timeout' : 'denied';
+      outcome = answer === 'once' ? 'allowed-once' : answer === 'session' ? 'allowed-session' : answer === 'timeout' ? 'timeout' : answer === 'off' ? 'off' : 'denied';
     }
+    // The setting may have gone off while the card waited, even if the hub was not told in time.
+    if (!this.deps.history.enabled()) outcome = 'off';
+    if (outcome === 'allowed-session') this.grants.grant(session.id, { source: src.line, client: session.client.name }, this.deps.now());
     if (outcome !== 'allowed-once' && outcome !== 'allowed-session' && outcome !== 'session-grant') {
       record(outcome, 0);
       return { granted: false, reason: outcome };
@@ -352,11 +354,11 @@ export class AgentHub {
     return { granted: true, note: HISTORY_NOTE, entries: r.entries, ...(r.redacted ? { redacted: r.redacted } : {}), ...(a.clamped ? { clamped: true } : {}) };
   }
 
-  private askConsent(session: HubSession, src: Source, a: ReturnType<typeof parseHistoryRequest>, signal: AbortSignal): Promise<ConsentAnswer | 'timeout' | 'dismissed'> {
+  private askConsent(session: HubSession, src: Source, a: ReturnType<typeof parseHistoryRequest>, signal: AbortSignal): Promise<ConsentAnswer | 'timeout' | 'dismissed' | 'off'> {
     const id = this.id();
     const words = consentSummary(a, src.line);
     // ✕ on a consent card is a deny.
-    const answer = this.wait<ConsentAnswer, 'timeout' | 'dismissed' | 'deny'>(id, { session: session.id, kind: 'consent', timeoutMs: CONSENT_TIMEOUT_MS, signal, ends: { timeout: 'timeout', cancelled: 'dismissed', dismissed: 'deny' } });
+    const answer = this.wait<ConsentAnswer | 'off', 'timeout' | 'dismissed' | 'deny'>(id, { session: session.id, kind: 'consent', timeoutMs: CONSENT_TIMEOUT_MS, signal, ends: { timeout: 'timeout', cancelled: 'dismissed', dismissed: 'deny' } });
     this.add({
       id,
       key: `consent:${id}`,
@@ -380,6 +382,12 @@ export class AgentHub {
     // The vocabulary review stays: the terms wait in Settings whether or not the agent is still connected.
     const c = this.queue.byKey(`session:${sessionId}`);
     if (c && c.urgency === 'info' && this.queue.remove(c.id)) this.deps.changed();
+  }
+
+  /** The person turned history access off: every waiting consent card is withdrawn and denied, and session grants end. */
+  historyAccessOff(): void {
+    for (const g of this.grants.list(this.deps.now())) this.grants.revoke(g.sessionId);
+    for (const [id, w] of [...this.waits]) if (w.kind === 'consent') this.settle(id, 'off');
   }
 
   // ---------- the person, on the pill ----------
