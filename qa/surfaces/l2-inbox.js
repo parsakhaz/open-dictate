@@ -60,6 +60,22 @@ module.exports = {
       },
     },
     {
+      id: 'J5r',
+      name: "a card replaced by the same session's next notify reads gone, not unknown (#24)",
+      async run(ctx) {
+        const { session, cmd, cards, sleep, check } = ctx;
+        await clear(ctx);
+        const agent = session({ client: 'claude-code', title: 'Claude Code' });
+        const a = await agent.call('notify', { title: 'A', urgency: 'needs_you' });
+        const b = await agent.call('notify', { title: 'B', urgency: 'needs_you' });
+        check('the second notify replaces the first', b.result?.status === 'replaced' && b.result.card_id !== a.result?.card_id, { a: a.result, b: b.result });
+        const s = await agent.call('card_status', { card_id: a.result?.card_id });
+        check('card_status on the replaced card says gone', s.result?.state === 'gone', s.result);
+        await waitFor(cards, (c) => c?.top?.title === 'B', sleep);
+        cmd('card dismiss');
+      },
+    },
+    {
       id: 'J7',
       name: 'snooze: chips, toast, badge and shelf; the card comes back; the shortcut steps 3 → 5',
       async run(ctx) {
