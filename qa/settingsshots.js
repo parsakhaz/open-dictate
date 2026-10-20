@@ -30,6 +30,10 @@ const AGENTS = {
     { agent: 'codex', found: true, registered: true, ownedByDictate: true, handWritten: false },
     { agent: 'cursor', found: false, registered: false, ownedByDictate: false, handWritten: false },
   ],
+  instructions: [
+    { agent: 'claude', file: String.raw`C:\Users\you\.claude\CLAUDE.md`, found: true, state: 'current' },
+    { agent: 'codex', file: String.raw`C:\Users\you\.codex\AGENTS.md`, found: true, state: 'current' },
+  ],
   registrationAllowed: true,
   snippets: [
     { agent: 'Gemini CLI', file: '~/.gemini/settings.json', text: '{}' },

@@ -50,6 +50,7 @@ interface AgentsState {
   channel: boolean;
   pane: { installed: boolean; attached: boolean };
   registration: { agent: 'claude' | 'codex' | 'cursor'; found: boolean; registered: boolean; ownedByDictate: boolean; handWritten: boolean; error?: string }[];
+  instructions: { agent: 'claude' | 'codex'; file: string; found: boolean; state: 'absent' | 'current' | 'outdated'; error?: string }[];
   registrationAllowed: boolean;
   snippets: { agent: string; file: string; text: string; note?: string }[];
   sessions: { id: string; client: string; inPane: boolean; connectedAt: number }[];
@@ -955,6 +956,17 @@ function agentsPage(): (Node | null)[] {
       : r.ownedByDictate ? 'Dictate’s tools are set up.'
       : !r.found ? 'Not found on this computer.'
       : s.agentsEnabled && a?.registrationAllowed ? 'Found; Dictate adds its tools when it starts.' : 'Found; not set up.';
+  const willWrite = s.agentsEnabled && !!a?.registrationAllowed;
+  /** The agent's instruction file and whether it holds Dictate's note; nothing for an agent without one. */
+  const noteLine = (agent: string): (Node | string)[] => {
+    const f = a?.instructions.find((i) => i.agent === agent);
+    if (!f || (!f.found && f.state === 'absent' && !f.error)) return [];
+    const text = f.error ? `Its instructions file was left alone: it ${f.error}.`
+      : f.state === 'current' ? 'Its instructions hold Dictate’s note:'
+      : f.state === 'outdated' ? (willWrite ? 'Dictate updates its note when it starts:' : 'Its instructions hold an older Dictate note:')
+      : willWrite ? 'Dictate adds a note to its instructions when it starts:' : 'Its instructions have no Dictate note:';
+    return [` ${text}`, h('code', {}, f.file)];
+  };
   const paneLine = !a ? '' : a.pane.attached ? 'Following your Pane tabs: a tab that needs you shows on the pill.' : a.pane.installed ? 'Pane isn’t running. Dictate picks it up when it starts.' : 'Pane isn’t installed. Agents can still reach you through the pill.';
   const copy = (text: string) => (e: Event) => {
     void dictate.invoke('dictate:agents-copy', text);
@@ -963,8 +975,8 @@ function agentsPage(): (Node | null)[] {
   return [
     h('h1', {}, 'Agents'),
     h('p.lead', {}, 'Coding agents reach you through the pill. A card names the tab or folder it came from (Dictate looks that up; agents can’t set it) and what the agent needs. Click it to open the tab, or hold your dictation key over it to answer.'),
-    card('Let coding agents use Dictate', 'Adds Dictate’s tools to Claude Code, Codex and Cursor each time Dictate starts. Off removes them again; a “dictate” entry you wrote yourself is never touched.', toggle(s.agentsEnabled, (v) => set({ agentsEnabled: v }), 'Let coding agents use Dictate')),
-    ...(a?.registration ?? []).map((r) => card(AGENT_NAMES[r.agent], regLine(r))),
+    card('Let coding agents use Dictate', 'Adds Dictate’s tools to Claude Code, Codex and Cursor each time Dictate starts, and a short note on when to use them to Claude Code’s and Codex’s own instructions. Off removes them again; a “dictate” entry you wrote yourself and the rest of those files are never touched.', toggle(s.agentsEnabled, (v) => set({ agentsEnabled: v }), 'Let coding agents use Dictate')),
+    ...(a?.registration ?? []).map((r) => card(AGENT_NAMES[r.agent], h('span', {}, regLine(r), ...noteLine(r.agent)))),
     a && !a.registrationAllowed ? h('p.muted.small', {}, 'This is a development build: it doesn’t change your agents’ settings.') : null,
     card('Pane', paneLine),
     card('Pause agent alerts', 'Cards wait, and the tray shows how many. Questions from agents return “do not disturb”.', toggle(s.agentAlertsPaused, (v) => set({ agentAlertsPaused: v }), 'Pause agent alerts')),
