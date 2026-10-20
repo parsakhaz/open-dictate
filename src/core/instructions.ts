@@ -55,20 +55,29 @@ export function editInstructions(text: string | undefined, enabled: boolean): Ed
     return { kind: 'skip', reason: `${(err as Error).message}; left it unchanged` };
   }
   const crlf = body.includes('\r\n');
-  const block = renderBlock().map((l) => (crlf ? `${l}\r` : l));
+  const eol = crlf ? '\r\n' : '\n';
   let next: string;
   if (enabled && at) {
+    const block = renderBlock().map((l) => (crlf ? `${l}\r` : l));
+    // A block that ends the file without a line break keeps ending it that way.
+    if (at.end === lines.length - 1) block[block.length - 1] = bare(block[block.length - 1]);
     lines.splice(at.start, at.end - at.start + 1, ...block);
     next = lines.join('\n');
   } else if (enabled) {
-    const eol = crlf ? '\r\n' : '\n';
-    const added = `${block.join('\n')}\n`;
-    next = body ? `${body}${body.endsWith('\n') ? eol : eol + eol}${added}` : added;
+    const added = renderBlock().join(eol);
+    // A file without a final line break gets none after the block either, so removal can give it back as it was.
+    next = !body ? `${added}\n` : body.endsWith('\n') ? `${body}${eol}${added}${eol}` : `${body}${eol}${eol}${added}`;
   } else if (at) {
     const s = at.start;
     lines.splice(s, at.end - s + 1);
     // Take back the blank line that set the block apart: the one before it at the end, a doubled one elsewhere.
-    if (s === lines.length - 1 && lines[s] === '') {
+    if (s === lines.length) {
+      // The block ended the file without a line break: so did the text before it.
+      if (s > 0 && blank(lines[s - 1])) {
+        lines.splice(s - 1, 1);
+        if (lines.length) lines[lines.length - 1] = bare(lines[lines.length - 1]);
+      } else lines.push('');
+    } else if (s === lines.length - 1 && lines[s] === '') {
       if (s > 0 && blank(lines[s - 1])) lines.splice(s - 1, 1);
     } else if (s < lines.length - 1 && blank(lines[s]) && (s === 0 || blank(lines[s - 1]))) lines.splice(s, 1);
     next = lines.join('\n');

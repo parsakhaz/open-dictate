@@ -110,6 +110,7 @@ export function instructionsStatus(opts: Pick<InstructionsOptions, 'env' | 'plat
     const s: InstructionsFile = { agent, file, found: found(), state: 'absent' };
     try {
       s.state = instructionsState(readText(file));
+      if (!writable(file)) s.error = 'is read-only';
     } catch (err) {
       s.error = (err as Error).message;
     }

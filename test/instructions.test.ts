@@ -60,7 +60,8 @@ describe('editInstructions', () => {
   });
 
   it('adds a line break first when the file does not end with one', () => {
-    expect(write('# Mine').text).toBe(`# Mine\n\n${renderBlock().join('\n')}\n`);
+    expect(write('# Mine').text).toBe(`# Mine\n\n${renderBlock().join('\n')}`);
+    expect(write('a\r\nb').text).toBe(`a\r\nb\r\n\r\n${renderBlock().join('\r\n')}`);
   });
 
   it('leaves a file whose block is current unchanged', () => {
@@ -82,7 +83,7 @@ describe('editInstructions', () => {
   });
 
   it('removes only the block, giving back the file it was added to byte for byte', () => {
-    for (const original of [PANE, '', '# Mine\n', '# Mine\r\n\r\nMore\r\n', '\n\n# Spaced\n\n']) {
+    for (const original of [PANE, '', '# Mine\n', '# Mine\r\n\r\nMore\r\n', '\n\n# Spaced\n\n', '# Mine', 'a\r\n\r\nb', 'a\n\n', ' ']) {
       const added = write(original).text;
       const removed = write(added, false);
       expect(removed.action).toBe('removed');
@@ -94,7 +95,12 @@ describe('editInstructions', () => {
     const block = renderBlock().join('\n');
     expect(write(`# A\n\n${block}\n\n# B\n`, false).text).toBe('# A\n\n# B\n');
     expect(write(`${block}\n\n# B\n`, false).text).toBe('# B\n');
-    expect(write(`# A\n\n${block}`, false).text).toBe('# A\n');
+    expect(write(`# A\n\n${block}`, false).text).toBe('# A');
+    expect(write(`# A\n${block}`, false).text).toBe('# A\n');
+  });
+
+  it('replaces a block that ends a CRLF file without a line break, adding no stray \\r', () => {
+    expect(write(`a\r\n\r\n${BLOCK_BEGIN}\r\nold\r\n${BLOCK_END}`).text).toBe(`a\r\n\r\n${renderBlock().join('\r\n')}`);
   });
 
   it("keeps a CRLF file's line endings", () => {
@@ -231,6 +237,7 @@ describe('syncInstructions (temporary HOME, CLAUDE_CONFIG_DIR and CODEX_HOME)', 
     expect(bytes(claudeMd()).equals(Buffer.from(PANE))).toBe(true);
     expect(logs.some((l) => l.includes('CLAUDE.md') && l.includes('read-only'))).toBe(true);
     expect(out[1].action).toBe('added');
+    expect(instructionsStatus(opts())[0].error).toBe('is read-only');
   });
 
   it("skips a file that isn't UTF-8, or whose markers don't pair up, and still does the other", () => {

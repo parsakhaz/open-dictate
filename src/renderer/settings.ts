@@ -961,7 +961,7 @@ function agentsPage(): (Node | null)[] {
   const noteLine = (agent: string): (Node | string)[] => {
     const f = a?.instructions.find((i) => i.agent === agent);
     if (!f || (!f.found && f.state === 'absent' && !f.error)) return [];
-    const text = f.error ? `Its instructions file was left alone: it ${f.error}.`
+    const text = f.error ? `Its instructions file was left alone: it ${f.error.replace(/'/g, '’')}.`
       : f.state === 'current' ? 'Its instructions hold Dictate’s note:'
       : f.state === 'outdated' ? (willWrite ? 'Dictate updates its note when it starts:' : 'Its instructions hold an older Dictate note:')
       : willWrite ? 'Dictate adds a note to its instructions when it starts:' : 'Its instructions have no Dictate note:';
