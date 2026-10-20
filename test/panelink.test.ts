@@ -48,6 +48,22 @@ describe('PaneLink tab names', () => {
     expect((await link.tabNames('P', 'X'))?.panelTitle).toBe('Release');
   });
 
+  it('a lookup still running when the watch stops leaves nothing behind for the next watch', async () => {
+    const pane = fakePane();
+    const link = new PaneLink({ paneDir: pane.paneDir, log: () => undefined, onEvent: () => undefined });
+    link.start();
+    const lookup = link.tabNames('P', 'X');
+    link.stop();
+    expect((await lookup)?.panelTitle).toBe('Build');
+    pane.setTitle('Release');
+    link.start();
+    try {
+      expect((await link.tabNames('P', 'X'))?.panelTitle).toBe('Release');
+    } finally {
+      link.stop();
+    }
+  });
+
   it('forgets the names it knew when the watch stops, so a tab renamed meanwhile shows its new name once it restarts', async () => {
     const pane = fakePane();
     const link = new PaneLink({ paneDir: pane.paneDir, log: () => undefined, onEvent: () => undefined });

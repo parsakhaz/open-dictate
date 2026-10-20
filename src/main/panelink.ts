@@ -152,13 +152,16 @@ export class PaneLink {
     // Names are kept current only by a running watch's events; without one, ask runpane each time.
     const known = this.watch ? this.names.get(panelId) : undefined;
     if (known && known.paneId === paneId) return known;
+    const watch = this.watch;
     try {
       const panes = await this.run<{ panes: { id: string; name: string }[] }>(['panes', 'list']);
       const pane = panes.panes.find((p) => p.id === paneId);
       if (!pane) return null;
       const panels = await this.run<{ panels: { id: string; title: string; agentType?: string }[] }>(['panels', 'list', '--pane', paneId]);
-      for (const p of panels.panels) this.names.set(p.id, { paneId, paneName: pane.name, panelTitle: p.title, agentType: p.agentType });
-      return this.names.get(panelId) ?? null;
+      const found = panels.panels.map((p): [string, TabNames] => [p.id, { paneId, paneName: pane.name, panelTitle: p.title, agentType: p.agentType }]);
+      // Kept only while the watch that was running when the lookup began still runs to keep them current.
+      if (watch && this.watch === watch) for (const [id, names] of found) this.names.set(id, names);
+      return found.find(([id]) => id === panelId)?.[1] ?? null;
     } catch {
       return null;
     }
