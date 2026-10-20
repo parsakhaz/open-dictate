@@ -80,4 +80,15 @@ Reads use the history search and the clamps: 20 entries and 7 days at most. They
 
 Dictate's entries carry `DICTATE_MCP=1`. A `dictate` entry without that marker is the person's own and is never touched. Turning "Let coding agents use Dictate" off removes only Dictate's entries. Other agents get "Copy setup" snippets on the Agents page.
 
-QA and tests never write real configs. Set `DICTATE_AGENT_HOME` to a temporary folder and registration uses it as `HOME`, `CODEX_HOME` and `CLAUDE_CONFIG_DIR`. Development builds, smoke tests and `DICTATE_QA_CONTROL` runs skip registration otherwise.
+### Instructions
+
+[src/main/instructions.ts](../../src/main/instructions.ts) also keeps a short note in each found agent's user-level instruction file, never a project's: `$CLAUDE_CONFIG_DIR/CLAUDE.md` (else `~/.claude/CLAUDE.md`) and `$CODEX_HOME/AGENTS.md` (else `~/.codex/AGENTS.md`). [src/core/instructions.ts](../../src/core/instructions.ts) holds the text: when to use `notify` (`needs_you`), `ask` and `info`, and the plain-words rule. The full examples stay in the MCP tool descriptions.
+
+- The note sits between `<!-- dictate:begin (managed by Dictate; edits are replaced) -->` and `<!-- dictate:end -->`. It is appended to the end of the file, which is created when missing, and replaced in place afterwards. Nothing outside the markers changes: line endings (LF or CRLF) and an existing byte order mark are kept, and none is added.
+- A launch writes only when the note changed. Writes go to a temporary file that is renamed over the original.
+- Turning the setting off removes the note and the blank line that set it apart, giving back the file as it was. A file that held only the note is deleted.
+- A file that isn't UTF-8, has unpaired markers or is read-only is skipped and logged.
+- Settings → Agents shows each file under its agent and whether it holds the note.
+- The Windows uninstaller runs `Dictate.exe --remove-agent-setup`, which removes Dictate's MCP entries and notes, then quits. Updates skip it. macOS and Linux have no uninstall hook: turn the setting off before removing the app.
+
+QA and tests never write real configs. Set `DICTATE_AGENT_HOME` to a temporary folder and registration and the notes use it as `HOME`, `CODEX_HOME` and `CLAUDE_CONFIG_DIR`. Development builds, smoke tests and `DICTATE_QA_CONTROL` runs skip registration otherwise.
