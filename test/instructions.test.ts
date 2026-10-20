@@ -41,6 +41,7 @@ describe('the block', () => {
     expect(text).toContain('`needs_you`');
     expect(text).toContain('`ask`');
     expect(text).toContain('`info`');
+    for (const tool of ['decide', 'approve', 'lineup', 'peek', 'card_status']) expect(text).toContain(`\`${tool}\``);
     expect(text).toContain('The person is juggling many tasks and has lost the thread.');
   });
 });

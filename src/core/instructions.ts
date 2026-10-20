@@ -12,6 +12,7 @@ const BEGIN_PREFIX = '<!-- dictate:begin';
 const LINES = [
   '## Dictate',
   "Dictate is this person's local dictation app. When you truly need them, use the dictate MCP's `notify` (urgency `needs_you`) or `ask`; send `info` only in the plain style below. If the dictate tools aren't available, ignore this.",
+  'To ask up to four related questions at once, use `decide`; to get a plan approved, `approve`; to have them pick among options you made (mockups, images, short texts), `lineup`; to show a local page or report they can point at and talk about, `peek`. A card may wait while they are busy or be snoozed: `held` or `snoozed` is not an answer, so carry on and check its `card_id` later with `card_status`.',
   "The person is juggling many tasks and has lost the thread. In plain words, say what this work is for (the outcome, not the file), what just happened, and what you need from them. If you need a decision, give the options and what each one means. Don't repeat where you are: Dictate adds that.",
 ];
 
