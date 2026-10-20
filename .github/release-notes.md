@@ -1,5 +1,14 @@
 Fully local dictation: hold a key, speak, and clean text appears where you type. Nothing leaves your computer.
 
+## What's new in 0.1.1
+
+Agent cards on the pill ([#9](https://github.com/parsakhaz/open-dictate/issues/9)):
+
+- Clicking a card's buttons works. On Windows the pill never noticed the pointer over a card, so clicks fell through to the window behind it.
+- A card shows its whole title and message, so you can read it at a glance. Its buttons ease in when you point at it.
+- While you hold the key to answer a card by voice, the card stays up, marked "Replying by voice…".
+- Info cards stay for about 4.5 s and wait while you point at them. The vocabulary review card stays until you review or dismiss it, even after the agent disconnects.
+
 ## Install
 
 | Computer | Download |
