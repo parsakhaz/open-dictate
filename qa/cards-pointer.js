@@ -1,6 +1,7 @@
-// A card's choice button clicked with the real Windows pointer (issue #9): the pill window is click-through until the
-// pointer is over a card, so only real OS input proves a click reaches the button. It MOVES THE MOUSE, so it runs
-// only on CI (or with DICTATE_QA_REAL_POINTER=1 on a machine nobody is using). Windows only.
+// A card's choice button, and then the ✕ of a resting card after a pause (#25), clicked with the real Windows pointer
+// (issue #9): the pill window is click-through until the pointer is over a card, so only real OS input proves a click
+// reaches the button. It MOVES THE MOUSE, so it runs only on CI (or with DICTATE_QA_REAL_POINTER=1 on a machine nobody is
+// using). Windows only.
 // Writes tmp/cards-pointer/report.json and a screenshot of the screen at each step.
 //   pnpm build && node qa/cards-pointer.js
 const fs = require('node:fs');
@@ -102,6 +103,24 @@ async function main() {
     const answer = await Promise.race([ask, sleep(4000).then(() => null)]);
     pointer('shot', 0, 0, path.join(OUT, '02-after-click.png'));
     check('a real click on "Neither" (mid-row, where the hidden pill sat) returns that choice to the agent', answer?.result?.answered === true && answer.result.choice === 'Neither', answer ?? log().split('\n').filter((l) => /QA card/.test(l)));
+
+    // #25: away from the card, then onto the ✕ of the resting card; a pause, as a hand would, and the click.
+    pointer('move', card.x + card.width / 2, Math.max(0, card.y - 300));
+    await sleep(600);
+    const second = agent.call('ask', { question: 'Should the nightly backup also go to the EU region?', choices: ['Yes', 'No'], timeout_s: 60 });
+    await sleep(1000);
+    const x = await where('card-locate ✕', /QA card-locate "✕" (.+)\n/);
+    check('the resting card shows its ✕', !!x, x);
+    if (!x) return;
+    pointer('move', x.x, x.y);
+    await sleep(500);
+    pointer('shot', 0, 0, path.join(OUT, '03-on-x.png'));
+    const still = await where('card-locate ✕', /QA card-locate "✕" (.+)\n/);
+    check('with the pointer resting on it, the ✕ stays where it was', still && Math.abs(still.y - x.y) <= 2, { x, still });
+    pointer('click', x.x, x.y);
+    const dismissed = await Promise.race([second, sleep(4000).then(() => null)]);
+    pointer('shot', 0, 0, path.join(OUT, '04-after-x.png'));
+    check('a real click on the ✕ after a pause dismisses the card', dismissed?.result?.answered === false && dismissed.result.reason === 'dismissed', dismissed);
   } finally {
     await agent?.close();
     execFileSync('taskkill', ['/PID', String(app.pid), '/T', '/F'], { stdio: 'ignore' });

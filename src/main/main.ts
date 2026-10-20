@@ -9,6 +9,7 @@ import { CaptureController, type CaptureEvents } from '../core/capture';
 import { runChain } from '../core/chain';
 import { HistoryStore } from '../core/history';
 import { type Bindings, bindingFromKeys, bindingLabel, type HotkeyAction, HotkeyMachine, isModifier, menuMaskCombos, menuMaskKeys, type RecordMode, swallowBindings, VK } from '../core/hotkeys';
+import { type CardBox, type CardPointer, inRect, nextCardPointer } from '../core/cardpointer';
 import { isSheetKind } from '../core/sheetkinds';
 import { DEFAULT_SEGMENTER, LiveCleanup, Segmenter } from '../core/live';
 import { deviceLabelFor, type MicDevice, type MicEvent, MicSelector, micKey, micName } from '../core/mics';
@@ -187,8 +188,37 @@ function previewReply(to: string, text: string): Promise<boolean> {
   });
 }
 
-/** Where the top card sits in the pill window (CSS pixels), from the renderer. */
-let cardRect: { x: number; y: number; width: number; height: number } | null = null;
+/** Where the top card reaches in the pill window (CSS pixels), and how tall its head is, from the renderer. */
+let cardRect: CardBox | null = null;
+/** The top card's id, to open it under the pointer and start the next one closed. */
+let topCardId: string | null = null;
+
+/** QA: the centre of the card button with this label (or of what a ".selector" finds), in the pill page's CSS pixels. */
+async function qaButtonAt(label: string): Promise<{ x: number; y: number } | null> {
+  return (await pill.webContents.executeJavaScript(`(() => {
+    const l = ${JSON.stringify(label)};
+    const b = l.startsWith('.') ? document.querySelector('.cards ' + l) : [...document.querySelectorAll('.cards button')].find((x) => x.textContent === l);
+    const r = b && b.getBoundingClientRect();
+    return r ? { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) } : null;
+  })()`)) as { x: number; y: number } | null;
+}
+
+/** QA: a click where the stand-in pointer is, as the window would get it: none at all while it lets clicks through. */
+async function qaPointerClick(): Promise<void> {
+  const at = qaPointer;
+  if (!at || passesClicks) {
+    log('info', `QA pointer-click ${JSON.stringify({ at, hit: at ? 'passed through' : 'no pointer' })}`);
+    return;
+  }
+  const hit = (await pill.webContents.executeJavaScript(`(() => {
+    const e = document.elementFromPoint(${at.x}, ${at.y});
+    return e ? (e.textContent && e.tagName === 'BUTTON' ? 'button ' + e.textContent : e.tagName.toLowerCase() + '.' + e.className) : 'nothing';
+  })()`)) as string;
+  pill.webContents.sendInputEvent({ type: 'mouseMove', x: at.x, y: at.y });
+  pill.webContents.sendInputEvent({ type: 'mouseDown', x: at.x, y: at.y, button: 'left', clickCount: 1 });
+  pill.webContents.sendInputEvent({ type: 'mouseUp', x: at.x, y: at.y, button: 'left', clickCount: 1 });
+  log('info', `QA pointer-click ${JSON.stringify({ at, hit })}`);
+}
 
 /** QA: finds a card button by its label, logs what is under its centre, and clicks there with page input events. */
 async function qaCardClick(label: string, click: boolean): Promise<void> {
@@ -217,18 +247,28 @@ type Rect = { x: number; y: number; width: number; height: number };
 let extraRects: Rect[] = [];
 let extraHover = false;
 
-function pointerIn(r: Rect): boolean {
-  if (pill.isDestroyed()) return false;
+/** QA: a pointer in the pill page's CSS pixels, standing in for the OS pointer (which QA never moves). */
+let qaPointer: { x: number; y: number } | null = null;
+
+/** The pointer in the pill page's CSS pixels. */
+function pointerAt(): { x: number; y: number } | null {
+  if (pill.isDestroyed()) return null;
+  if (qaPointer) return qaPointer;
   const p = screen.getCursorScreenPoint();
   const b = pill.getBounds();
-  const x = p.x - b.x;
-  const y = p.y - b.y;
-  return x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height;
+  return { x: p.x - b.x, y: p.y - b.y };
+}
+
+function pointerIn(r: Rect): boolean {
+  const p = pointerAt();
+  return !!p && inRect(p, r);
 }
 
 function pointerOverCard(): boolean {
   return cardsShown && !!cardRect && pointerIn(cardRect);
 }
+
+let cardPointer: CardPointer = { over: false, openFor: null };
 
 /**
  * The pill is click-through except over a card (and an Undo toast). Main watches the pointer itself while cards are
@@ -236,13 +276,19 @@ function pointerOverCard(): boolean {
  * the window would never start taking clicks (issue #9).
  */
 let cardHover = false;
+/** The top card is open under the pointer, showing its buttons. */
+let cardOpen = false;
 /** QA: hovered without a mouse. */
 let qaCardHover = false;
 let undoToast = false;
 let hoverPoll: ReturnType<typeof setInterval> | undefined;
 
+/** The pill window lets clicks through to the window behind it. */
+let passesClicks = true;
+
 function clickThrough(): void {
-  if (!pill.isDestroyed()) pill.setIgnoreMouseEvents(!(cardHover || undoToast || extraHover), { forward: true });
+  passesClicks = !(cardHover || undoToast || extraHover);
+  if (!pill.isDestroyed()) pill.setIgnoreMouseEvents(passesClicks, { forward: true });
 }
 
 function pollCardHover(): void {
@@ -251,12 +297,16 @@ function pollCardHover(): void {
     extraHover = overExtra;
     clickThrough();
   }
-  const on = cardsShown && (qaCardHover || pointerOverCard());
-  if (on === cardHover) return;
-  cardHover = on;
-  clickThrough();
-  pillSend('dictate:card-hover', on);
-  agents?.setHovered(on);
+  cardPointer = nextCardPointer(cardPointer, cardsShown ? topCardId : null, cardRect, pointerAt(), qaCardHover);
+  if (cardPointer.over !== cardHover) {
+    cardHover = cardPointer.over;
+    clickThrough();
+    agents?.setHovered(cardHover);
+  }
+  const open = cardPointer.openFor !== null;
+  if (open === cardOpen) return;
+  cardOpen = open;
+  pillSend('dictate:card-hover', open);
 }
 
 function watchCardHover(on: boolean): void {
@@ -1396,7 +1446,7 @@ function registerIpc(): void {
   });
   ipcMain.handle('dictate:card-action', (_e, a: CardAction) => agents?.action(a));
   ipcMain.on('dictate:card-rect', (_e, r: typeof cardRect) => {
-    cardRect = r && [r.x, r.y, r.width, r.height].every(Number.isFinite) ? r : null;
+    cardRect = r && [r.x, r.y, r.width, r.height].every(Number.isFinite) ? { x: r.x, y: r.y, width: r.width, height: r.height, id: typeof r.id === 'string' ? r.id : null, head: Number.isFinite(r.head) ? r.head : 0 } : null;
   });
   ipcMain.on('dictate:devices', (_e, d: { list: MicDevice[]; defaultLabel: string }) => {
     if (process.env.DICTATE_QA_DEVICES) return;
@@ -1591,6 +1641,24 @@ async function main(): Promise<void> {
           pollCardHover();
         }
         else if (line === 'cards-list') pillSend('dictate:qa-list');
+        // A stand-in pointer, in pill page pixels: on a card button by its label ("pointer ✕"), at "x,y", or "off".
+        else if (line.startsWith('pointer ')) {
+          const to = line.slice(8);
+          const xy = /^(-?\d+),(-?\d+)$/.exec(to);
+          void (to === 'off' ? Promise.resolve(null) : xy ? Promise.resolve({ x: +xy[1], y: +xy[2] }) : qaButtonAt(to)).then((at) => {
+            qaPointer = at;
+            pollCardHover();
+            log('info', `QA pointer ${JSON.stringify(at)}`);
+          });
+        }
+        else if (line === 'pointer-click') void qaPointerClick();
+        // Whether main would take a click on that card button right now: its centre against the card's hit area.
+        else if (line.startsWith('card-hit ')) {
+          void qaButtonAt(line.slice(9)).then((at) => {
+            const r = cardRect;
+            log('info', `QA card-hit ${JSON.stringify({ at, rect: r, inside: !!(at && r && inRect(at, r)) })}`);
+          });
+        }
         // A click on a card button by its label, as input events into the pill page (the OS pointer stays put).
         else if (line.startsWith('card-click ')) void qaCardClick(line.slice(11), true);
         // Where that button is on screen (physical pixels), for a real pointer.
@@ -1692,6 +1760,9 @@ function startAgents(): void {
     status: () => ({ modelsReady: sttReady, dictating: !!rec || finishing.size > 0 }),
     showCards: (view) => {
       cardsShown = !!view.top;
+      topCardId = view.top?.id ?? null;
+      // Before the cards: a card that takes the place of an open one is drawn closed.
+      pollCardHover();
       pillSend('dictate:cards', view);
       if (cardsShown) showPill(pill);
       watchCardHover(cardsShown || extraRects.length > 0);

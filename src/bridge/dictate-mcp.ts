@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { NOT_RUNNING, SERVER_INSTRUCTIONS } from '../core/agenttools';
-import { type AppToBridge, CHANNEL_FILE, type ChannelInfo, type ClientInfo, frame, lineReader, paneIdsFrom } from '../core/agentwire';
+import { type AppToBridge, CHANNEL_FILE, type ChannelInfo, type ClientInfo, frame, type LongLine, lineReader, MAX_LINE, MAX_LINE_SIZE, megabytes, paneIdsFrom } from '../core/agentwire';
 import { isListed, listedTools } from '../core/tools';
 
 declare const DICTATE_VERSION: string;
@@ -99,6 +99,9 @@ async function callApp(rpcId: Id, tool: string, args: unknown): Promise<AppToBri
     return { t: 'result', id: 0, error: (e as Error).message };
   }
   const id = nextCall++;
+  const call = frame({ t: 'call', id, tool, args: args ?? {} });
+  // The frame's newline isn't part of the line the app reads.
+  if (call.length - 1 > MAX_LINE) return { t: 'result', id, error: tooBig('This call', call.length) };
   inFlight.set(rpcId, id);
   return new Promise((resolve) => {
     l.calls.set(id, (m) => {
@@ -106,11 +109,48 @@ async function callApp(rpcId: Id, tool: string, args: unknown): Promise<AppToBri
       inFlight.delete(rpcId);
       resolve(m);
     });
-    l.socket.write(frame({ t: 'call', id, tool, args: args ?? {} }));
+    l.socket.write(call);
   });
 }
 
 // ---------- MCP ----------
+
+const tooBig = (what: string, chars: number) => `${what} is ${megabytes(chars)}; Dictate takes at most ${MAX_LINE_SIZE} per call. Send less, or split it into several calls.`;
+
+// A request's id, from the ends of a line too long to read: in its start when it comes before the params, as most
+// clients write it, or last, as the MCP SDK writes it.
+const ID = String.raw`"id"\s*:\s*(-?\d+|"(?:[^"\\]|\\.)*")`;
+const TAIL_ID = new RegExp(String.raw`[,{]\s*${ID}\s*\}$`);
+const VALUE_ID = /^\s*:\s*(-?\d+|"(?:[^"\\]|\\.)*")/;
+
+/** The top-level "id" in the start of a JSON object, skipping strings and anything nested (an "id" in the params). */
+function headId(head: string): RegExpExecArray | null {
+  let depth = 0;
+  for (let i = 0; i < head.length; i++) {
+    const c = head[i];
+    if (c === '"') {
+      const end = /^"(?:[^"\\]|\\.)*"/.exec(head.slice(i));
+      if (!end) return null;
+      i += end[0].length - 1;
+      if (depth === 1 && end[0] === '"id"') {
+        const v = VALUE_ID.exec(head.slice(i + 1));
+        if (v) return v;
+      }
+    } else if (c === '{' || c === '[') depth++;
+    else if (c === '}' || c === ']') depth--;
+  }
+  return null;
+}
+
+/** Answers a request too long to read, so the agent hears why instead of waiting out its timeout. */
+function refuseLong(line: LongLine): void {
+  const found = headId(line.head) ?? TAIL_ID.exec(line.tail);
+  if (!found) {
+    process.stderr.write(`dictate: dropped a ${megabytes(line.length)} message with no id to answer\n`);
+    return;
+  }
+  fail(JSON.parse(found[1]) as Id, -32600, tooBig('This request', line.length));
+}
 
 async function handle(m: Rpc): Promise<void> {
   const { id, method } = m;
@@ -158,6 +198,6 @@ process.stdin.on(
   lineReader((m) => {
     const msg = m as Rpc;
     if (msg && msg.jsonrpc === '2.0') void handle(msg).catch((e) => msg.id !== undefined && fail(msg.id, -32603, (e as Error).message));
-  }),
+  }, MAX_LINE, refuseLong),
 );
 process.stdin.on('end', () => process.exit(0));

@@ -57,23 +57,60 @@ export function paneIdsFrom(env: Record<string, string | undefined>): PaneIds | 
   return ok(s) && ok(p) ? { sessionId: s, panelId: p } : null;
 }
 
-/** Splits a byte stream into lines of JSON; a line that isn't JSON, or one over `max` bytes, is dropped. */
-export function lineReader(onMessage: (m: unknown) => void, max = 1_000_000): (chunk: Buffer | string) => void {
+/** The longest line either side reads, in characters. */
+export const MAX_LINE = 1_000_000;
+export const MAX_LINE_SIZE = '1 MB';
+
+/** A line that outgrew the reader's limit: its first and last characters, enough to find whose it was. */
+export interface LongLine {
+  head: string;
+  tail: string;
+  length: number;
+}
+
+const ENDS = 200;
+
+/**
+ * Splits a byte stream into lines of JSON. A line that isn't JSON is dropped; one over `max` characters is skipped
+ * whole and handed to `tooLong`, so the reader can still answer it.
+ */
+export function lineReader(onMessage: (m: unknown) => void, max = MAX_LINE, tooLong?: (line: LongLine) => void): (chunk: Buffer | string) => void {
   let buf = '';
+  // The line being skipped, once it outgrew `max` before its end arrived.
+  let skipping: LongLine | null = null;
   return (chunk) => {
     buf += chunk.toString();
     for (let i = buf.indexOf('\n'); i >= 0; i = buf.indexOf('\n')) {
-      const line = buf.slice(0, i).trim();
+      const piece = buf.slice(0, i);
       buf = buf.slice(i + 1);
-      if (!line || line.length > max) continue;
+      if (skipping) {
+        const s = skipping;
+        skipping = null;
+        tooLong?.({ head: s.head, tail: `${s.tail}${piece}`.trimEnd().slice(-ENDS), length: s.length + piece.length });
+        continue;
+      }
+      const line = piece.trim();
+      if (!line) continue;
+      if (line.length > max) {
+        tooLong?.({ head: line.slice(0, ENDS), tail: line.slice(-ENDS), length: line.length });
+        continue;
+      }
       try {
         onMessage(JSON.parse(line));
       } catch {
         // not JSON: ignored
       }
     }
-    if (buf.length > max) buf = '';
+    if (buf.length > max || (skipping && buf)) {
+      skipping ??= { head: buf.trimStart().slice(0, ENDS), tail: '', length: 0 };
+      skipping.tail = `${skipping.tail}${buf}`.slice(-ENDS);
+      skipping.length += buf.length;
+      buf = '';
+    }
   };
 }
+
+/** Megabytes, to one decimal, for the errors that name a size. */
+export const megabytes = (chars: number) => `${(chars / 1_000_000).toFixed(1)} MB`;
 
 export const frame = (m: unknown) => `${JSON.stringify(m)}\n`;

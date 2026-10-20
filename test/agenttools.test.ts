@@ -65,6 +65,17 @@ describe('notify arguments', () => {
     expect(() => parseNotify({ message: 'x' })).toThrow(ToolInputError);
     expect(() => parseNotify({ title: 'x', link: 'javascript:alert(1)' })).toThrow(/https/);
   });
+
+  it('rejects a mistyped urgency or action instead of quietly showing an info card (#28)', () => {
+    for (const urgency of ['NEEDS_YOU', 'needs-you', 'critical', 7]) expect(() => parseNotify({ title: 'x', urgency })).toThrow("urgency must be 'info' or 'needs_you'");
+    expect(() => parseNotify({ title: 'x', action: 'merge' })).toThrow("action must be 'reply', 'approve', 'review', 'choose' or 'fyi'");
+    expect(parseNotify({ title: 'x', urgency: 'needs_you', action: 'approve' })).toMatchObject({ urgency: 'needs_you', action: 'approve' });
+  });
+
+  it('rejects arguments notify and ask do not take (#28)', () => {
+    expect(() => parseNotify({ title: 'x', bogus: 1 })).toThrow("notify doesn't take bogus");
+    expect(() => parseAsk({ question: 'q', urgency: 'needs_you' })).toThrow("ask doesn't take urgency");
+  });
 });
 
 describe('ask arguments', () => {
