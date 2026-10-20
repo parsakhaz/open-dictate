@@ -1,5 +1,21 @@
 Fully local dictation: hold a key, speak, and clean text appears where you type. Nothing leaves your computer.
 
+## What's new in 0.2.0
+
+Agents reach you in more ways, and you can reach them. Everything is in Settings → **Agents**.
+
+- **Several questions in one card** ([#16](https://github.com/parsakhaz/open-dictate/pull/16)). An agent with a few related choices asks them together. Click the chips, or hold your key over the card and answer in one sentence: "staging, and once then email". When the options come with a preview, a wider sheet shows each one side by side.
+- **Approve a plan** ([#16](https://github.com/parsakhaz/open-dictate/pull/16)). One click approves, or say what to change and the agent gets your words. For risky plans only a click approves.
+- **Cards wait while you work** ([#19](https://github.com/parsakhaz/open-dictate/pull/19)). A card that arrives while you type, dictate or present (Windows) waits behind a quiet "3 waiting", with no chime.
+- **Clear them in a round.** Ctrl+Alt+Space opens the waiting cards one at a time right above the pill. Use the number keys, Enter, S and →, or just say "approve", "next" or "snooze ten" while it's open. Undo takes back the last one.
+- **Snooze.** Click 3m, 5m or 10m on a card, or press Ctrl+Alt+Z. It comes back by itself, tagged "Back from snooze". The agent always learns what happened to its card.
+- **Talk to your agents** ([#17](https://github.com/parsakhaz/open-dictate/pull/17)). Hold Ctrl+Win and say what you want. It goes to a "Voice" orchestrator in Pane, created the first time you use it, which hands the work to the right agent and answers on the pill. If its chat already holds a draft, nothing is sent and a card tells you.
+- **Pick from a lineup** ([#21](https://github.com/parsakhaz/open-dictate/pull/21)). An agent lines up two to six mockups, images or texts. Star your favourites in order, open one full size, or say "two and four, two first".
+- **Peek at a page** ([#20](https://github.com/parsakhaz/open-dictate/pull/20)). An agent shows you a localhost page, a local report or an https site you allowed. It arrives as a card; click Peek to dock it, then hold your key over a button and talk. The agent gets your words, the element and a crop. Pages run sandboxed and can't leave the page without asking you.
+- **Point and say, on Windows** ([#18](https://github.com/parsakhaz/open-dictate/pull/18)). Choose a point key, hold it over anything on screen and say "fix this". You always see the crop and the text before it goes, with secrets masked. It does nothing over password managers, and captures are deleted after 24 hours. The point key is off until you pick one.
+
+Agents are told when each new kind of card fits better than a plain question, in the short note Dictate keeps in `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md`.
+
 ## What's new in 0.1.2
 
 Automatic gain ([#11](https://github.com/parsakhaz/open-dictate/pull/11)): Dictate now raises a quiet voice by itself instead of applying one fixed boost, aiming at a normal speech level without turning up the room hiss in every pause. It is on by default in Settings → **Microphone**, up to each mic's **Maximum boost**; a boost you had set before becomes that maximum.
