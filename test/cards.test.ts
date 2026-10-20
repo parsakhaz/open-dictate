@@ -68,7 +68,7 @@ describe('CardQueue', () => {
   it('holds new cards while the person dictates, and for a second after', () => {
     const q = new CardQueue();
     q.setDictating(true, 0);
-    expect(q.add(card(), 100)).toBe('queued');
+    expect(q.add(card(), 100)).toBe('held');
     expect(q.view(100).top).toBeNull();
     q.setDictating(false, 5000);
     expect(q.view(5000 + AFTER_DICTATION_MS - 1).top).toBeNull();
@@ -168,7 +168,7 @@ describe('CardQueue', () => {
     expect(q.view(100).top?.id).toBe(ask.id);
     expect(q.replyingTo).toBe(ask.id);
     const urgent = card({ urgency: 'consent', kind: 'consent', key: 'consent:1' });
-    expect(q.add(urgent, 200)).toBe('queued');
+    expect(q.add(urgent, 200)).toBe('held');
     expect(q.view(200).top?.id).toBe(ask.id);
     // Released and still there (the reply was cancelled): no pause before the cards come back.
     q.setDictating(false, 5000);

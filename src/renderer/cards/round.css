@@ -1,1 +1,298 @@
 /* Cards: the inbox: the badge, the held capsule, snooze chips and toast, the shelf, the round summary (L2). */
+
+/* ---------- the strip between the cards and the pill ---------- */
+
+.inbox {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 400px;
+}
+.inbox.shown {
+  display: flex;
+}
+.inbox .clock {
+  font-size: 12px;
+  line-height: 1;
+}
+.inbox .dim {
+  color: var(--text-3);
+}
+.caps {
+  display: flex;
+  gap: 6px;
+}
+.capsule {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 11px;
+  border-radius: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(32, 32, 32, 0.94);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: default;
+  animation: card-in 180ms var(--ease);
+}
+button.capsule:hover {
+  background: rgba(48, 48, 48, 0.96);
+}
+.capsule .wdot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.capsule .pause {
+  font-size: 8px;
+  letter-spacing: -1px;
+  color: var(--text-3);
+}
+.capsule.snoozed {
+  color: var(--accent);
+  border-color: rgba(96, 205, 255, 0.35);
+  background: rgba(20, 40, 52, 0.94);
+}
+.toast {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 4px 0 12px;
+  border-radius: 15px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(32, 32, 32, 0.96);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  color: var(--text);
+  animation: card-in 180ms var(--ease);
+}
+.toast .clock {
+  color: var(--accent);
+}
+.toast .undo {
+  border: 0;
+  border-radius: 11px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  background: rgba(96, 205, 255, 0.14);
+  cursor: default;
+}
+.toast .undo:hover {
+  background: rgba(96, 205, 255, 0.24);
+}
+
+/* ---------- the snoozed shelf ---------- */
+
+.shelf {
+  pointer-events: auto;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px 6px 6px;
+  border-radius: 14px;
+  background: rgba(32, 32, 32, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+  display: grid;
+  gap: 2px;
+  animation: card-in 180ms var(--ease);
+}
+.shelfhead {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 0 8px 4px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.shelfhead .ttl {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.shelfhead .hint {
+  margin-left: auto;
+}
+.shelfrow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  border-radius: 8px;
+}
+.shelfrow:hover {
+  background: var(--card-hover);
+}
+.shelftext .src {
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--text-3);
+}
+.shelftext .title {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ringbox {
+  position: relative;
+  width: 34px;
+  height: 34px;
+}
+.ring {
+  width: 34px;
+  height: 34px;
+  transform: rotate(-90deg);
+}
+.ring circle {
+  fill: none;
+  stroke-width: 2.5;
+}
+.ring .track {
+  stroke: rgba(255, 255, 255, 0.12);
+}
+.ring .fill {
+  stroke: var(--accent);
+  stroke-linecap: round;
+}
+.ringtime {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+/* ---------- on a card: the snooze row and the back-from-snooze tag ---------- */
+
+.snz {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid var(--divider);
+  font-size: 11px;
+  color: var(--text-3);
+}
+.snz .lbl {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 2px;
+}
+.snz .cbtn.chip {
+  padding: 1px 9px;
+  font-size: 11px;
+}
+.snz .keys {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 3px;
+}
+.snz kbd,
+.rrow kbd {
+  font: inherit;
+  font-size: 10px;
+  line-height: 14px;
+  padding: 0 4px;
+  border-radius: 4px;
+  border: 1px solid var(--stroke-strong);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-2);
+}
+.backtag {
+  order: -1;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border-radius: 5px;
+  font-size: 11px;
+  line-height: 17px;
+  color: var(--accent);
+  background: rgba(96, 205, 255, 0.12);
+}
+
+/* ---------- the round summary ---------- */
+
+.card[data-kind='round-summary'] {
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+}
+.card[data-kind='round-summary'] .src::before {
+  content: '✓';
+  display: inline-grid;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  margin-right: 5px;
+  border-radius: 50%;
+  font-size: 9px;
+  color: #000;
+  background: var(--green);
+}
+.rrows {
+  display: grid;
+  margin-top: 5px;
+  border-top: 1px solid var(--divider);
+}
+.rrow {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--divider);
+  font-size: 12px;
+  line-height: 17px;
+}
+.rtag {
+  justify-self: start;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--green);
+  background: rgba(108, 203, 95, 0.12);
+}
+.rrow[data-action='answered'] .rtag,
+.rrow[data-action='opened'] .rtag {
+  color: var(--accent);
+  background: rgba(96, 205, 255, 0.12);
+}
+.rrow[data-action='snoozed'] .rtag {
+  color: #ffb54c;
+  background: rgba(255, 181, 76, 0.12);
+}
+.rrow[data-action='skipped'] .rtag {
+  color: var(--text-3);
+  background: var(--card);
+}
+.rwhat {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.rtab {
+  max-width: 96px;
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
