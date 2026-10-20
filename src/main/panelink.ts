@@ -92,6 +92,8 @@ export class PaneLink {
     child.stdout?.on(
       'data',
       lineReader((m) => {
+        // Output a stopped watch had already buffered is not followed.
+        if (this.watch !== child) return;
         const e = parseWatchEntry(m, startedAt);
         if (!this.attached) {
           this.setAttached(true);

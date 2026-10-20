@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { defaultSettings } from '../src/core/settings';
 import type { Settings } from '../src/core/types';
 import { Agents, type AgentsHost } from '../src/main/agents';
+import type { PaneLinkOptions } from '../src/main/panelink';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -59,5 +60,17 @@ describe("Pane's alerts on the pill", () => {
     a.applyPaneWatch();
     expect(stop).toHaveBeenCalledTimes(1);
     expect(start).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores a Pane event that arrives after the setting went off', () => {
+    const { a, set } = agents({ agentPaneAlerts: true });
+    const paneEvent = vi.spyOn(a.hub, 'paneEvent').mockResolvedValue();
+    const onEvent = (a.pane as unknown as { opts: PaneLinkOptions }).opts.onEvent;
+    const blocked = { kind: 'agent.blocked', at: new Date().toISOString(), paneId: 'P', paneName: 'Pane', panelId: 'X' };
+    onEvent(blocked);
+    expect(paneEvent).toHaveBeenCalledTimes(1);
+    set({ agentPaneAlerts: false });
+    onEvent(blocked);
+    expect(paneEvent).toHaveBeenCalledTimes(1);
   });
 });

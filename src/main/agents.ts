@@ -183,7 +183,10 @@ export class Agents {
       paneDir,
       log: host.log,
       onAttached: () => host.stateChanged(),
-      onEvent: (e) => void this.hub.paneEvent(actionFor(e)).catch((err) => host.log('warn', `agents: Pane event failed (${(err as Error).message})`)),
+      onEvent: (e) => {
+        if (!host.settings().agentPaneAlerts) return;
+        void this.hub.paneEvent(actionFor(e)).catch((err) => host.log('warn', `agents: Pane event failed (${(err as Error).message})`));
+      },
     });
   }
 
