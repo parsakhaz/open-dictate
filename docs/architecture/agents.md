@@ -1,6 +1,6 @@
 # Coding agents and the pill
 
-Coding agents reach the person through Dictate's pill. A card says where it came from and what the agent needs. The person can open that Pane tab, click an answer, or hold the dictation key over the card and answer by voice. The person can also reach the agents: two held keys send what they say to a Pane "Voice" orchestrator ([Talk to agents](#talk-to-agents), [Point and say](#point-and-say-windows)). Two things raise cards:
+Coding agents reach the person through Dictate's pill. A card says where it came from and what the agent needs. The person can open that Pane tab, click an answer, or hold the dictation key over the card and answer by voice. The person can also reach the agents: holding the agent key, or on Windows the point key, sends what they say to a Pane "Voice" orchestrator ([Talk to agents](#talk-to-agents), [Point and say](#point-and-say-windows)). Two things raise cards:
 
 - **The agents themselves,** through eleven MCP tools:
   - `notify` and `ask`: a message, or a question with up to four choices.
@@ -24,11 +24,11 @@ The server instructions and the description of every tool that raises a card car
                     ▲              │
                     │              └──► sheet window (decide, lineup, peek, round)   src/main/sheet.ts
  runpane watch ─────┘  (PaneLink: names, last reply, open, send)  src/main/panelink.ts, src/core/panewatch.ts
-                                      ▲
- agent key, point key ──► VoiceOrchestrator ──► the "Voice" Session's chat         src/main/voiceorch.ts
+
+ agent key, point key ──► VoiceOrchestrator ──(PaneLink send)──► the "Voice" Session's chat   src/main/voiceorch.ts
 ```
 
-Each tool past the first six lives in its own module under [src/core/tools/](../../src/core/tools/) and its behaviour in one feature module under [src/main/features/](../../src/main/features/). [src/core/tools/index.ts](../../src/core/tools/index.ts) is the list the bridge returns from `tools/list` and the hub dispatches. Every result of a tool that raises a card carries its `card_id`.
+The six tools from before 0.2.0 (`notify`, `ask`, `status`, `propose_vocabulary`, `list_vocabulary` and `read_history`) are defined in [src/core/agenttools.ts](../../src/core/agenttools.ts). Each newer one lives in its own module under [src/core/tools/](../../src/core/tools/) and its behaviour in one feature module under [src/main/features/](../../src/main/features/). [src/core/tools/index.ts](../../src/core/tools/index.ts) is the list the bridge returns from `tools/list` and the hub dispatches. Every result of a tool that raises a card carries its `card_id`.
 
 ## The bridge and the channel
 
@@ -121,7 +121,7 @@ The watch runs only while "Show Pane's agent alerts on the pill" is on; turning 
 | `agent.ready` | "Finished", only while Pane isn't the app in front |
 | `agent.busy`, `panel.exited` | the tab's Pane card goes |
 
-A Session's own orchestrator chat lives in a hidden Pane that `panes list` doesn't show, so Dictate also looks panels up in `runpane sessions list`, and a card from one reads "Session · <name>".
+A Pane Session's own orchestrator chat sits in a hidden owner pane (Pane's word for a workspace of tabs) that `panes list` doesn't show, so Dictate also looks panels up in `runpane sessions list`, and a card from one reads "Session · <name>".
 
 Clicking a card runs `runpane links open pane://open?pane=…&panel=… --yes`. On Windows Dictate first calls `AllowSetForegroundWindow`, so Pane can come to the front. Replies use `runpane agents send --panel … --yes`.
 
@@ -176,7 +176,7 @@ Dictate's entries carry `DICTATE_MCP=1`. A `dictate` entry without that marker i
 
 ### Instructions
 
-[src/main/instructions.ts](../../src/main/instructions.ts) also keeps a short note in each found agent's user-level instruction file, never a project's: `$CLAUDE_CONFIG_DIR/CLAUDE.md` (else `~/.claude/CLAUDE.md`) and `$CODEX_HOME/AGENTS.md` (else `~/.codex/AGENTS.md`). [src/core/instructions.ts](../../src/core/instructions.ts) holds the text: when to use `notify` (`needs_you`), `ask` and `info`; when `decide`, `approve`, `lineup` or `peek` fits better; that `held` or `snoozed` isn't an answer and `card_status` follows up; and the plain-words rule. The full examples stay in the MCP tool descriptions.
+[src/main/instructions.ts](../../src/main/instructions.ts) also keeps a short note in each found agent's user-level instruction file, never a project's: `$CLAUDE_CONFIG_DIR/CLAUDE.md` (else `~/.claude/CLAUDE.md`) and `$CODEX_HOME/AGENTS.md` (else `~/.codex/AGENTS.md`). [src/core/instructions.ts](../../src/core/instructions.ts) holds the text. It says when to use `notify` (`needs_you`), `ask` and `info`, and when `decide`, `approve`, `lineup` or `peek` fits better. It says that `held` or `snoozed` isn't an answer, and `card_status` follows up. Last comes the plain-words rule. The full examples stay in the MCP tool descriptions.
 
 - The note sits between `<!-- dictate:begin (managed by Dictate; edits are replaced) -->` and `<!-- dictate:end -->`. It is appended to the end of the file, which is created when missing, and replaced in place afterwards. Nothing outside the markers changes: line endings (LF or CRLF) and an existing byte order mark are kept, and none is added.
 - A launch writes only when the note changed. Writes go to a temporary file that is renamed over the original.
