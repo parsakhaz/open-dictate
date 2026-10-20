@@ -3,7 +3,8 @@
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 
-const ELECTRON = path.join(__dirname, '..', 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
+// DICTATE_QA_ELECTRON: another copy of the same Electron, for a checkout whose own binary can't run yet.
+const ELECTRON = process.env.DICTATE_QA_ELECTRON || path.join(__dirname, '..', 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
 
 function agentSession(dataDir, { client = 'claude-code', title = 'Claude Code', env = {}, cwd = process.cwd() } = {}) {
   const base = { ...process.env };
@@ -36,6 +37,11 @@ function agentSession(dataDir, { client = 'claude-code', title = 'Claude Code', 
       const r = await request('tools/call', { name, arguments: args });
       const res = r.result ?? {};
       return res.isError ? { error: res.content?.[0]?.text } : { result: res.structuredContent ?? res.content?.[0]?.text };
+    },
+    /** The whole tools/call result, content blocks included (peek's image block). */
+    async raw(name, args = {}) {
+      await ready;
+      return (await request('tools/call', { name, arguments: args })).result ?? {};
     },
     async list() {
       await ready;

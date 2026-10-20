@@ -13,7 +13,8 @@ import { type Cue, play } from './sounds';
 export type PillState =
   | { kind: 'hidden' }
   /** `starting`: the mic is still opening; the waveform is grey and flat until its first audio. */
-  | { kind: 'listening'; mode: 'push-to-talk' | 'toggle'; finish: string; starting?: boolean; replyTo?: string }
+  /** `route`: a surface's key is recording (the agent key, the point key, open listening), and `routeLabel` says where it goes. */
+  | { kind: 'listening'; mode: 'push-to-talk' | 'toggle'; finish: string; starting?: boolean; replyTo?: string; route?: string; routeLabel?: string }
   | { kind: 'warming'; finish?: string }
   | { kind: 'transcribing' }
   | { kind: 'cleaning' }
@@ -87,6 +88,7 @@ const working = (k: PillState['kind']) => k === 'transcribing' || k === 'cleanin
 
 function words(): string {
   if (state.kind === 'listening' && state.replyTo) return `Replying to ${state.replyTo}… ${partial}`.trim();
+  if (state.kind === 'listening' && state.routeLabel) return `${state.routeLabel}… ${partial}`.trim();
   if (state.kind === 'listening') return partial || (state.starting ? 'Starting…' : 'Listening…');
   if (state.kind === 'warming') return partial || 'Warming up…';
   if (state.kind === 'transcribing') return partial || 'Transcribing…';
@@ -99,6 +101,9 @@ function render(): void {
   const s = state;
   root.dataset.variant = config.variant;
   pill.dataset.kind = s.kind;
+  // A surface styles its own recording (the agent key's accent dot) in its stylesheet, by this.
+  if (s.kind === 'listening' && s.route) pill.dataset.route = s.route;
+  else delete pill.dataset.route;
   pill.dataset.starting = String(s.kind === 'listening' && !!s.starting);
   pill.dataset.placeholder = String((recording(s.kind) || working(s.kind)) && !partial);
   pill.dataset.silent = String(recording(s.kind) && silent);

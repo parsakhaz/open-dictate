@@ -100,6 +100,8 @@ export interface CardDto {
   linkHost: string | null;
   canOpen: boolean;
   canReply: boolean;
+  /** A surface card's own data, for its body (src/renderer/cards/<kind>.ts). */
+  data?: unknown;
 }
 
 export interface CardsView {
@@ -108,12 +110,16 @@ export interface CardsView {
   list: CardDto[];
   /** The top card is being answered by voice right now. */
   replying: boolean;
+  /** The queue's summary for the pill's extras (CardView.extra). */
+  extra?: Record<string, unknown>;
 }
 
 export type CardAction =
   | { id: string; action: 'open' | 'dismiss' | 'link' | 'review' | 'arm-reply' }
   | { id: string; action: 'choose'; value: string }
-  | { id: string; action: 'consent'; value: ConsentAnswer };
+  | { id: string; action: 'consent'; value: ConsentAnswer }
+  /** One of a surface card's own buttons: its kind's handler (AgentHub.cardKind) decides. */
+  | { id: string; action: 'kind'; name: string; value?: unknown };
 
 const dto = (c: Card): CardDto => ({
   id: c.id,
@@ -127,6 +133,7 @@ const dto = (c: Card): CardDto => ({
   linkHost: c.link?.host ?? null,
   canOpen: !!c.target,
   canReply: !!c.target || c.kind === 'ask',
+  ...(c.data !== undefined ? { data: c.data } : {}),
 });
 
 export class Agents {
@@ -232,7 +239,7 @@ export class Agents {
     this.hub.queue.tick(now);
     const v = this.hub.queue.view(now);
     if (this.armed && !this.hub.queue.get(this.armed)) this.armed = null;
-    this.host.showCards({ top: v.top ? dto(v.top) : null, more: v.more, list: v.all.map(dto), replying: !!v.top && v.top.id === this.hub.queue.replyingTo });
+    this.host.showCards({ top: v.top ? dto(v.top) : null, more: v.more, list: v.all.map(dto), replying: !!v.top && v.top.id === this.hub.queue.replyingTo, ...(v.extra ? { extra: v.extra } : {}) });
     clearTimeout(this.dueTimer);
     const due = this.hub.queue.nextDue(now);
     if (due !== null) this.dueTimer = setTimeout(() => this.render(), Math.max(50, due - now));
@@ -308,6 +315,8 @@ export class Agents {
       case 'consent':
         this.hub.consent(a.id, a.value);
         return undefined;
+      case 'kind':
+        return this.hub.cardAction(a.id, a.name, a.value);
     }
   }
 

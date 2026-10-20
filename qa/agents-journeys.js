@@ -51,7 +51,10 @@ async function main() {
     const tools = await a.list();
     const t0 = Date.now();
     const r = await a.call('notify', { title: 'hello' });
-    check('J17', 'tools listed without Dictate', tools.length === 6, tools);
+    // The six built-in tools, then only the surface tools a lane has turned on.
+    const builtIn = ['notify', 'ask', 'status', 'propose_vocabulary', 'list_vocabulary', 'read_history'];
+    const surfaces = ['decide', 'approve', 'card_status', 'lineup', 'peek'];
+    check('J17', 'tools listed without Dictate', JSON.stringify(tools.slice(0, 6)) === JSON.stringify(builtIn) && tools.slice(6).every((t) => surfaces.includes(t)), tools);
     check('J17', "a call says Dictate isn't running, without hanging", /Dictate isn't running/.test(r.error ?? '') && Date.now() - t0 < 3000, r);
     await a.close();
   }

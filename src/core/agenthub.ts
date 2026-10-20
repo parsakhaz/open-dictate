@@ -4,7 +4,7 @@
 import { cleanMessage } from './agenttext';
 import { CAPS, parseAsk, parseHistoryRequest, parseNotify, ToolInputError } from './agenttools';
 import type { ClientInfo, PaneIds } from './agentwire';
-import { type AddResult, type Card, type CardTarget, CardQueue } from './cards';
+import { type AddResult, type Card, type CardKind, type CardTarget, CardQueue } from './cards';
 import type { HistoryStore } from './history';
 import { type AccessOutcome, type AccessRecord, CONSENT_TIMEOUT_MS, consentSummary, GrantBook, HISTORY_NOTE, readHistory } from './historyaccess';
 import { clientSourceLine, type PaneAction, paneSourceLine, WORDS } from './panewatch';
@@ -56,11 +56,47 @@ export interface HubDeps {
 export type AskResult = { answered: true; text: string; raw: string; choice?: string } | { answered: false; reason: 'timeout' | 'dismissed' | 'busy' | 'dnd' | 'not_running' | 'cancelled' };
 export type ConsentAnswer = 'once' | 'session' | 'deny';
 
-interface Waiter<T> {
+/** How a wait ends without an answer, as a surface tool returns it. */
+export type WaitEnd = { answered: false; reason: 'timeout' | 'cancelled' | 'dismissed' };
+
+export interface WaitOptions<E> {
+  /** The bridge session waiting: its connection closing ends the wait as cancelled. */
   session: string;
-  resolve(v: T): void;
-  timer: unknown;
+  kind: CardKind;
+  timeoutMs: number;
+  /** The agent cancelled the call. */
+  signal: AbortSignal;
+  /** What the wait returns when it times out, is cancelled, or the person dismisses the card; WaitEnd by default. */
+  ends?: { timeout: E; cancelled: E; dismissed: E };
 }
+
+/** How a card left the pill: answered (a wait settled with an answer, or a reply delivered to its tab), dismissed, expired or cancelled (the agent went). */
+export type CardEnd = 'answered' | 'dismissed' | 'expired' | 'cancelled';
+
+/** A surface tool's handler: the arguments as the agent sent them; what it returns goes back as the tool's result. */
+export type ToolHandler = (session: HubSession, args: unknown, signal: AbortSignal) => Promise<unknown>;
+
+/** What a surface's card kind does when the person answers it. */
+export interface CardHandler {
+  /** The person's cleaned words for the card (the key held over it, or Reply). */
+  reply?(card: Card, text: string, raw: string): Promise<{ ok: boolean; message: string }>;
+  /** A click on one of the kind's own buttons, sent by its body as { action: 'kind', name, value }. */
+  action?(card: Card, name: string, value: unknown): Promise<{ ok: boolean; message: string } | undefined>;
+}
+
+interface Waiter {
+  session: string;
+  kind: CardKind;
+  resolve(v: unknown): void;
+  timer: unknown;
+  ends: { timeout: unknown; cancelled: unknown; dismissed: unknown };
+}
+
+const WAIT_ENDS = {
+  timeout: { answered: false, reason: 'timeout' },
+  cancelled: { answered: false, reason: 'cancelled' },
+  dismissed: { answered: false, reason: 'dismissed' },
+} satisfies Record<string, WaitEnd>;
 
 /** A spoken answer names one of the choices ("staging please" → Staging) when exactly one appears in it. */
 export function matchChoice(text: string, choices: string[]): string | undefined {
@@ -78,17 +114,102 @@ export class AgentHub {
   private next = 1;
   /** Bumped when Pane alerts are turned off: an event still looking up its tab then adds nothing. */
   private paneEpoch = 0;
-  private asks = new Map<string, Waiter<AskResult>>();
-  private consents = new Map<string, Waiter<ConsentAnswer | 'timeout' | 'dismissed'>>();
+  /** Every call waiting on the person, by card id: asks, consents and the surfaces' questions. */
+  private waits = new Map<string, Waiter>();
+  private tools = new Map<string, ToolHandler>();
+  private kinds = new Map<CardKind, CardHandler>();
+  private statusParts: (() => Record<string, unknown>)[] = [];
+  private enders: ((cardId: string, how: CardEnd, value: unknown) => void)[] = [];
 
   constructor(private deps: HubDeps) {}
+
+  // ---------- the surfaces' seams ----------
+
+  /** A surface tool's handler (the bridge lists the tool once its module is enabled). */
+  handle(tool: string, handler: ToolHandler): void {
+    this.tools.set(tool, handler);
+  }
+
+  /** What a surface's card kind does when the person answers it by voice or with its own buttons. */
+  cardKind(kind: CardKind, handler: CardHandler): void {
+    this.kinds.set(kind, handler);
+  }
+
+  /** More fields for the status tool (the inbox adds focus and waiting). */
+  extendStatus(part: () => Record<string, unknown>): void {
+    this.statusParts.push(part);
+  }
+
+  /** Told whenever a card ends: how, and with what (the wait's value, or the words sent to its tab). card_status reads this. */
+  onEnded(cb: (cardId: string, how: CardEnd, value: unknown) => void): void {
+    this.enders.push(cb);
+  }
+
+  private ended(cardId: string, how: CardEnd, value: unknown): void {
+    for (const cb of this.enders) cb(cardId, how, value);
+  }
+
+  newId(): string {
+    return this.id();
+  }
+
+  /** Puts a card on the pill (or merges it with its tab's card): what notify returns, with the card's id. */
+  raise(card: Card): { status: AddResult; card_id: string } {
+    const status = this.add(card);
+    return { status, card_id: this.queue.byKey(card.key)?.id ?? card.id };
+  }
+
+  /**
+   * Waits for the person on card `cardId` (start waiting, then raise it): settle() answers it; the time running
+   * out, the agent cancelling, its connection closing or ✕ end it. The card goes when the wait ends.
+   */
+  wait<T, E = WaitEnd>(cardId: string, o: WaitOptions<E>): Promise<T | E> {
+    return new Promise((resolve) => {
+      const startedAt = this.deps.now();
+      const w: Waiter = { session: o.session, kind: o.kind, resolve: resolve as (v: unknown) => void, timer: undefined, ends: o.ends ?? WAIT_ENDS };
+      // When the time comes the queue may have moved the deadline out (time held doesn't count): wait on.
+      const arm = (due: number) => {
+        w.timer = this.deps.setTimer(() => {
+          const next = this.queue.deadline(cardId, startedAt, o.timeoutMs, this.deps.now());
+          if (next > due) arm(next);
+          else this.settle(cardId, w.ends.timeout);
+        }, Math.max(0, due - this.deps.now()));
+      };
+      this.waits.set(cardId, w);
+      arm(this.queue.deadline(cardId, startedAt, o.timeoutMs, startedAt));
+      o.signal.addEventListener('abort', () => this.settle(cardId, w.ends.cancelled), { once: true });
+    });
+  }
+
+  /** Ends a wait with `value`. The card goes too, unless `keepCard` (a snoozed question stays in Dictate). */
+  settle(cardId: string, value: unknown, keepCard = false): boolean {
+    const w = this.waits.get(cardId);
+    if (!w) return false;
+    this.deps.clearTimer(w.timer);
+    this.waits.delete(cardId);
+    if (!keepCard && this.queue.remove(cardId)) this.deps.changed();
+    w.resolve(value);
+    // A wait settled with keepCard (a snoozed question) hasn't ended: its card is still in Dictate.
+    if (!keepCard) this.ended(cardId, value === w.ends.timeout ? 'expired' : value === w.ends.cancelled ? 'cancelled' : value === w.ends.dismissed ? 'dismissed' : 'answered', value);
+    return true;
+  }
+
+  /** A call is waiting on this card. */
+  waiting(cardId: string): boolean {
+    return this.waits.has(cardId);
+  }
+
+  /** The session is already waiting on a card of this kind. */
+  private waitingOn(session: string, kind: CardKind): boolean {
+    return [...this.waits.values()].some((w) => w.session === session && w.kind === kind);
+  }
 
   // ---------- tools ----------
 
   async call(session: HubSession, tool: string, args: unknown, signal: AbortSignal): Promise<unknown> {
     switch (tool) {
       case 'status':
-        return { running: true, ...this.deps.status(), doNotDisturb: this.queue.paused, historyAccess: this.deps.history.enabled() };
+        return { running: true, ...this.deps.status(), doNotDisturb: this.queue.paused, historyAccess: this.deps.history.enabled(), ...Object.assign({}, ...this.statusParts.map((p) => p())) };
       case 'notify':
         return this.notify(session, args);
       case 'ask':
@@ -99,8 +220,11 @@ export class AgentHub {
         return { terms: this.deps.vocab.approved(), pending: this.deps.vocab.pending().length };
       case 'read_history':
         return this.readHistory(session, args, signal);
-      default:
-        throw new ToolInputError(`Unknown tool: ${tool}`);
+      default: {
+        const handler = this.tools.get(tool);
+        if (!handler) throw new ToolInputError(`Unknown tool: ${tool}`);
+        return handler(session, args, signal);
+      }
     }
   }
 
@@ -150,39 +274,30 @@ export class AgentHub {
     return { status, card_id: id, ...(a.truncated ? { truncated: true } : {}), ...(a.choices.length && !src.target ? { note: 'Choices need a Pane tab to send them to; they were not shown.' } : {}) };
   }
 
-  private async ask(session: HubSession, args: unknown, signal: AbortSignal): Promise<AskResult & { truncated?: boolean }> {
+  private async ask(session: HubSession, args: unknown, signal: AbortSignal): Promise<AskResult & { card_id?: string; truncated?: boolean }> {
     const a = parseAsk(args);
     if (this.queue.paused) return { answered: false, reason: 'dnd' };
-    if ([...this.asks.values()].some((w) => w.session === session.id)) return { answered: false, reason: 'busy' };
+    if (this.waitingOn(session.id, 'ask')) return { answered: false, reason: 'busy' };
     const src = await this.source(session);
     const id = this.id();
-    return new Promise((resolve) => {
-      const done = (r: AskResult) => {
-        const w = this.asks.get(id);
-        if (!w) return;
-        this.deps.clearTimer(w.timer);
-        this.asks.delete(id);
-        if (this.queue.remove(id)) this.deps.changed();
-        resolve(a.truncated ? { ...r, truncated: true } : r);
-      };
-      this.asks.set(id, { session: session.id, resolve: done, timer: this.deps.setTimer(() => done({ answered: false, reason: 'timeout' }), a.timeoutS * 1000) });
-      signal.addEventListener('abort', () => done({ answered: false, reason: 'cancelled' }), { once: true });
-      this.add({
-        id,
-        key: `ask:${id}`,
-        origin: 'agent',
-        kind: 'ask',
-        urgency: 'needs_you',
-        source: src.line,
-        sourceDetail: src.detail,
-        title: a.question,
-        message: a.message,
-        action: 'reply',
-        choices: a.choices,
-        target: src.target,
-        createdAt: this.deps.now(),
-      });
+    const answer = this.wait<AskResult>(id, { session: session.id, kind: 'ask', timeoutMs: a.timeoutS * 1000, signal });
+    this.add({
+      id,
+      key: `ask:${id}`,
+      origin: 'agent',
+      kind: 'ask',
+      urgency: 'needs_you',
+      source: src.line,
+      sourceDetail: src.detail,
+      title: a.question,
+      message: a.message,
+      action: 'reply',
+      choices: a.choices,
+      target: src.target,
+      createdAt: this.deps.now(),
     });
+    const r = await answer;
+    return { ...r, card_id: id, ...(a.truncated ? { truncated: true } : {}) };
   }
 
   private propose(session: HubSession, args: unknown) {
@@ -222,7 +337,7 @@ export class AgentHub {
     let outcome: AccessOutcome;
     if (this.grants.allowed(session.id, this.deps.now())) outcome = 'session-grant';
     else if (this.queue.paused) outcome = 'dnd';
-    else if ([...this.consents.values()].some((w) => w.session === session.id)) outcome = 'busy';
+    else if (this.waitingOn(session.id, 'consent')) outcome = 'busy';
     else {
       const answer = await this.askConsent(session, src, a, signal);
       if (answer === 'session') this.grants.grant(session.id, { source: src.line, client: session.client.name }, this.deps.now());
@@ -240,38 +355,28 @@ export class AgentHub {
   private askConsent(session: HubSession, src: Source, a: ReturnType<typeof parseHistoryRequest>, signal: AbortSignal): Promise<ConsentAnswer | 'timeout' | 'dismissed'> {
     const id = this.id();
     const words = consentSummary(a, src.line);
-    return new Promise((resolve) => {
-      const done = (r: ConsentAnswer | 'timeout' | 'dismissed') => {
-        const w = this.consents.get(id);
-        if (!w) return;
-        this.deps.clearTimer(w.timer);
-        this.consents.delete(id);
-        if (this.queue.remove(id)) this.deps.changed();
-        resolve(r);
-      };
-      this.consents.set(id, { session: session.id, resolve: done, timer: this.deps.setTimer(() => done('timeout'), CONSENT_TIMEOUT_MS) });
-      signal.addEventListener('abort', () => done('dismissed'), { once: true });
-      this.add({
-        id,
-        key: `consent:${id}`,
-        origin: 'dictate',
-        kind: 'consent',
-        urgency: 'consent',
-        source: src.line,
-        title: words.title,
-        message: words.message,
-        choices: [],
-        target: null,
-        createdAt: this.deps.now(),
-      });
+    // ✕ on a consent card is a deny.
+    const answer = this.wait<ConsentAnswer, 'timeout' | 'dismissed' | 'deny'>(id, { session: session.id, kind: 'consent', timeoutMs: CONSENT_TIMEOUT_MS, signal, ends: { timeout: 'timeout', cancelled: 'dismissed', dismissed: 'deny' } });
+    this.add({
+      id,
+      key: `consent:${id}`,
+      origin: 'dictate',
+      kind: 'consent',
+      urgency: 'consent',
+      source: src.line,
+      title: words.title,
+      message: words.message,
+      choices: [],
+      target: null,
+      createdAt: this.deps.now(),
     });
+    return answer;
   }
 
   /** The agent's connection closed: its session grant ends, and its questions are withdrawn. */
   sessionClosed(sessionId: string): void {
     this.grants.ended(sessionId);
-    for (const w of [...this.asks.values()]) if (w.session === sessionId) w.resolve({ answered: false, reason: 'cancelled' });
-    for (const w of [...this.consents.values()]) if (w.session === sessionId) w.resolve('dismissed');
+    for (const [id, w] of [...this.waits]) if (w.session === sessionId) this.settle(id, w.ends.cancelled);
     // The vocabulary review stays: the terms wait in Settings whether or not the agent is still connected.
     const c = this.queue.byKey(`session:${sessionId}`);
     if (c && c.urgency === 'info' && this.queue.remove(c.id)) this.deps.changed();
@@ -280,50 +385,64 @@ export class AgentHub {
   // ---------- the person, on the pill ----------
 
   dismiss(cardId: string): void {
-    const ask = this.asks.get(cardId);
-    const consent = this.consents.get(cardId);
-    if (ask) ask.resolve({ answered: false, reason: 'dismissed' });
-    else if (consent) consent.resolve('deny');
-    else if (this.queue.remove(cardId)) this.deps.changed();
+    const w = this.waits.get(cardId);
+    if (w) this.settle(cardId, w.ends.dismissed);
+    else if (this.queue.remove(cardId)) {
+      this.deps.changed();
+      this.ended(cardId, 'dismissed', undefined);
+    }
   }
 
   consent(cardId: string, answer: ConsentAnswer): void {
-    this.consents.get(cardId)?.resolve(answer);
+    if (this.waits.get(cardId)?.kind === 'consent') this.settle(cardId, answer);
   }
 
   /** A click on a choice: the answer to an ask, or a reply typed into the card's tab. */
   async choose(cardId: string, choice: string): Promise<{ ok: boolean; message: string }> {
     const card = this.queue.get(cardId);
     if (!card?.choices.includes(choice)) return { ok: false, message: 'That card is gone' };
-    if (this.asks.has(cardId)) {
-      this.asks.get(cardId)!.resolve({ answered: true, text: choice, raw: choice, choice });
+    if (this.waits.get(cardId)?.kind === 'ask') {
+      this.settle(cardId, { answered: true, text: choice, raw: choice, choice });
       return { ok: true, message: 'Answered' };
     }
     if (!card.target) return { ok: false, message: 'Nowhere to send it' };
     return this.replyToTab(card, choice);
   }
 
-  /** The person's cleaned words for a card: the answer to an ask, or a reply sent into its Pane tab. */
+  /** The person's cleaned words for a card: its kind's own handler, the answer to an ask, or a reply sent into its Pane tab. */
   async reply(cardId: string, text: string, raw: string): Promise<{ ok: boolean; message: string }> {
     const card = this.queue.get(cardId);
     if (!card) return { ok: false, message: 'That card is gone' };
-    if (this.asks.has(cardId)) {
+    const handler = this.kinds.get(card.kind);
+    if (handler?.reply) return handler.reply(card, text, raw);
+    if (this.waits.get(cardId)?.kind === 'ask') {
       const choice = matchChoice(text, card.choices) ?? matchChoice(raw, card.choices);
-      this.asks.get(cardId)!.resolve({ answered: true, text, raw, ...(choice ? { choice } : {}) });
+      this.settle(cardId, { answered: true, text, raw, ...(choice ? { choice } : {}) });
       return { ok: true, message: `Answered ${card.source.split(' · ').pop()}` };
     }
     if (!card.target) return { ok: false, message: 'Nowhere to send it' };
     return this.replyToTab(card, text);
   }
 
-  private async replyToTab(card: Card, text: string): Promise<{ ok: boolean; message: string }> {
+  /** A click on one of a surface card's own buttons, handled by its kind. */
+  async cardAction(cardId: string, name: string, value: unknown): Promise<{ ok: boolean; message: string } | undefined> {
+    const card = this.queue.get(cardId);
+    const handler = card ? this.kinds.get(card.kind) : undefined;
+    return card && handler?.action ? handler.action(card, name, value) : undefined;
+  }
+
+  /** A reply typed into a card's Pane tab, as voice replies are; the card goes once it is delivered. */
+  async replyToTab(card: Card, text: string): Promise<{ ok: boolean; message: string }> {
     const tab = card.source.split(' · ').pop();
     const r = await this.deps.pane.send(card.target!.panelId, text);
     if (!r.delivered) {
       this.deps.log('warn', `agents: reply to a Pane tab was not delivered (${r.blocked ?? 'no reason'})`);
       return { ok: false, message: "Couldn't send · opened the tab" };
     }
-    if (this.queue.remove(card.id)) this.deps.changed();
+    if (this.queue.remove(card.id)) {
+      this.deps.changed();
+      this.ended(card.id, 'answered', { text });
+    }
     return { ok: true, message: `Sent to ${tab}` };
   }
 

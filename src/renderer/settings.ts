@@ -3,7 +3,6 @@
 import { Agc, type GainSpec, gainSpec } from '../core/agc';
 import { dbfs } from '../core/audio';
 import { bindingLabel, dictationKeyProblem } from '../core/hotkeys';
-import type { MicDevice } from '../core/mics';
 import { micKey, micName } from '../core/mics';
 import { canGoBack, canSkip, nextStep, previousStep, resumeStep, STEPS, type Step, stepNumber, tryReady, tryWait } from '../core/onboarding';
 import { displaySize, THIRD_PARTY } from '../core/thirdparty';
@@ -11,53 +10,9 @@ import type { Binding, CleanupChain, OutputMode, Settings, VocabTerm } from '../
 import { relativeTime } from '../core/history';
 import { dictate, h } from './bridge';
 
-interface State {
-  settings: Settings;
-  labels: { hotkey: string; hotkeys: string[]; toggle: string; picker: string };
-  devices: MicDevice[];
-  mic: MicDevice | null;
-  defaultMicLabel: string;
-  gain: GainSpec;
-  micBluetooth: boolean;
-  stt: 'ready' | 'error' | 'loading';
-  sttError: string;
-  servers: { gemma: string; emberon: string };
-  effectiveChain: CleanupChain;
-  onBattery: boolean;
-  missing: string[];
-  history: { count: number; samples: number; median: number | null };
-  logFile: string;
-  version: string;
-  platform: { platform: string; displayServer: string; globalHotkeys: boolean; canSwallowKeys: boolean; automaticPaste: boolean; accessibilityRequired: boolean; accessibilityGranted: boolean; reason?: string };
-  microphonePermission: string;
-  setup: { phase: string; kind?: string; file?: string; received?: number; total?: number; message?: string; overallReceived?: number; overallTotal?: number; bytesPerSecond?: number; etaSeconds?: number; step?: number; steps?: number };
-  speechInstalled: boolean;
-  essentialsReady: boolean;
-  gemmaInstalled: boolean;
-  sizes: { essentials: number; gemma: number };
-  hardwareRunning: boolean;
-  hardwareError: string;
-  dataDir: string;
-  update: { status: 'off' | 'disabled' | 'idle' | 'checking' | 'up-to-date' | 'available' | 'downloading' | 'ready' | 'error'; mode: 'install' | 'notify' | 'off'; version?: string; url?: string; percent?: number; message?: string; checkedAt?: string };
-  shortcutRegistered: boolean;
-  shortcutRequested: boolean;
-  startupError: string;
-  recording: boolean;
-  automation: boolean;
-  agents: AgentsState | null;
-}
-
-interface AgentsState {
-  channel: boolean;
-  pane: { installed: boolean; attached: boolean };
-  registration: { agent: 'claude' | 'codex' | 'cursor'; found: boolean; registered: boolean; ownedByDictate: boolean; handWritten: boolean; error?: string }[];
-  instructions: { agent: 'claude' | 'codex'; file: string; found: boolean; state: 'absent' | 'current' | 'outdated'; error?: string }[];
-  registrationAllowed: boolean;
-  snippets: { agent: string; file: string; text: string; note?: string }[];
-  sessions: { id: string; client: string; inPane: boolean; connectedAt: number }[];
-  grants: { sessionId: string; source: string; client: string; grantedAt: number; expiresAt: number }[];
-  accessLog: { at: string; source: string; client: string; query: string; hours: number; limit: number; includeRaw: boolean; outcome: string; count: number }[];
-}
+import { SECTIONS } from './agentsections';
+import { card, keycap, radios, select, toggle } from './settingsui';
+import type { AgentsState, State } from './settingsstate';
 
 type Page = 'start' | 'general' | 'microphone' | 'cleanup' | 'vocabulary' | 'history' | 'agents' | 'advanced' | 'about';
 
@@ -97,38 +52,6 @@ const pickMic = (deviceId: string | null) => refresh(dictate.invoke<State>('dict
 
 // ---------- building blocks ----------
 
-function card(title: string, desc: string | Node | null, control?: Node | null, extra?: Node | null): HTMLElement {
-  return h('section.card', {}, h('div.cardrow', {}, h('div.cardtext', {}, h('div.cardtitle', {}, title), desc ? h('div.carddesc', {}, desc) : null), control ? h('div.control', {}, control) : null), extra ?? null);
-}
-
-function toggle(on: boolean, onChange: (v: boolean) => void, label?: string): HTMLElement {
-  const text = h('span.toggletext', {}, on ? 'On' : 'Off');
-  const input = h('input', { type: 'checkbox', checked: on, onchange: (e: Event) => {
-    const checked = (e.target as HTMLInputElement).checked;
-    text.textContent = checked ? 'On' : 'Off';
-    onChange(checked);
-  } });
-  return h('label.toggle', {}, text, input, h('span.track', {}, h('span.thumb')), label ? h('span.sr', {}, label) : null);
-}
-
-function select<T extends string>(value: T, options: [T, string][], onChange: (v: T) => void): HTMLSelectElement {
-  const s = h('select.select', { onchange: (e: Event) => onChange((e.target as HTMLSelectElement).value as T) }, ...options.map(([v, l]) => h('option', { value: v, selected: v === value }, l)));
-  return s;
-}
-
-function radios<T extends string>(name: string, value: T, options: [T, string, string][], onChange: (v: T) => void): HTMLElement {
-  return h(
-    'div.radios',
-    {},
-    ...options.map(([v, l, d]) =>
-      h('label.radio', {}, h('input', { type: 'radio', name, checked: v === value, onchange: () => onChange(v) }), h('span.radiodot'), h('span.radiotext', {}, h('span', {}, l), d ? h('span.radiodesc', {}, d) : null)),
-    ),
-  );
-}
-
-function keycap(label: string): HTMLElement {
-  return h('span.keys', {}, ...label.split(' + ').map((k) => h('kbd', {}, k)));
-}
 
 function bindingControl(which: 'toggle' | 'picker', canClear: boolean): HTMLElement {
   const label = st.labels[which];
@@ -1000,6 +923,7 @@ function agentsPage(): (Node | null)[] {
     card('Show Pane’s agent alerts on the pill', paneLine, toggle(s.agentPaneAlerts, (v) => set({ agentPaneAlerts: v }), 'Show Pane’s agent alerts on the pill')),
     card('Pause agent alerts', 'Cards wait, and the tray shows how many. Questions from agents return “do not disturb”.', toggle(s.agentAlertsPaused, (v) => set({ agentAlertsPaused: v }), 'Pause agent alerts')),
     card('Chime when an agent needs you', 'One soft chime for cards that need you. Finished tabs stay silent.', toggle(s.agentChime, (v) => set({ agentChime: v }), 'Chime')),
+    ...SECTIONS.flatMap((section) => section({ st, set, refresh })),
     h('h2', {}, 'Other agents'),
     h('p.muted.small', {}, 'Copy the setup and paste it into that agent’s settings file.'),
     ...(a?.snippets ?? []).map((sn) => card(sn.agent, h('span', {}, h('code', {}, sn.file), sn.note ? ` · ${sn.note}` : ''), h('button.button', { onclick: copy(sn.text) }, 'Copy setup'))),

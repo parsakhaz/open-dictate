@@ -8,7 +8,8 @@ import { dbfs } from '../core/audio';
 import { CaptureController, type CaptureEvents } from '../core/capture';
 import { runChain } from '../core/chain';
 import { HistoryStore } from '../core/history';
-import { type Bindings, bindingFromKeys, bindingLabel, type HotkeyAction, HotkeyMachine, isModifier, menuMaskKeys, type RecordMode, swallowBindings, VK } from '../core/hotkeys';
+import { type Bindings, bindingFromKeys, bindingLabel, type HotkeyAction, HotkeyMachine, isModifier, menuMaskCombos, menuMaskKeys, type RecordMode, swallowBindings, VK } from '../core/hotkeys';
+import { isSheetKind } from '../core/sheetkinds';
 import { DEFAULT_SEGMENTER, LiveCleanup, Segmenter } from '../core/live';
 import { deviceLabelFor, type MicDevice, type MicEvent, MicSelector, micKey, micName } from '../core/mics';
 import { appliesMeasuredChain, keepsLlamaServer, upgradedOnboarded } from '../core/onboarding';
@@ -45,6 +46,9 @@ import { createPicker, createPill, createSettings, placePicker, showPill } from 
 import { Agents, type AgentsHost, type CardAction } from './agents';
 import { syncInstructions } from './instructions';
 import { unregisterAgents } from './registration';
+import { FEATURES } from './features';
+import { Sheet } from './sheet';
+import { Surfaces } from './surfaces';
 
 /** The uninstaller's flag: remove Dictate's agent setup and quit. */
 const REMOVE_AGENT_SETUP = '--remove-agent-setup';
@@ -55,6 +59,8 @@ if (process.platform === 'win32') app.setAppUserModelId('org.dictate.Dictate');
 if (process.platform === 'linux') app.setDesktopName('org.dictate.Dictate');
 // Headless runners may expose a GPU device without a functioning compositor. Keep screenshot QA deterministic.
 if (process.env.DICTATE_SMOKE_TEST) app.disableHardwareAcceleration();
+// What the surface features must set up before the app is ready (a privileged protocol scheme).
+for (const f of FEATURES) f.beforeReady?.();
 
 // The isolated container used for local QA forbids AF_UNIX sockets. Native CI keeps the real lock enabled.
 const isolatedQa = !!process.env.DICTATE_DATA_DIR && (!!process.env.DICTATE_SMOKE_TEST || !!process.env.DICTATE_QA_CONTROL);
@@ -144,6 +150,8 @@ interface Session {
   abort: AbortController;
   /** This dictation answers an agent's card instead of pasting (the key went down over the card, or Reply). */
   reply?: { cardId: string; to: string };
+  /** A surface's route takes the words instead (the agent key, the point key, open listening). */
+  route?: string;
 }
 
 let nextId = 1;
@@ -204,13 +212,22 @@ async function qaCardClick(label: string, click: boolean): Promise<void> {
   pill.webContents.sendInputEvent({ type: 'mouseUp', x: at.x, y: at.y, button: 'left', clickCount: 1 });
 }
 
-function pointerOverCard(): boolean {
-  if (!cardsShown || !cardRect || pill.isDestroyed()) return false;
+type Rect = { x: number; y: number; width: number; height: number };
+/** The pill's extras' clickable areas (the inbox badge, its shelf), from the renderer, in the same CSS pixels. */
+let extraRects: Rect[] = [];
+let extraHover = false;
+
+function pointerIn(r: Rect): boolean {
+  if (pill.isDestroyed()) return false;
   const p = screen.getCursorScreenPoint();
   const b = pill.getBounds();
   const x = p.x - b.x;
   const y = p.y - b.y;
-  return x >= cardRect.x && x <= cardRect.x + cardRect.width && y >= cardRect.y && y <= cardRect.y + cardRect.height;
+  return x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height;
+}
+
+function pointerOverCard(): boolean {
+  return cardsShown && !!cardRect && pointerIn(cardRect);
 }
 
 /**
@@ -225,10 +242,15 @@ let undoToast = false;
 let hoverPoll: ReturnType<typeof setInterval> | undefined;
 
 function clickThrough(): void {
-  if (!pill.isDestroyed()) pill.setIgnoreMouseEvents(!(cardHover || undoToast), { forward: true });
+  if (!pill.isDestroyed()) pill.setIgnoreMouseEvents(!(cardHover || undoToast || extraHover), { forward: true });
 }
 
 function pollCardHover(): void {
+  const overExtra = extraRects.some(pointerIn);
+  if (overExtra !== extraHover) {
+    extraHover = overExtra;
+    clickThrough();
+  }
   const on = cardsShown && (qaCardHover || pointerOverCard());
   if (on === cardHover) return;
   cardHover = on;
@@ -335,26 +357,9 @@ function rememberGain(id: number, label: string, gainDb: number): void {
 
 function onHotkey(a: HotkeyAction): void {
   switch (a.type) {
-    case 'start': {
-      if (rec) return;
-      if (!sttReady) {
-        // Show why nothing happens, but only for a real press (mode), not a tap.
-        rec = { id: nextId++, mode: null, shown: false, releasedAt: 0, partial: '', live: false, abort: new AbortController() };
-        return;
-      }
-      rec = { id: nextId++, mode: null, shown: false, releasedAt: 0, partial: '', live: false, abort: new AbortController() };
-      // The pointer over a card at key down (or Reply) sends this one dictation to it.
-      rec.reply = agents?.replyTarget(pointerOverCard()) ?? undefined;
-      agents?.setDictating(true, rec.reply?.cardId);
-      cleanup.touch();
-      // Capture starts at key down so the first word is not lost; the pill waits until this is a hold or a double-tap.
-      keyDownAt = performance.timeOrigin + performance.now();
-      router.start(rec.id, micDevice()?.deviceId ?? null, gainFor(micDevice()));
-      startLiveCleanup(rec);
-      pillSend('dictate:enumerate');
-      syncEsc();
+    case 'start':
+      startRecording(a.route);
       return;
-    }
     case 'mode': {
       if (!rec) return;
       const first = rec.mode === null;
@@ -368,8 +373,10 @@ function onHotkey(a: HotkeyAction): void {
         return;
       }
       // Until the mic delivers audio the meter is grey and flat, and the start cue waits for it.
-      const finish = finishHint(a.mode, a.via, { hotkey: hotkeyLabel(a.key), toggle: bindingLabel(settings.toggle) });
-      pillSend('dictate:pill', cleanup.warming() ? { kind: 'warming', finish } : { kind: 'listening', mode: a.mode, finish, starting: !rec.live, replyTo: rec.reply?.to });
+      const route = surfaces?.route(rec.route);
+      const finish = route?.finish ?? finishHint(a.mode, a.via, { hotkey: hotkeyLabel(a.key), toggle: bindingLabel(settings.toggle) });
+      const routeLabel = route?.label;
+      pillSend('dictate:pill', cleanup.warming() ? { kind: 'warming', finish } : { kind: 'listening', mode: a.mode, finish, starting: !rec.live, replyTo: rec.reply?.to, ...(rec.route ? { route: rec.route, routeLabel } : {}) });
       showPill(pill);
       rec.shown = true;
       if (first && rec.live) sound('start');
@@ -385,6 +392,7 @@ function onHotkey(a: HotkeyAction): void {
       if (!s) return;
       router.cancel(s.id);
       stopLiveCleanup(s, true);
+      surfaces?.route(s.route)?.cancelled?.(s.id);
       if (a.reason === 'escape' && s.shown) {
         sound('cancel');
         pillSend('dictate:pill', { kind: 'info', message: 'Cancelled' });
@@ -396,7 +404,32 @@ function onHotkey(a: HotkeyAction): void {
     case 'picker':
       void picker.open();
       return;
+    case 'shortcut':
+      surfaces?.shortcutPressed(a.name);
+      return;
   }
+}
+
+/** Key down (or a surface's open listening): capture starts at once; the pill waits until it is a hold or a double-tap. */
+function startRecording(route?: string): void {
+  if (rec) return;
+  if (!sttReady) {
+    // Show why nothing happens, but only for a real press (mode), not a tap.
+    rec = { id: nextId++, mode: null, shown: false, releasedAt: 0, partial: '', live: false, abort: new AbortController(), route };
+    return;
+  }
+  rec = { id: nextId++, mode: null, shown: false, releasedAt: 0, partial: '', live: false, abort: new AbortController(), route };
+  // The pointer over a card at key down (or Reply) sends this one dictation to it; a route's words never answer a card.
+  rec.reply = route ? undefined : (surfaces?.replyTarget() ?? agents?.replyTarget(pointerOverCard()) ?? undefined);
+  agents?.setDictating(true, rec.reply?.cardId);
+  surfaces?.route(route)?.began?.(rec.id);
+  cleanup.touch();
+  // Capture starts at key down so the first word is not lost; the pill waits until this is a hold or a double-tap.
+  keyDownAt = performance.timeOrigin + performance.now();
+  router.start(rec.id, micDevice()?.deviceId ?? null, gainFor(micDevice()));
+  startLiveCleanup(rec);
+  pillSend('dictate:enumerate');
+  syncEsc();
 }
 
 /** Esc after release: the session ends quietly, with nothing pasted. */
@@ -454,17 +487,24 @@ async function stopRecording(): Promise<void> {
     : undefined;
   const practice = practicing && !!settingsWin && !settingsWin.isDestroyed() && settingsWin.isFocused();
   const reply = !practice ? s.reply : undefined;
+  // A route key's words (or open listening's) go to its feature, never into the app in front.
+  const routed = !practice && !!s.route;
+  const route = routed ? surfaces?.route(s.route) : undefined;
   let replied: { ok: boolean; message: string } | undefined;
-  // A reply: cleaned and kept in history as usual, then previewed, then sent to the card instead of pasted.
+  // A reply: cleaned and kept in history as usual, then previewed, then sent to the card instead of pasted. A route
+  // previews or reviews the words itself.
   const replySink: OutputSink = {
     deliver: async (text): Promise<Delivery> => {
       const t = text.trim();
-      if (!reply || !agents || !(await previewReply(reply.to, t))) return { pasted: false, copied: false, reason: 'reply cancelled' };
-      replied = await agents.reply(reply.cardId, t, raw);
+      if (routed) replied = route ? await route.deliver(t, raw, s.id) : { ok: false, message: 'Nowhere to send it' };
+      else {
+        if (!reply || !agents || !(await previewReply(reply.to, t))) return { pasted: false, copied: false, reason: 'reply cancelled' };
+        replied = await agents.reply(reply.cardId, t, raw);
+      }
       return replied.ok ? { pasted: true, copied: false, confirmed: true } : { pasted: false, copied: true, reason: replied.message };
     },
   };
-  const deps = { chain: cleanup.deps(), sink: practice ? practiceSink : reply ? replySink : sink, history, saveHistory: () => saveHistory.now(), log, clean, pressEnter: settings.pressEnter, signal: s.abort.signal };
+  const deps = { chain: cleanup.deps(), sink: practice ? practiceSink : reply || routed ? replySink : sink, history, saveHistory: () => saveHistory.now(), log, clean, pressEnter: settings.pressEnter, signal: s.abort.signal };
   const result = await finishDictation(raw, cleanup.steps(), settings.output, s.releasedAt, deps, (phase) => {
     if (phase === 'cleaning') pillSend('dictate:pill', { kind: 'cleaning' });
     else {
@@ -482,7 +522,7 @@ async function stopRecording(): Promise<void> {
   }
   log('info', `dictation ${s.id}: final after ${sttMs.toFixed(0)} ms`);
   const d = result.delivery;
-  if (reply) {
+  if (reply || routed) {
     if (replied) pillSend('dictate:pill', replied.ok ? { kind: 'done', message: replied.message } : { kind: 'copied', message: replied.message });
     else pillSend('dictate:pill', { kind: 'info', message: 'Cancelled · nothing sent' });
     pushState();
@@ -535,6 +575,7 @@ function startStt(): void {
         log('info', `stt partial ${m.id}: recognizer activity`);
       }
       s.partial = m.text;
+      surfaces?.route(s.route)?.partial?.(s.id, m.text);
       if (s.segmenter && s.cleaner) {
         const committed = s.segmenter.update(m.text, performance.now());
         s.cleaner.revised(s.segmenter.takeRevised());
@@ -892,6 +933,7 @@ function onHook(e: FromHook): void {
     return;
   }
   if (e.type !== 'key') return;
+  if (e.down) surfaces?.keyDown(performance.now());
   if (recordingBinding) {
     const r = recordingBinding;
     if (e.down) {
@@ -923,6 +965,7 @@ function onHook(e: FromHook): void {
     cancelAfterRelease();
     return;
   }
+  if (e.down && e.vk === VK.Escape && escapeKeyless()) return;
   if (picker.isOpen) {
     if (!platformCapabilities().canSwallowKeys) return;
     // Alt and Win combos (Alt+Tab, Win+D) are the person leaving: let them through and close.
@@ -934,15 +977,31 @@ function onHook(e: FromHook): void {
   else machine.up(e.vk, e.t);
 }
 
+/**
+ * Esc while a recording runs that no key started (a surface's open listening): the machine is idle and would ignore
+ * it, and the hook swallows Esc while recording, so it cancels here. True when it did.
+ */
+function escapeKeyless(): boolean {
+  if (!rec || machine.recording) return false;
+  onHotkey({ type: 'cancel', reason: 'escape' });
+  return true;
+}
+
 function bindings(): Bindings {
   return { hotkeys: settings.hotkeys, toggle: settings.toggle, picker: settings.picker };
 }
 
+/** The machine's bindings: the dictation keys, and the surfaces' keys their features have registered. */
+function machineBindings(): Bindings {
+  return { ...bindings(), ...surfaces?.bindings(settings) };
+}
+
 function applyBindings(): void {
-  machine.configure(bindings(), { tapMs: settings.tapMs, doubleTapMs: settings.doubleTapMs });
+  const b = machineBindings();
+  machine.configure(b, { tapMs: settings.tapMs, doubleTapMs: settings.doubleTapMs });
   // Swallow the last key of each combo so the app never sees it (Right Ctrl+V must not paste), and dedicated
   // dictation keys (F13). Mask lone Alt/Win presses of the bindings, so dictating with Right Alt never opens a menu bar.
-  hook.send({ type: 'config', swallow: swallowBindings(bindings()), mask: menuMaskKeys(bindings()) });
+  hook.send({ type: 'config', swallow: swallowBindings(b), mask: menuMaskKeys(b), maskCombos: menuMaskCombos(b) });
 }
 
 // ---------- tray ----------
@@ -1147,6 +1206,8 @@ function state() {
     recording: !!rec,
     automation: !!process.env.DICTATE_SMOKE_TEST,
     agents: agents?.state() ?? null,
+    /** Each surface feature's own part, for its Settings → Agents section. */
+    surfaces: surfaces?.state() ?? {},
   };
 }
 
@@ -1162,7 +1223,7 @@ function updateSettings(patch: Partial<Settings>): void {
   if (patch.liveCleanup !== undefined) patch = { ...patch, liveCleanupSet: true };
   settings = parseSettings({ ...settings, ...patch }, runtimeDefaults(settings.vocabulary, { platform: process.platform, userData: userData() }));
   saveSettings.save();
-  if (patch.hotkeys !== undefined || patch.toggle !== undefined || patch.picker !== undefined || patch.tapMs !== undefined || patch.doubleTapMs !== undefined) applyBindings();
+  if (['hotkeys', 'toggle', 'picker', 'tapMs', 'doubleTapMs', 'inbox', 'snooze', 'voice', 'point'].some((k) => k in patch)) applyBindings();
   if (patch.historyLimit !== undefined) history.setLimit(settings.historyLimit);
   if (patch.micWarm !== undefined) warm?.settingChanged();
   if (patch.pillText !== undefined) pillConfig();
@@ -1326,7 +1387,12 @@ function registerIpc(): void {
   });
   ipcMain.on('dictate:renderer-error', (_e, page: string, message: string) => log('error', `renderer ${page}: ${String(message).slice(0, 2000)}`));
   ipcMain.on('dictate:pill-hidden', () => {
-    if (!rec?.shown && !cardsShown) pill.hide();
+    if (!rec?.shown && !cardsShown && !extraRects.length) pill.hide();
+  });
+  ipcMain.on('dictate:extra-rects', (_e, rs: unknown) => {
+    extraRects = Array.isArray(rs) ? rs.filter((r): r is Rect => !!r && [r.x, r.y, r.width, r.height].every(Number.isFinite)) : [];
+    if (extraRects.length) showPill(pill);
+    watchCardHover(cardsShown || extraRects.length > 0);
   });
   ipcMain.handle('dictate:card-action', (_e, a: CardAction) => agents?.action(a));
   ipcMain.on('dictate:card-rect', (_e, r: typeof cardRect) => {
@@ -1507,7 +1573,10 @@ async function main(): Promise<void> {
         const t = performance.now();
         if (line === 'down') machine.down(key, t);
         else if (line === 'up') machine.up(key, t);
-        else if (line === 'escape') { machine.down(VK.Escape, t); machine.up(VK.Escape, t + 1); }
+        else if (line === 'escape') {
+          if (!escapeKeyless()) machine.down(VK.Escape, t);
+          machine.up(VK.Escape, t + 1);
+        }
         else if (line === 'quit') app.quit();
         // Bring Settings to the front, as a click would (Getting started's practice box needs it focused).
         else if (line === 'focus') { app.focus({ steal: true }); settingsWin?.show(); settingsWin?.focus(); }
@@ -1541,6 +1610,23 @@ async function main(): Promise<void> {
           log('info', `QA cards ${JSON.stringify({ top: v?.top ? { title: v.top.title, source: v.top.source, urgency: v.top.urgency, kind: v.top.kind, target: !!v.top.target } : null, more: v?.more ?? 0, all: v?.all.map((c) => c.title) ?? [], replying: agents?.hub.queue.replyingTo ?? null })}`);
         }
         else if (line.startsWith('pause ')) agents?.setPaused(line.slice(6) === 'on');
+        // The sheet window: open a page by kind (the empty stub, or a surface's page with no data), close it, a
+        // screenshot of it, and where it is and what it shows.
+        else if (line.startsWith('sheet ')) {
+          const [kind, ...json] = line.slice(6).split(' ');
+          if (isSheetKind(kind)) sheet.open(kind, json.length ? JSON.parse(json.join(' ')) : null, { focus: false });
+        } else if (line === 'sheet-close') sheet.close('esc');
+        else if (line.startsWith('sheet-shot ') && shotDir) void sheet.shot(path.join(shotDir, `sheet-${line.slice(11)}.png`)).then(() => log('info', `QA sheet-shot ${line.slice(11)}`));
+        else if (line === 'sheet-dump') {
+          const w = sheet.window();
+          void w.webContents
+            .executeJavaScript(`(() => ({ kind: document.body.dataset.kind || null, text: document.getElementById('root')?.innerText ?? '' }))()`)
+            .then((page) => log('info', `QA sheet ${JSON.stringify({ open: sheet.isOpen, kind: sheet.kind, visible: w.isVisible(), focusable: w.isFocusable(), bounds: w.getBounds(), pill: pill.getBounds(), page })}`));
+        }
+        // A surface feature's own QA commands: "<feature> <rest>".
+        else if (surfaces?.qa(line)) {
+          // handled
+        }
         else if (line.startsWith('card ')) {
           const [action, ...rest] = line.slice(5).split(' ');
           const top = agents?.hub.queue.view(Date.now()).top;
@@ -1569,6 +1655,10 @@ async function main(): Promise<void> {
 // ---------- coding agents ----------
 
 let agents: Agents | undefined;
+/** The surface features (src/main/features/), started with the agents. */
+let surfaces: Surfaces | undefined;
+/** The big surfaces' shared window, created when a surface first opens it. */
+let sheet: Sheet;
 /** The pill shows agent cards: it stays up, and takes clicks over the cards. */
 let cardsShown = false;
 
@@ -1604,7 +1694,7 @@ function startAgents(): void {
       cardsShown = !!view.top;
       pillSend('dictate:cards', view);
       if (cardsShown) showPill(pill);
-      watchCardHover(cardsShown);
+      watchCardHover(cardsShown || extraRects.length > 0);
     },
     chime: () => pillSend('dictate:sound', 'chime'),
     openSettings: (page) => openSettings(page),
@@ -1619,6 +1709,45 @@ function startAgents(): void {
     stateChanged: () => pushState(),
   });
   void agents.start().catch((e) => log('error', `agents did not start: ${(e as Error).message}`));
+  startSurfaces(agents);
+}
+
+function startSurfaces(a: Agents): void {
+  sheet = new Sheet(log);
+  surfaces = new Surfaces({
+    log,
+    userData: userData(),
+    settings: () => settings,
+    update: (patch) => updateSettings(patch),
+    agents: a,
+    sheet,
+    pill: {
+      send: (channel, ...args) => pillSend(channel, ...args),
+      show: () => showPill(pill),
+      pointerOverCard,
+    },
+    windows: () => [pill, pickerWin, settingsWin, sheet.isOpen ? sheet.window() : undefined].filter((w): w is Electron.BrowserWindow => !!w && !w.isDestroyed()),
+    preview: previewReply,
+    recording: {
+      start: (route) => {
+        startRecording(route);
+        onHotkey({ type: 'mode', mode: 'toggle', via: 'combo' });
+      },
+      stop: () => {
+        machine.reset();
+        void stopRecording();
+      },
+      // The feature ended it (a round done), so the pill just hides: only the person's Esc says "Cancelled".
+      cancel: () => {
+        machine.reset();
+        onHotkey({ type: 'cancel', reason: 'shortcut' });
+      },
+      active: () => !!rec,
+    },
+    bindingsChanged: () => applyBindings(),
+    stateChanged: () => pushState(),
+  });
+  surfaces.start();
 }
 
 app.on('window-all-closed', () => {
@@ -1636,5 +1765,7 @@ app.on('before-quit', () => {
   cleanup?.stopAll();
   stt?.kill();
   agents?.stop();
+  surfaces?.stop();
+  sheet?.destroy();
   log('info', 'quit');
 });

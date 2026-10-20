@@ -2,31 +2,15 @@
 // Dictate's own buttons; the list behind "+N". While the person answers it by voice it stays up, marked as such.
 // Every word is shown as plain text. Only the cards take clicks: main watches the pointer, lets the window catch it
 // while it is over a card, and says so here. The card's body eases to its new height whenever what it shows changes.
-import { messageLines, plainTitle } from '../core/cardtext';
-import { dictate, h } from './bridge';
+// The frame (head, list, easing) is here; each kind's body is its own module (bodies.ts).
+import { plainTitle } from '../../core/cardtext';
+import { dictate, h } from '../bridge';
+import { BODIES } from './bodies';
+import { EXTRAS } from './extras';
+import { standard } from './standard';
+import type { Action, CardDto, CardsView } from './types';
 
-export interface CardDto {
-  id: string;
-  kind: 'pane-blocked' | 'pane-ready' | 'notify' | 'ask' | 'consent' | 'vocab';
-  urgency: 'info' | 'needs_you' | 'consent';
-  source: string;
-  sourceDetail?: string;
-  title: string;
-  message: string;
-  choices: string[];
-  linkHost: string | null;
-  canOpen: boolean;
-  canReply: boolean;
-}
-
-export interface CardsView {
-  top: CardDto | null;
-  more: number;
-  list: CardDto[];
-  replying: boolean;
-}
-
-type Action = { id: string; action: 'open' | 'dismiss' | 'link' | 'review' | 'arm-reply' } | { id: string; action: 'choose'; value: string } | { id: string; action: 'consent'; value: 'once' | 'session' | 'deny' };
+export type { CardDto, CardsView } from './types';
 
 const act = (a: Action) => void dictate.invoke('dictate:card-action', a);
 
@@ -39,6 +23,7 @@ const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)'
 export function mountCards(parent: HTMLElement, before: Node): void {
   const box = h('div.cards');
   parent.insertBefore(box, before);
+  for (const x of EXTRAS) x.mount?.(parent);
   let view: CardsView = { top: null, more: 0, list: [], replying: false };
   let hovered = false;
   let listOpen = false;
@@ -68,23 +53,6 @@ export function mountCards(parent: HTMLElement, before: Node): void {
       },
     }, label);
 
-  function buttons(c: CardDto): HTMLElement {
-    const row = h('div.crow');
-    if (c.kind === 'consent') {
-      row.append(button('Allow once', { id: c.id, action: 'consent', value: 'once' }), button('Allow for this session', { id: c.id, action: 'consent', value: 'session' }), button('Deny', { id: c.id, action: 'consent', value: 'deny' }, '.warn'));
-      return row;
-    }
-    if (c.kind === 'vocab') {
-      row.append(button('Review', { id: c.id, action: 'review' }, '.primary'));
-      return row;
-    }
-    if (c.canOpen) row.append(button('Open', { id: c.id, action: 'open' }, '.primary'));
-    for (const choice of c.choices) row.append(button(choice, { id: c.id, action: 'choose', value: choice }));
-    if (c.canReply) row.append(button(armed === c.id ? 'Hold your key to reply' : 'Hold to reply', { id: c.id, action: 'arm-reply' }, armed === c.id ? '.armed' : ''));
-    if (c.linkHost) row.append(button(`Open link (${c.linkHost})`, { id: c.id, action: 'link' }, '.ghost'));
-    return row;
-  }
-
   /** The source line, "+N" and ✕. */
   function head(c: CardDto, expanded: boolean): HTMLElement[] {
     return [
@@ -94,23 +62,10 @@ export function mountCards(parent: HTMLElement, before: Node): void {
     ].filter((x): x is HTMLElement => !!x);
   }
 
-  /** The title and message always; the buttons on hover (consent always); a note while it is being answered. */
+  /** The kind's own body: its title and message always; buttons on hover; a note while it is being answered. */
   function bodyParts(c: CardDto, expanded: boolean): HTMLElement[] {
-    const parts: HTMLElement[] = [h('div.title', {}, plainTitle(c.title))];
-    if (c.message) parts.push(message(c.message));
-    if (view.replying) parts.push(h('div.creply', {}, h('span.rdot'), 'Replying by voice…'));
-    else if (expanded || c.kind === 'consent') parts.push(buttons(c));
-    return parts;
-  }
-
-  /** Bold, italic and inline code as elements holding text nodes; everything else is plain text. Never HTML. */
-  function message(md: string): HTMLElement {
-    const el = h('div.msg');
-    messageLines(md).forEach((line, i) => {
-      if (i) el.append('\n');
-      for (const r of line) el.append(r.style === 'b' ? h('strong', {}, r.text) : r.style === 'i' ? h('em', {}, r.text) : r.style === 'code' ? h('code', {}, r.text) : r.text);
-    });
-    return el;
+    const ctx = { expanded, replying: view.replying, armed: armed === c.id, button, act };
+    return [...(BODIES[c.kind] ?? standard).parts(c, ctx), ...EXTRAS.flatMap((x) => x.cardParts?.(c, ctx) ?? [])];
   }
 
   /** Sets the card's contents, and eases its body from the old height to the new one. */
@@ -131,6 +86,7 @@ export function mountCards(parent: HTMLElement, before: Node): void {
     const s = shown;
     if (s.drawn === drawn) return;
     s.el.dataset.urgency = c.urgency;
+    s.el.dataset.kind = c.kind;
     s.el.dataset.expanded = String(expanded);
     s.el.dataset.replying = String(view.replying);
     const from = s.drawn ? s.body.getBoundingClientRect().height : null;
@@ -207,5 +163,6 @@ export function mountCards(parent: HTMLElement, before: Node): void {
   dictate.on('dictate:cards', (v: CardsView) => {
     view = v;
     draw();
+    for (const x of EXTRAS) x.update?.(v);
   });
 }
