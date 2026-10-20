@@ -58,7 +58,9 @@ module.exports = {
       id: 'J1',
       name: 'decision sheet by click: three questions stacked with chips, Send answers; a timeout returns what was filled',
       async run(ctx) {
-        const { session, sleep, cmd, qa, shot, check } = ctx;
+        const { session, sleep, cmd, qa, shot, check, untilLog } = ctx;
+        // L1 runs first: on a busy machine the channel opens seconds before the pill can draw a card.
+        check('the pill is ready', !!(await untilLog(/pill ready/, 60_000)));
         const agent = session({ client: 'claude-code', title: 'Claude Code' });
         const tools = await agent.list();
         check('the bridge lists decide and approve', tools.includes('decide') && tools.includes('approve'), tools);
@@ -66,7 +68,10 @@ module.exports = {
         check('the grown card is on top', (await onTop(ctx, DECIDE.title))?.top?.kind === 'decide');
         await settle(ctx);
         let l = null;
-        for (let i = 0; i < 10 && !l?.buttons.includes('Send answers'); i++) l = await qa('card-layout', /QA card-layout (.+)\n/);
+        for (let i = 0; i < 20 && !l?.buttons.includes('Send answers'); i++) {
+          if (i) await sleep(250);
+          l = await qa('card-layout', /QA card-layout (.+)\n/);
+        }
         check('it shows every question, every chip, "0 of 3 answered" and Send', l && ['Staging', 'Production', 'Backoff ×3', 'Once + email', "Don't retry", 'Charged twice', 'Charge failed', 'Nobody'].every((b) => l.text.includes(b)) && l.buttons.includes('Send answers') && /0 of 3 answered/.test(l.text), l);
         await shot('l1-j1-decide-card');
         await click(ctx, 'Staging');

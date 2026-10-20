@@ -307,7 +307,10 @@ class Decisions {
     } else if (verb === 'click') {
       // A click on a card button by its label, scrolled into view first as the person would (a grown card scrolls).
       const pill = this.host.windows().find((w) => w.webContents.getURL().endsWith('pill.html'));
-      const at = (await pill?.webContents.executeJavaScript(`(() => {
+      // The card eases open: measure once its animations are done, or the click lands where the button was.
+      const at = (await pill?.webContents.executeJavaScript(`(async () => {
+        const finite = document.getAnimations().filter((a) => a.effect?.getTiming().iterations !== Infinity);
+        await Promise.all(finite.map((a) => a.finished.catch(() => undefined)));
         const b = [...document.querySelectorAll('.cards button')].find((x) => x.textContent === ${JSON.stringify(arg)});
         if (!b) return null;
         b.scrollIntoView({ block: 'nearest' });
