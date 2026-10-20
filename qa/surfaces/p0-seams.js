@@ -12,8 +12,12 @@ module.exports = {
         const builtIn = ['notify', 'ask', 'status', 'propose_vocabulary', 'list_vocabulary', 'read_history'];
         const surfaces = ['decide', 'approve', 'card_status', 'lineup', 'peek'];
         check('tools/list is the six built-in tools, then surface tools only', JSON.stringify(tools.slice(0, 6)) === JSON.stringify(builtIn) && tools.slice(6).every((t) => surfaces.includes(t)), tools);
-        const r = await agent.call('decide', { title: 'x', questions: [] });
-        check('calling a hidden surface tool is refused', !!r.error || r.result === undefined, r);
+        // Any surface tool no lane has turned on yet; once all are on there is nothing hidden left to call.
+        const hidden = surfaces.find((t) => !tools.includes(t));
+        if (hidden) {
+          const r = await agent.call(hidden, {});
+          check(`calling a hidden surface tool (${hidden}) is refused`, !!r.error || r.result === undefined, r);
+        }
         const status = await agent.call('status');
         check('status still answers', status.result?.running === true, status);
       },
