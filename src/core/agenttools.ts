@@ -16,7 +16,8 @@ export const NOT_RUNNING = "Dictate isn't running. Carry on in text; start Dicta
 export const CARD_RULE =
   'The person is juggling many tasks and has lost the thread. In plain words, say what this work is for (the outcome, not the file), what just happened, and what you need from them. ' +
   'If you need a decision, give the options and what each one means. ' +
-  "Don't repeat where you are: Dictate adds that. Always notify (needs_you) or ask when you truly need them. Info cards are welcome, but only in this plain style.";
+  "Don't repeat where you are: Dictate adds that. Always notify (needs_you) or ask when you truly need them. Info cards are welcome, but only in this plain style. " +
+  'Write plain text only: no Markdown, headings, lists or code blocks; line breaks are fine.';
 
 type ExampleCard = readonly [title: string, message: string];
 

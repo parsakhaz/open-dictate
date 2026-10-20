@@ -94,7 +94,12 @@ describe('the bridge without Dictate running', () => {
     expect(instructions).toContain('Bad: "Approve the migration?"');
     expect(instructions).toContain('Good: "Pill cards now stay up while you answer"');
     const tools = (await b.request('tools/list')).result?.tools as { name: string; description: string }[];
-    for (const name of ['notify', 'ask']) expect(tools.find((t) => t.name === name)?.description).toContain(rule);
+    const plain = 'Write plain text only: no Markdown, headings, lists or code blocks; line breaks are fine.';
+    expect(instructions).toContain(plain);
+    for (const name of ['notify', 'ask']) {
+      expect(tools.find((t) => t.name === name)?.description).toContain(rule);
+      expect(tools.find((t) => t.name === name)?.description).toContain(plain);
+    }
   });
 
   it("says Dictate isn't running instead of hanging", async () => {
