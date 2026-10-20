@@ -146,7 +146,8 @@ export class PaneLink {
 
   /** The Pane name, tab title and agent of one tab: from the watch when it has seen it, else asked once. */
   async tabNames(paneId: string, panelId: string): Promise<TabNames | null> {
-    const known = this.names.get(panelId);
+    // Names are kept current only by a running watch's events; without one, ask runpane each time.
+    const known = this.watch ? this.names.get(panelId) : undefined;
     if (known && known.paneId === paneId) return known;
     try {
       const panes = await this.run<{ panes: { id: string; name: string }[] }>(['panes', 'list']);
