@@ -1,6 +1,7 @@
 // The settings window: the first-run walkthrough (Getting started), then pages for
 // hotkeys, microphone, cleanup, vocabulary, history, coding agents, advanced paths and about.
-import { dbfs, defaultGainDb } from '../core/audio';
+import { Agc, type GainSpec, gainSpec } from '../core/agc';
+import { dbfs } from '../core/audio';
 import { bindingLabel, dictationKeyProblem } from '../core/hotkeys';
 import type { MicDevice } from '../core/mics';
 import { micKey, micName } from '../core/mics';
@@ -16,7 +17,7 @@ interface State {
   devices: MicDevice[];
   mic: MicDevice | null;
   defaultMicLabel: string;
-  gain: number;
+  gain: GainSpec;
   micBluetooth: boolean;
   stt: 'ready' | 'error' | 'loading';
   sttError: string;
@@ -264,6 +265,10 @@ interface Meter {
   analyser: AnalyserNode;
   el: HTMLElement;
   label: string;
+  /** The same automatic gain dictation runs, so the bar and `applied` show the gain actually applied. */
+  agc: Agc;
+  spec: GainSpec;
+  applied?: HTMLElement;
 }
 
 let meters: Meter[] = [];
@@ -283,7 +288,7 @@ function stopMeters(): void {
   meters = [];
 }
 
-async function startMeter(deviceId: string | null, label: string, el: HTMLElement): Promise<void> {
+async function startMeter(deviceId: string | null, label: string, el: HTMLElement, applied?: HTMLElement): Promise<void> {
   const gen = meterGen;
   if (document.hidden || st.automation) return;
   try {
@@ -293,36 +298,43 @@ async function startMeter(deviceId: string | null, label: string, el: HTMLElemen
       for (const t of stream.getTracks()) t.stop();
       return;
     }
-    const ctx = new AudioContext();
+    // 16 kHz like capture, so the meter's automatic gain hears what dictation's would.
+    const ctx = new AudioContext({ sampleRate: 16000 });
     const analyser = ctx.createAnalyser();
-    analyser.fftSize = 1024;
+    analyser.fftSize = 512;
     ctx.createMediaStreamSource(stream).connect(analyser);
-    meters.push({ stream, ctx, analyser, el, label });
+    const spec = gainSpec(st.settings, label);
+    meters.push({ stream, ctx, analyser, el, label, agc: new Agc(spec), spec, applied });
     if (meters.length === 1) loop();
   } catch {
     el.classList.add('unavailable');
   }
 }
 
-function gainOf(label: string): number {
-  return st.settings.gainDb[micKey(label)] ?? defaultGainDb(label);
-}
-
 function loop(): void {
-  const buf = new Float32Array(1024);
+  const buf = new Float32Array(512);
   const tick = () => {
     for (const m of meters) {
+      const spec = gainSpec(st.settings, m.label);
+      if (spec.auto !== m.spec.auto || spec.db !== m.spec.db) {
+        m.agc.set({ ...spec, startDb: m.agc.gainDb });
+        m.spec = spec;
+      }
       m.analyser.getFloatTimeDomainData(buf);
-      let sum = 0;
-      for (const x of buf) sum += x * x;
-      const rms = Math.sqrt(sum / buf.length) * 10 ** (gainOf(m.label) / 20);
+      const { rms } = m.agc.process(buf);
       const v = Math.max(0, Math.min(1, (dbfs(rms) + 60) / 54));
       m.el.style.setProperty('--level', String(v));
       m.el.classList.toggle('hot', dbfs(rms) > -3);
+      if (m.applied) m.applied.textContent = spec.auto ? `now ${signedDb(m.agc.gainDb)}` : '';
     }
     meterTimer = setTimeout(tick, 40);
   };
   meterTimer = setTimeout(tick, 40);
+}
+
+function signedDb(db: number): string {
+  const r = Math.round(db);
+  return `${r > 0 ? '+' : ''}${r} dB`;
 }
 
 function meterEl(): HTMLElement {
@@ -560,7 +572,7 @@ function microphoneStep(): Node[] {
   return stepFrame(
     'Your microphone',
     'Pick the mic you will dictate with, then say something: the bar should move into the middle.',
-    [...platformCards(), card('Microphone', null, micSelect(), meter), h('p.muted.small', {}, 'Too quiet? Raise its input gain on the Microphone page any time.')],
+    [...platformCards(), card('Microphone', null, micSelect(), meter), h('p.muted.small', {}, 'Too quiet? Dictate raises a quiet voice by itself; the Microphone page sets how far.')],
     primaryButton('Next', () => go('hotkey')),
   );
 }
@@ -769,22 +781,24 @@ function microphone(): Node[] {
   for (const d of all) {
     const active = (st.mic?.deviceId ?? null) === d.deviceId;
     const meter = meterEl();
-    void startMeter(d.deviceId, d.label, meter);
-    const gain = gainOf(d.label);
+    const applied = h('span.gainlabel.muted', {});
+    void startMeter(d.deviceId, d.label, meter, applied);
+    const gain = gainSpec(s, d.label).db;
     const slider = h('input.slider', {
       type: 'range',
-      min: '-10',
+      min: s.autoGain ? String(Math.min(0, gain)) : '-10',
       max: '30',
       step: '1',
       value: String(gain),
+      'aria-label': s.autoGain ? 'Maximum boost' : 'Input gain',
       oninput: (e: Event) => {
         const v = Number((e.target as HTMLInputElement).value);
-        gainLabel.textContent = `${v > 0 ? '+' : ''}${v} dB`;
+        gainLabel.textContent = signedDb(v);
         st.settings.gainDb[micKey(d.label)] = v;
       },
       onchange: (e: Event) => void dictate.invoke('dictate:set-gain', d.label, Number((e.target as HTMLInputElement).value)),
     });
-    const gainLabel = h('span.gainlabel', {}, `${gain > 0 ? '+' : ''}${gain} dB`);
+    const gainLabel = h('span.gainlabel', {}, signedDb(gain));
     rows.push(
       h(
         'section.card.mic',
@@ -794,7 +808,7 @@ function microphone(): Node[] {
           {},
           h('label.radio', {}, h('input', { type: 'radio', name: 'mic', checked: active, onchange: () => void pickMic(d.deviceId) }), h('span.radiodot'), h('span.radiotext', {}, h('span', {}, d.name), h('span.radiodesc', {}, d.deviceId ? d.label : 'Follows the system default input'))),
         ),
-        h('div.microw', {}, meter, h('div.gain', {}, h('span.muted', {}, 'Input gain'), slider, gainLabel)),
+        h('div.microw', {}, meter, h('div.gain', {}, h('span.muted', {}, s.autoGain ? 'Maximum boost' : 'Input gain'), slider, gainLabel, applied)),
       ),
     );
   }
@@ -804,9 +818,14 @@ function microphone(): Node[] {
   return [
     h('h1', {}, 'Microphone'),
     h('p.lead', {}, 'Pick the mic to dictate with. Your choices are remembered in order: when your favourite is unplugged dictate falls back to the next, and switches back (with Undo) when it returns.'),
+    card(
+      'Automatic gain',
+      'Brings a quiet voice up to a normal level, up to each mic’s maximum boost, and leaves a loud one alone. It only listens to speech, so room noise is never turned up while you are quiet. Off: each mic gets a fixed gain.',
+      toggle(s.autoGain, (v) => set({ autoGain: v }), 'Automatic gain'),
+    ),
     ...rows,
     card('Preferred order', 'Picking a mic puts it at the top.', null, order),
-    h('p.muted.small', {}, 'Input gain boosts quiet mics; loud peaks are softened instead of clipping. The built-in Microphone Array starts at +20 dB because it is very quiet.'),
+    h('p.muted.small', {}, s.autoGain ? 'Loud peaks are softened instead of clipping. The built-in Microphone Array may be raised up to +30 dB because it is very quiet; other mics up to +20 dB.' : 'Input gain boosts quiet mics; loud peaks are softened instead of clipping. The built-in Microphone Array starts at +30 dB because it is very quiet.'),
     st.platform.platform === 'win32' ? card(
       'Keep the mic ready after a dictation',
       h(

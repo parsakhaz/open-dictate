@@ -1,8 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { listMics, type MicDevice, MicSelector, micKey, micName, parseMicPrefs } from '../src/core/mics';
+import { deviceLabelFor, listMics, type MicDevice, MicSelector, micKey, micName, parseMicPrefs } from '../src/core/mics';
 
 const BOYA: MicDevice = { deviceId: 'b1', label: 'Microphone (BOYA mini 2) (2e8a:00f2)' };
 const ARRAY: MicDevice = { deviceId: 'a1', label: 'Microphone Array (AMD Audio Device)' };
+
+describe('deviceLabelFor', () => {
+  it('finds the browser label for the name native capture opened, which lacks the USB id', () => {
+    expect(deviceLabelFor('Microphone (BOYA mini 2)', [ARRAY, BOYA])).toBe(BOYA.label);
+    expect(micKey(deviceLabelFor('Microphone (BOYA mini 2)', [ARRAY, BOYA]))).toBe(micKey(BOYA.label));
+    expect(deviceLabelFor(ARRAY.label, [ARRAY, BOYA])).toBe(ARRAY.label);
+  });
+
+  it('keeps a name no listed device has', () => {
+    expect(deviceLabelFor('fake mic', [ARRAY])).toBe('fake mic');
+  });
+});
 const HEADSET: MicDevice = { deviceId: 'h1', label: 'Headset Microphone (WH-1000XM5)' };
 
 function selector(labels: string[], available: MicDevice[]) {

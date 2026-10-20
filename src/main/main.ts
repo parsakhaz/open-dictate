@@ -3,13 +3,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { app, globalShortcut, ipcMain, Menu, MessageChannelMain, powerMonitor, screen, session, shell, systemPreferences, Tray, type UtilityProcess, utilityProcess } from 'electron';
-import { dbfs, defaultGainDb } from '../core/audio';
+import { gainSpec, type GainSpec } from '../core/agc';
+import { dbfs } from '../core/audio';
 import { CaptureController, type CaptureEvents } from '../core/capture';
 import { runChain } from '../core/chain';
 import { HistoryStore } from '../core/history';
 import { type Bindings, bindingFromKeys, bindingLabel, type HotkeyAction, HotkeyMachine, isModifier, menuMaskKeys, type RecordMode, swallowBindings, VK } from '../core/hotkeys';
 import { DEFAULT_SEGMENTER, LiveCleanup, Segmenter } from '../core/live';
-import { type MicDevice, type MicEvent, MicSelector, micKey, micName } from '../core/mics';
+import { deviceLabelFor, type MicDevice, type MicEvent, MicSelector, micKey, micName } from '../core/mics';
 import { appliesMeasuredChain, keepsLlamaServer, upgradedOnboarded } from '../core/onboarding';
 import { finishHint } from '../core/pillhint';
 import { applyEnv, GEMMA_GGUF, parseSettings, resolveModelsDir, STT_MODEL } from '../core/settings';
@@ -317,9 +318,19 @@ function micDevice(): MicDevice | null {
   return mics.current;
 }
 
-function gainFor(d: MicDevice | null): number {
-  const label = d?.label ?? defaultMicLabel;
-  return settings.gainDb[micKey(label)] ?? defaultGainDb(label);
+function gainFor(d: MicDevice | null): GainSpec {
+  return gainSpec(settings, d?.label ?? defaultMicLabel);
+}
+
+/** A dictation ended with automatic gain at `gainDb` on mic `label`: the next one on that mic starts there. */
+function rememberGain(id: number, label: string, gainDb: number): void {
+  if (!settings.autoGain || !label) return;
+  // Native capture reports the WASAPI name; gainFor looks the mic up by its listed (browser) label.
+  const key = micKey(deviceLabelFor(label, devicesCache));
+  const db = Math.round(gainDb * 10) / 10;
+  log('info', `capture ${id}: automatic gain ended at ${db > 0 ? '+' : ''}${db} dB`);
+  if (Math.abs((settings.agcGainDb[key] ?? Number.NaN) - db) < 0.5) return;
+  updateSettings({ agcGainDb: { ...settings.agcGainDb, [key]: db } });
 }
 
 function onHotkey(a: HotkeyAction): void {
@@ -642,10 +653,10 @@ function silentState(id: number, silent: boolean): void {
 }
 
 const browserCapture: CapturePath = {
-  start: (id, deviceId, gainDb) => pillSend('dictate:capture-start', { id, deviceId, gainDb, fakeWav }),
+  start: (id, deviceId, gain) => pillSend('dictate:capture-start', { id, deviceId, gain, fakeWav }),
   stop: (id) => pillSend('dictate:capture-stop', { id }),
   cancel: (id) => pillSend('dictate:capture-cancel', { id }),
-  switchDevice: (id, deviceId, gainDb) => pillSend('dictate:capture-switch', { id, deviceId, gainDb }),
+  switchDevice: (id, deviceId, gain) => pillSend('dictate:capture-switch', { id, deviceId, gain }),
 };
 
 function startCapture(): void {
@@ -687,6 +698,7 @@ function startCapture(): void {
       pillSend('dictate:level', rms);
       liveLevel(rms);
     },
+    gain: rememberGain,
   };
   nativeCapture = new CaptureController(nm, events);
   warm = new WarmMic({
@@ -707,10 +719,10 @@ function startCapture(): void {
 }
 
 const nativePath: CapturePath = {
-  start: (id, deviceId, gainDb) => void nativeCapture!.start(id, deviceId, gainDb),
+  start: (id, deviceId, gain) => void nativeCapture!.start(id, deviceId, gain),
   stop: (id) => void nativeCapture!.stop(id),
   cancel: (id) => void nativeCapture!.cancel(id),
-  switchDevice: (id, deviceId, gainDb) => void nativeCapture!.switchDevice(id, deviceId, gainDb),
+  switchDevice: (id, deviceId, gain) => void nativeCapture!.switchDevice(id, deviceId, gain),
 };
 
 // ---------- microphones ----------
@@ -1333,6 +1345,7 @@ function registerIpc(): void {
   ipcMain.on('dictate:mic-lost', (_e, a: { id: number; label: string }) => micLost(a.id, a.label));
   ipcMain.on('dictate:capture-failed', (_e, a: { id: number; message: string }) => captureFailed(a.id, a.message));
   ipcMain.on('dictate:silent', (_e, a: { id: number; silent: boolean }) => silentState(a.id, a.silent));
+  ipcMain.on('dictate:capture-gain', (_e, a: { id: number; label: string; gainDb: number }) => rememberGain(a.id, a.label, a.gainDb));
   ipcMain.on('dictate:undo-mic', () => {
     const d = mics.undo();
     log('info', `undo mic switch: back to ${d?.label ?? 'system default'}`);

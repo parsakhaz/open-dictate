@@ -31,7 +31,9 @@ export function defaultSettings(vocabulary: VocabTerm[] = []): Settings {
     tapMs: DEFAULT_TIMING.tapMs,
     doubleTapMs: DEFAULT_TIMING.doubleTapMs,
     micOrder: [],
+    autoGain: true,
     gainDb: {},
+    agcGainDb: {},
     cleanup: 'gemma-emberon',
     output: 'paste',
     sounds: true,
@@ -101,6 +103,15 @@ function unloadMinutes(d: Record<string, unknown>, defaults: Settings): number {
   return (d.version ?? 1) === 1 && v === 15 ? 60 : v;
 }
 
+/** Gains per mic, each kept within -20…+40 dB. */
+function dbMap(x: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (typeof x === 'object' && x !== null) {
+    for (const [k, v] of Object.entries(x)) if (typeof v === 'number' && Number.isFinite(v)) out[k] = Math.min(40, Math.max(-20, v));
+  }
+  return out;
+}
+
 const msOrNull = (x: unknown) => (x === null || (typeof x === 'number' && Number.isFinite(x) && x >= 0));
 
 function hardwareResult(x: unknown): HardwareResult | null {
@@ -113,10 +124,6 @@ function hardwareResult(x: unknown): HardwareResult | null {
 export function parseSettings(data: unknown, defaults: Settings): Settings {
   if (typeof data !== 'object' || data === null) return defaults;
   const d = data as Record<string, unknown>;
-  const gainDb: Record<string, number> = {};
-  if (typeof d.gainDb === 'object' && d.gainDb !== null) {
-    for (const [k, v] of Object.entries(d.gainDb)) if (typeof v === 'number' && Number.isFinite(v)) gainDb[k] = Math.min(40, Math.max(-20, v));
-  }
   const vocab = Array.isArray(d.vocabulary) ? d.vocabulary.filter((t) => typeof t?.term === 'string') : null;
   const micOrder = Array.isArray(d.micOrder) ? parseMicPrefs(d.micOrder) : defaults.micOrder;
   return {
@@ -129,7 +136,10 @@ export function parseSettings(data: unknown, defaults: Settings): Settings {
     tapMs: Math.round(num(d.tapMs, defaults.tapMs, 100, 800)),
     doubleTapMs: Math.round(num(d.doubleTapMs, defaults.doubleTapMs, 150, 1000)),
     micOrder,
-    gainDb,
+    // Saved before automatic gain: the gain the person chose becomes its maximum boost.
+    autoGain: bool(d.autoGain, defaults.autoGain),
+    gainDb: dbMap(d.gainDb),
+    agcGainDb: dbMap(d.agcGainDb),
     cleanup: CHAINS.includes(d.cleanup as CleanupChain) ? (d.cleanup as CleanupChain) : defaults.cleanup,
     output: OUTPUTS.includes(d.output as OutputMode) ? (d.output as OutputMode) : defaults.output,
     sounds: bool(d.sounds, defaults.sounds),

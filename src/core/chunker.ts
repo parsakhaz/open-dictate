@@ -1,18 +1,18 @@
-// The capture worklet's logic, kept pure so it can be tested: input gain, levels for the meter, and 1600-sample
+// The capture worklet's logic, kept pure so it can be tested: input gain (Agc), levels for the meter, and 1600-sample
 // (100 ms) chunks, each tagged with the session it belongs to. A new session or a reset drops whatever was
 // buffered, so audio from a cancelled recording can never leak into the next one.
-import { applyGain } from './audio';
+import { Agc, type GainSpec } from './agc';
 
 export const CHUNK = 1600;
 export const LEVEL_EVERY = 512;
 
-export type ChunkerOut = { type: 'chunk'; sid: number; samples: Float32Array } | { type: 'level'; sid: number; rms: number; peak: number; limited: number } | { type: 'flushed'; sid: number };
+export type ChunkerOut = { type: 'chunk'; sid: number; samples: Float32Array } | { type: 'level'; sid: number; rms: number; peak: number; limited: number; gainDb: number } | { type: 'flushed'; sid: number };
 
 export class Chunker {
   private buf = new Float32Array(CHUNK);
   private n = 0;
   private sid = 0;
-  private gainDb = 0;
+  private readonly agc = new Agc({ auto: false, db: 0 });
   private sum = 0;
   private peak = 0;
   private limited = 0;
@@ -21,14 +21,14 @@ export class Chunker {
   constructor(private readonly out: (m: ChunkerOut, transfer?: ArrayBuffer[]) => void) {}
 
   /** Starts a session: anything buffered for an earlier one is dropped. */
-  session(sid: number, gainDb: number): void {
+  session(sid: number, gain: GainSpec): void {
     this.reset();
     this.sid = sid;
-    this.gainDb = gainDb;
+    this.agc.set(gain);
   }
 
-  setGain(db: number): void {
-    this.gainDb = db;
+  setGain(gain: GainSpec): void {
+    this.agc.set(gain);
   }
 
   reset(): void {
@@ -53,13 +53,13 @@ export class Chunker {
   push(raw: Float32Array): void {
     if (!this.sid) return;
     const ch = raw.slice();
-    const st = applyGain(ch, this.gainDb);
+    const st = this.agc.process(ch);
     this.sum += st.rms * st.rms * ch.length;
     this.peak = Math.max(this.peak, st.peak);
     this.limited += st.limited;
     this.count += ch.length;
     if (this.count >= LEVEL_EVERY) {
-      this.out({ type: 'level', sid: this.sid, rms: Math.sqrt(this.sum / this.count), peak: this.peak, limited: this.limited });
+      this.out({ type: 'level', sid: this.sid, rms: Math.sqrt(this.sum / this.count), peak: this.peak, limited: this.limited, gainDb: this.agc.gainDb });
       this.sum = 0;
       this.peak = 0;
       this.limited = 0;

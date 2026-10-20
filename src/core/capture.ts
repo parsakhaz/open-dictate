@@ -1,6 +1,7 @@
 // Capture sessions, independent of the browser APIs so they can be tested. Every start, stop, cancel and device
 // switch runs through one queue, so a new recording can never overlap the flush of the previous one; audio is
 // matched to its session by id, so nothing from one recording reaches another. Pure apart from the injected backend.
+import type { GainSpec } from './agc';
 import { SilenceWatch } from './audio';
 import type { ChunkerOut } from './chunker';
 
@@ -10,7 +11,7 @@ export interface MicStream {
   onEnded(cb: () => void): void;
 }
 
-export type WorkletMsg = { type: 'session'; sid: number; gainDb: number } | { type: 'gain'; db: number } | { type: 'flush'; sid: number } | { type: 'reset' };
+export type WorkletMsg = { type: 'session'; sid: number; gain: GainSpec } | { type: 'gain'; gain: GainSpec } | { type: 'flush'; sid: number } | { type: 'reset' };
 
 export type SttMsg = { type: 'begin'; id: number } | { type: 'frame'; id: number; samples: Float32Array } | { type: 'end'; id: number } | { type: 'cancel'; id: number };
 
@@ -36,6 +37,8 @@ export interface CaptureEvents {
   failed(id: number, message: string): void;
   silent(id: number, silent: boolean): void;
   level(rms: number, peak: number): void;
+  /** The recording ended on mic `label` with this gain applied: the next one starts there. */
+  gain(id: number, label: string, gainDb: number): void;
 }
 
 interface Session {
@@ -44,6 +47,8 @@ interface Session {
   silence: SilenceWatch;
   silent: boolean;
   ending: boolean;
+  /** The gain the worklet last reported, once it has reported one. */
+  gainDb: number | null;
 }
 
 /** Longest wait for the worklet to hand over its last partial chunk. */
@@ -70,8 +75,8 @@ export class CaptureController {
     return this.session?.id ?? null;
   }
 
-  start(id: number, deviceId: string | null, gainDb: number): Promise<void> {
-    return this.enqueue(() => this.doStart(id, deviceId, gainDb));
+  start(id: number, deviceId: string | null, gain: GainSpec): Promise<void> {
+    return this.enqueue(() => this.doStart(id, deviceId, gain));
   }
 
   stop(id: number): Promise<void> {
@@ -82,8 +87,8 @@ export class CaptureController {
     return this.enqueue(() => this.doCancel(id));
   }
 
-  switchDevice(id: number, deviceId: string | null, gainDb: number): Promise<void> {
-    return this.enqueue(() => this.doSwitch(id, deviceId, gainDb));
+  switchDevice(id: number, deviceId: string | null, gain: GainSpec): Promise<void> {
+    return this.enqueue(() => this.doSwitch(id, deviceId, gain));
   }
 
   private async openWithFallback(deviceId: string | null): Promise<MicStream> {
@@ -122,14 +127,14 @@ export class CaptureController {
     });
   }
 
-  private async doStart(id: number, deviceId: string | null, gainDb: number): Promise<void> {
+  private async doStart(id: number, deviceId: string | null, gain: GainSpec): Promise<void> {
     const t0 = this.now();
     await this.backend.prepare();
     if (this.session) await this.doCancel(this.session.id);
-    const s: Session = { id, stream: null, silence: new SilenceWatch(), silent: false, ending: false };
+    const s: Session = { id, stream: null, silence: new SilenceWatch(), silent: false, ending: false, gainDb: null };
     this.session = s;
     this.backend.stt({ type: 'begin', id });
-    this.backend.worklet({ type: 'session', sid: id, gainDb });
+    this.backend.worklet({ type: 'session', sid: id, gain });
     try {
       this.attach(s, await this.openWithFallback(deviceId));
       await this.backend.resume();
@@ -142,10 +147,11 @@ export class CaptureController {
     }
   }
 
-  private async doSwitch(id: number, deviceId: string | null, gainDb: number): Promise<void> {
+  private async doSwitch(id: number, deviceId: string | null, gain: GainSpec): Promise<void> {
     const s = this.session;
     if (!s || s.id !== id || s.ending) return;
-    this.backend.worklet({ type: 'gain', db: gainDb });
+    this.backend.worklet({ type: 'gain', gain });
+    s.gainDb = null;
     try {
       this.attach(s, await this.openWithFallback(deviceId));
     } catch (err) {
@@ -184,6 +190,7 @@ export class CaptureController {
       this.backend.worklet({ type: 'flush', sid: id });
     });
     this.session = null;
+    if (s.stream && s.gainDb !== null) this.events.gain(id, s.stream.label, s.gainDb);
     this.close(s);
     this.backend.worklet({ type: 'reset' });
     this.backend.stt({ type: 'end', id });
@@ -214,6 +221,7 @@ export class CaptureController {
       return;
     }
     this.events.level(m.rms, m.peak);
+    s.gainDb = m.gainDb;
     const silent = s.silence.push(m.rms, (512 / 16000) * 1000);
     if (silent !== s.silent) {
       s.silent = silent;

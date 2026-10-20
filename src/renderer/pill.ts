@@ -2,6 +2,7 @@
 // it. It also hosts mic capture (the browser fallback path) and the sound cues. Never takes focus (the window is
 // not focusable).
 // Small and centred, its width following its content; every state keeps the same height and cross-fades.
+import type { GainSpec } from '../core/agc';
 import { dbfs } from '../core/audio';
 import { hintVisible } from '../core/pillhint';
 import { dictate, h } from './bridge';
@@ -242,15 +243,15 @@ dictate.on('dictate:silent-state', (s: boolean) => {
 
 // ---------- capture (the browser fallback path) ----------
 
-dictate.on('dictate:capture-start', (a: { id: number; deviceId: string | null; gainDb: number; fakeWav?: Uint8Array }) => {
+dictate.on('dictate:capture-start', (a: { id: number; deviceId: string | null; gain: GainSpec; fakeWav?: Uint8Array }) => {
   partial = '';
-  void capture.start(a.id, a.deviceId, a.gainDb, a.fakeWav);
+  void capture.start(a.id, a.deviceId, a.gain, a.fakeWav);
 });
 dictate.on('dictate:capture-stop', (a: { id: number }) => void capture.stop(a.id));
 dictate.on('dictate:capture-cancel', (a: { id: number }) => {
   void capture.cancel(a.id).then(() => dictate.send('dictate:capture-cancelled', { id: a.id }));
 });
-dictate.on('dictate:capture-switch', (a: { id: number; deviceId: string | null; gainDb: number }) => void capture.switchDevice(a.id, a.deviceId, a.gainDb));
+dictate.on('dictate:capture-switch', (a: { id: number; deviceId: string | null; gain: GainSpec }) => void capture.switchDevice(a.id, a.deviceId, a.gain));
 
 const report = (d: capture.DeviceList) => dictate.send('dictate:devices', d);
 dictate.on('dictate:enumerate', async () => report(await capture.devices()));

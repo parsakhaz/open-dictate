@@ -1,7 +1,37 @@
 import { describe, expect, it } from 'vitest';
+import { gainSpec } from '../src/core/agc';
+import { micKey } from '../src/core/mics';
 import { ALT_MODELS_DIR, applyEnv, DEFAULT_MODELS_DIR, defaultSettings, LEGACY_MODELS_DIR, parseSettings, resolveModelsDir } from '../src/core/settings';
 
 const d = defaultSettings([{ term: 'Pane' }]);
+
+describe('automatic gain settings', () => {
+  const amd = 'Microphone Array (AMD Audio Device)';
+
+  it('turns automatic gain on for a file saved before it, keeping the saved +30 dB as the maximum boost', () => {
+    const s = parseSettings({ version: 2, gainDb: { [micKey(amd)]: 30, [micKey('Headset (USB)')]: 6 } }, d);
+    expect(s.autoGain).toBe(true);
+    expect(gainSpec(s, amd)).toMatchObject({ auto: true, db: 30 });
+    expect(gainSpec(s, 'Headset (USB)')).toMatchObject({ auto: true, db: 6 });
+  });
+
+  it('gives the quiet built-in array +30 dB of headroom and a head start, and other mics up to +20 dB', () => {
+    expect(gainSpec(d, amd)).toEqual({ auto: true, db: 30, startDb: 17 });
+    expect(gainSpec(d, 'Headset (USB)')).toEqual({ auto: true, db: 20, startDb: 0 });
+  });
+
+  it('starts each mic at the gain its last dictation reached', () => {
+    const s = parseSettings({ agcGainDb: { [micKey(amd)]: 21.5, junk: 'x' } }, d);
+    expect(s.agcGainDb).toEqual({ [micKey(amd)]: 21.5 });
+    expect(gainSpec(s, amd).startDb).toBe(21.5);
+  });
+
+  it('keeps today’s fixed gain in manual mode', () => {
+    const s = parseSettings({ autoGain: false, gainDb: { [micKey(amd)]: 30 } }, d);
+    expect(gainSpec(s, amd)).toEqual({ auto: false, db: 30 });
+    expect(gainSpec(s, 'Headset (USB)')).toEqual({ auto: false, db: 0 });
+  });
+});
 
 describe('parseSettings', () => {
   it('round-trips the defaults', () => {

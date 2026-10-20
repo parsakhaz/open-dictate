@@ -1,15 +1,17 @@
 // Which capture path a recording uses: native WASAPI (fast to start) when it is available, the browser path in
 // the pill (getUserMedia) otherwise, and the browser path again for a recording whose mic native could not open.
+import type { GainSpec } from '../core/agc';
+
 export interface CapturePath {
-  start(id: number, deviceId: string | null, gainDb: number): void;
+  start(id: number, deviceId: string | null, gain: GainSpec): void;
   stop(id: number): void;
   cancel(id: number): void;
-  switchDevice(id: number, deviceId: string | null, gainDb: number): void;
+  switchDevice(id: number, deviceId: string | null, gain: GainSpec): void;
 }
 
 export class CaptureRouter {
   private readonly path = new Map<number, 'native' | 'browser'>();
-  private readonly request = new Map<number, { deviceId: string | null; gainDb: number }>();
+  private readonly request = new Map<number, { deviceId: string | null; gain: GainSpec }>();
 
   constructor(
     private readonly native: () => CapturePath | null,
@@ -21,11 +23,11 @@ export class CaptureRouter {
     return this.path.get(id);
   }
 
-  start(id: number, deviceId: string | null, gainDb: number): void {
-    this.request.set(id, { deviceId, gainDb });
+  start(id: number, deviceId: string | null, gain: GainSpec): void {
+    this.request.set(id, { deviceId, gain });
     const n = this.native();
     this.path.set(id, n ? 'native' : 'browser');
-    (n ?? this.browser).start(id, deviceId, gainDb);
+    (n ?? this.browser).start(id, deviceId, gain);
   }
 
   /** Native capture could not open recording `id`'s mic: the browser path takes it over. False if it was not native. */
@@ -34,7 +36,7 @@ export class CaptureRouter {
     if (this.path.get(id) !== 'native' || !req) return false;
     this.log('warn', `capture ${id}: native capture failed (${message}); using the browser path`);
     this.path.set(id, 'browser');
-    this.browser.start(id, req.deviceId, req.gainDb);
+    this.browser.start(id, req.deviceId, req.gain);
     return true;
   }
 
@@ -52,9 +54,9 @@ export class CaptureRouter {
     this.forget(id);
   }
 
-  switchDevice(id: number, deviceId: string | null, gainDb: number): void {
-    if (this.request.has(id)) this.request.set(id, { deviceId, gainDb });
-    this.of(id).switchDevice(id, deviceId, gainDb);
+  switchDevice(id: number, deviceId: string | null, gain: GainSpec): void {
+    if (this.request.has(id)) this.request.set(id, { deviceId, gain });
+    this.of(id).switchDevice(id, deviceId, gain);
   }
 
   private forget(id: number): void {

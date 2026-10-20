@@ -1,32 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { applyGain, dbfs, defaultGainDb, SilenceWatch } from '../src/core/audio';
+import { dbfs, defaultGainDb, SilenceWatch } from '../src/core/audio';
 
 describe('defaultGainDb', () => {
   it('boosts the quiet built-in array by 30 dB and leaves other mics alone', () => {
     expect(defaultGainDb('Microphone Array (AMD Audio Device)')).toBe(30);
     expect(defaultGainDb('Microphone (BOYA mini 2)')).toBe(0);
     expect(defaultGainDb(undefined)).toBe(0);
-  });
-});
-
-describe('applyGain', () => {
-  it('multiplies by 10 at +20 dB', () => {
-    const s = new Float32Array([0.01, -0.02]);
-    const r = applyGain(s, 20);
-    expect(s[0]).toBeCloseTo(0.1, 6);
-    expect(s[1]).toBeCloseTo(-0.2, 6);
-    expect(r.limited).toBe(0);
-    expect(r.peak).toBeCloseTo(0.2, 6);
-  });
-
-  it('never lets a boosted sample pass full scale, and keeps the sign', () => {
-    const s = new Float32Array([0.5, -0.9, 0.09]);
-    const r = applyGain(s, 20);
-    expect(r.limited).toBe(3);
-    for (const x of s) expect(Math.abs(x)).toBeLessThanOrEqual(1);
-    expect(s[1]).toBeLessThan(-0.8);
-    // louder in stays louder out
-    expect(s[0]).toBeGreaterThan(s[2]);
   });
 });
 
@@ -42,14 +21,5 @@ describe('levels', () => {
     for (let i = 0; i < 19; i++) expect(w.push(0.0001, 100)).toBe(false);
     expect(w.push(0.0001, 100)).toBe(true);
     expect(w.push(0.05, 100)).toBe(false);
-  });
-});
-
-describe('applyGain at +30 dB', () => {
-  it('never clips loud speech: everything stays inside ±1 and is counted as limited', () => {
-    const s = Float32Array.from({ length: 480 }, (_, i) => 0.3 * Math.sin(i / 5));
-    const r = applyGain(s, 30);
-    expect(Math.max(...s.map(Math.abs))).toBeLessThanOrEqual(1);
-    expect(r.limited).toBeGreaterThan(0);
   });
 });

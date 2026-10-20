@@ -1,6 +1,7 @@
 // The browser side of capture: getUserMedia, a 16 kHz AudioContext with the capture worklet, and the
 // recognizer's MessagePort. Session logic lives in core/capture.ts. The context and worklet are prepared once;
 // only the mic stream is opened per dictation, and closed after.
+import type { GainSpec } from '../core/agc';
 import { type CaptureBackend, CaptureController, type CaptureEvents, type MicStream, type SttMsg, type WorkletMsg } from '../core/capture';
 import type { ChunkerOut } from '../core/chunker';
 import { listMics, type MicDevice } from '../core/mics';
@@ -115,6 +116,7 @@ const events: CaptureEvents = {
   failed: (id, message) => dictate.send('dictate:capture-failed', { id, message }),
   silent: (id, silent) => dictate.send('dictate:silent', { id, silent }),
   level: (rms, peak) => levelListener(rms, peak),
+  gain: (id, label, gainDb) => dictate.send('dictate:capture-gain', { id, label, gainDb }),
 };
 
 const controller = new CaptureController(backend, events);
@@ -123,15 +125,15 @@ export function setLevelListener(cb: (rms: number, peak: number) => void): void 
   levelListener = cb;
 }
 
-export function start(id: number, deviceId: string | null, gainDb: number, fake?: Uint8Array): Promise<void> {
+export function start(id: number, deviceId: string | null, gain: GainSpec, fake?: Uint8Array): Promise<void> {
   fakeWav = fake;
   fakeT0 = undefined;
-  return controller.start(id, deviceId, gainDb);
+  return controller.start(id, deviceId, gain);
 }
 
 export const stop = (id: number) => controller.stop(id);
 export const cancel = (id: number) => controller.cancel(id);
-export const switchDevice = (id: number, deviceId: string | null, gainDb: number) => controller.switchDevice(id, deviceId, gainDb);
+export const switchDevice = (id: number, deviceId: string | null, gain: GainSpec) => controller.switchDevice(id, deviceId, gain);
 
 // ---------- devices ----------
 

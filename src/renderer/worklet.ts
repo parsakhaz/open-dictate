@@ -1,4 +1,5 @@
 // AudioWorklet host for the Chunker: gain, levels and session-tagged 100 ms chunks. Runs in AudioWorkletGlobalScope.
+import type { GainSpec } from '../core/agc';
 import { Chunker, type ChunkerOut } from '../core/chunker';
 
 declare class AudioWorkletProcessor {
@@ -6,7 +7,7 @@ declare class AudioWorkletProcessor {
 }
 declare function registerProcessor(name: string, ctor: new () => AudioWorkletProcessor): void;
 
-export type ToWorklet = { type: 'session'; sid: number; gainDb: number } | { type: 'gain'; db: number } | { type: 'flush'; sid: number } | { type: 'reset' };
+export type ToWorklet = { type: 'session'; sid: number; gain: GainSpec } | { type: 'gain'; gain: GainSpec } | { type: 'flush'; sid: number } | { type: 'reset' };
 
 class CaptureProcessor extends AudioWorkletProcessor {
   private readonly chunker = new Chunker((m: ChunkerOut, transfer?: ArrayBuffer[]) => this.port.postMessage(m, transfer ?? []));
@@ -15,8 +16,8 @@ class CaptureProcessor extends AudioWorkletProcessor {
     super();
     this.port.onmessage = (e: MessageEvent<ToWorklet>) => {
       const m = e.data;
-      if (m.type === 'session') this.chunker.session(m.sid, m.gainDb);
-      else if (m.type === 'gain') this.chunker.setGain(m.db);
+      if (m.type === 'session') this.chunker.session(m.sid, m.gain);
+      else if (m.type === 'gain') this.chunker.setGain(m.gain);
       else if (m.type === 'flush') this.chunker.flush(m.sid);
       else this.chunker.reset();
     };
