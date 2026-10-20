@@ -1,1 +1,278 @@
 /* Sheet: The docked peek's chrome around the hardened view main places in this window: header, URL chip, confirm strip (L5). */
+body[data-kind='peek'] .sheet {
+  background: #202020;
+}
+body[data-kind='peek'] .phead {
+  flex: none;
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px 8px 14px;
+  border-bottom: 1px solid var(--divider);
+}
+body[data-kind='peek'] .phead .row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+body[data-kind='peek'] .phead .src {
+  flex: none;
+  max-width: 220px;
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body[data-kind='peek'] .phead .sp {
+  flex: 1;
+}
+body[data-kind='peek'] .phead .title {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body[data-kind='peek'] .phead .ask,
+body[data-kind='peek'] .phead .hint {
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body[data-kind='peek'] .phead .ask {
+  color: var(--text-2);
+}
+body[data-kind='peek'] .phead .hint.talking {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+}
+body[data-kind='peek'] .rdot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: prdot 1.2s ease-in-out infinite;
+}
+@keyframes prdot {
+  50% {
+    opacity: 0.35;
+  }
+}
+body[data-kind='peek'] .url {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 300px;
+  height: 20px;
+  padding: 0 8px 0 7px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--stroke-strong);
+  font: 11px/18px 'Cascadia Mono', Consolas, ui-monospace, monospace;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body[data-kind='peek'] .url .ok {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #6ccb5f;
+  box-shadow: 0 0 0 2px rgba(108, 203, 95, 0.18);
+}
+body[data-kind='peek'] .url .ok[data-local='false'] {
+  background: var(--accent);
+  box-shadow: 0 0 0 2px rgba(96, 205, 255, 0.18);
+}
+body[data-kind='peek'] .cbtn {
+  flex: none;
+  border: 1px solid var(--stroke-strong);
+  background: var(--card);
+  border-radius: 6px;
+  padding: 2px 9px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text);
+  white-space: nowrap;
+  cursor: default;
+}
+body[data-kind='peek'] .cbtn:hover {
+  background: var(--card-hover);
+}
+body[data-kind='peek'] .cbtn.primary {
+  background: var(--accent);
+  color: #000;
+  border-color: transparent;
+  font-weight: 600;
+}
+body[data-kind='peek'] .cbtn.warn {
+  background: #ffb54c;
+  color: #000;
+  border-color: transparent;
+  font-weight: 600;
+}
+body[data-kind='peek'] .cbtn.ghost {
+  background: transparent;
+}
+body[data-kind='peek'] .cbtn kbd {
+  font: inherit;
+  font-size: 11px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.16);
+}
+body[data-kind='peek'] .ib {
+  flex: none;
+  width: 24px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 16px;
+  padding: 0;
+  cursor: default;
+}
+body[data-kind='peek'] .ib:hover {
+  color: var(--text);
+  background: var(--card-hover);
+}
+/* The hole the docked page window sits in. */
+body[data-kind='peek'] .vp {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: #fff;
+}
+body[data-kind='peek'] .vp .snap {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top left;
+}
+body[data-kind='peek'] .pblocked {
+  flex: none;
+  display: flex;
+  gap: 10px;
+  padding: 9px 14px;
+  background: rgba(255, 181, 76, 0.12);
+  border-bottom: 2px solid #ffb54c;
+}
+body[data-kind='peek'] .pblocked .bang {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(255, 181, 76, 0.25);
+  color: #ffb54c;
+  font-weight: 700;
+  font-size: 12px;
+  line-height: 20px;
+  text-align: center;
+}
+body[data-kind='peek'] .pblocked .btext {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+body[data-kind='peek'] .pblocked .bt {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+  color: var(--text);
+}
+body[data-kind='peek'] .pblocked .bu {
+  font: 11px/15px 'Cascadia Mono', Consolas, ui-monospace, monospace;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body[data-kind='peek'] .pblocked .brow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+}
+body[data-kind='peek'] .pblocked .bnote {
+  font-size: 11px;
+  color: var(--text-3);
+}
+body[data-kind='peek'] .pconfirm {
+  flex: none;
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 9px 12px;
+  border-top: 1px solid var(--divider);
+  box-shadow: inset 0 1.5px 0 var(--accent);
+}
+body[data-kind='peek'] .pconfirm .cimg {
+  height: 64px;
+  border-radius: 7px;
+  border: 1.5px dashed var(--accent);
+  background: #fff;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+body[data-kind='peek'] .pconfirm .cimg img {
+  max-width: 100%;
+  max-height: 100%;
+  display: block;
+}
+body[data-kind='peek'] .pconfirm .ctext {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+body[data-kind='peek'] .pconfirm .cmeta {
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--text-3);
+}
+body[data-kind='peek'] .pconfirm .cmeta .to {
+  color: var(--accent);
+}
+body[data-kind='peek'] .pconfirm .cwords {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+body[data-kind='peek'] .pconfirm .cunder {
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body[data-kind='peek'] .pconfirm .cunder code {
+  font-family: 'Cascadia Mono', Consolas, ui-monospace, monospace;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-2);
+}
+body[data-kind='peek'] .pconfirm .cbtns {
+  display: grid;
+  gap: 5px;
+}
