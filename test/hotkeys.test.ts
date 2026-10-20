@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Binding } from '../src/core/types';
-import { AltGrFilter, type Bindings, bindingFromKeys, bindingLabel, dictationKeyProblem, type HotkeyAction, HotkeyMachine, isDedicated, menuMaskKeys, swallowBindings, type Timers, VK } from '../src/core/hotkeys';
+import { AltGrFilter, type Bindings, bindingFromKeys, bindingLabel, dictationKeyProblem, type HotkeyAction, HotkeyMachine, isDedicated, menuMaskCombos, menuMaskKeys, swallowBindings, type Timers, VK } from '../src/core/hotkeys';
 
 const C = 0x43;
 
@@ -479,5 +479,69 @@ describe('several dictation keys (B2)', () => {
 
   it('menu masks cover every dictation key', () => {
     expect(menuMaskKeys({ hotkeys: [{ keys: [F13] }, { keys: [VK.RAlt] }], toggle: null, picker: null })).toEqual([VK.RAlt]);
+  });
+});
+
+describe('route keys and shortcuts (the surfaces)', () => {
+  const agentKey: Binding = { keys: ['ctrl', 'meta'] };
+  const snooze: Binding = { keys: ['ctrl', 'alt', 0x5a] };
+  const surfaces: Bindings = { ...DEFAULTS, routes: { agent: agentKey }, shortcuts: { snooze } };
+
+  it('holding the agent key records for its route: start, push-to-talk, stop on release', () => {
+    const { actions, down, up, advance } = machine(surfaces);
+    down(VK.LCtrl, 0);
+    down(VK.LWin, 10);
+    advance(400);
+    up(VK.LWin, 1500);
+    up(VK.LCtrl, 1510);
+    expect(actions).toEqual([{ type: 'start', route: 'agent' }, { type: 'mode', mode: 'push-to-talk', route: 'agent' }, stop]);
+  });
+
+  it('a tap of a route key does nothing: no double-tap hands-free', () => {
+    const { actions, down, up } = machine(surfaces);
+    down(VK.LCtrl, 0);
+    down(VK.LWin, 10);
+    up(VK.LWin, 100);
+    up(VK.LCtrl, 110);
+    down(VK.LCtrl, 200);
+    down(VK.LWin, 210);
+    up(VK.LWin, 300);
+    expect(actions).toEqual([{ type: 'start', route: 'agent' }, { type: 'cancel', reason: 'tap' }, { type: 'start', route: 'agent' }, { type: 'cancel', reason: 'tap' }]);
+  });
+
+  it('Right Ctrl, the dictation key, then Win becomes the agent key, not a dictation', () => {
+    const { actions, down, advance } = machine(surfaces);
+    down(VK.RCtrl, 0);
+    down(VK.LWin, 50);
+    advance(400);
+    expect(actions).toEqual([start, { type: 'cancel', reason: 'shortcut' }, { type: 'start', route: 'agent' }, { type: 'mode', mode: 'push-to-talk', route: 'agent' }]);
+  });
+
+  it('a shortcut reports its name once, and the dictation key still works', () => {
+    const { actions, down, up, advance } = machine(surfaces);
+    down(VK.LCtrl, 0);
+    down(VK.LAlt, 10);
+    down(0x5a, 20);
+    up(0x5a, 60);
+    up(VK.LAlt, 70);
+    up(VK.LCtrl, 80);
+    down(VK.RCtrl, 1000);
+    advance(1400);
+    expect(actions).toEqual([{ type: 'shortcut', name: 'snooze' }, start, ptt]);
+  });
+
+  it('a route key or shortcut that is not bound does nothing', () => {
+    const { actions, down, up } = machine(DEFAULTS);
+    down(VK.LCtrl, 0);
+    down(VK.LWin, 10);
+    down(0x5a, 20);
+    up(0x5a, 30);
+    expect(actions).toEqual([]);
+  });
+
+  it('swallows a bound shortcut, and masks Start only once the whole agent key is down', () => {
+    expect(swallowBindings(surfaces)).toContainEqual(snooze);
+    expect(menuMaskCombos(surfaces)).toEqual([agentKey]);
+    expect(menuMaskCombos({ ...DEFAULTS, routes: { point: { keys: [0x7c] } } })).toEqual([]);
   });
 });

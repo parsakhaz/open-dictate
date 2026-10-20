@@ -6,6 +6,14 @@ import type { ActionHint } from './agenttools';
 /** consent and needs_you stay until handled; info fades after a few seconds, except the vocabulary review. */
 export type CardUrgency = 'info' | 'needs_you' | 'consent';
 
+/**
+ * Every kind of card. The first six are today's; the rest belong to the surfaces, one lane each: decide and approve
+ * (L1), round-summary (L2), voice-draft (L3), lineup (L4), peek (L5), point-review (L6). Each kind has a body module
+ * in src/renderer/cards/ and, when it answers anything, a handler registered with AgentHub.cardKind.
+ */
+export const CARD_KINDS = ['pane-blocked', 'pane-ready', 'notify', 'ask', 'consent', 'vocab', 'decide', 'approve', 'round-summary', 'voice-draft', 'lineup', 'peek', 'point-review'] as const;
+export type CardKind = (typeof CARD_KINDS)[number];
+
 export interface CardTarget {
   paneId: string;
   panelId: string;
@@ -18,7 +26,7 @@ export interface Card {
   /** Who wrote the words: Pane (blocked, finished, a report) or the agent itself. */
   origin: 'pane' | 'agent' | 'dictate';
   /** pane-ready is Pane's "Finished": it never replaces a card that needs the person. */
-  kind: 'pane-blocked' | 'pane-ready' | 'notify' | 'ask' | 'consent' | 'vocab';
+  kind: CardKind;
   urgency: CardUrgency;
   /** Always Dictate's own words: "<Pane name> · <tab>", or "<client> · <folder>". */
   source: string;
@@ -29,6 +37,8 @@ export interface Card {
   action?: ActionHint | null;
   choices: string[];
   link?: { url: string; host: string } | null;
+  /** What a surface's card body draws beyond the title and message (decide's questions, lineup's thumbnails): plain data, already checked, never HTML. */
+  data?: unknown;
   /** The Pane tab this card opens and replies to; none outside Pane. */
   target: CardTarget | null;
   createdAt: number;
@@ -60,6 +70,8 @@ export interface CardView {
   more: number;
   /** All cards, in order, for the list behind "+N". */
   all: Card[];
+  /** The queue's own summary for the pill's extras (the inbox's held and snoozed counts): plain data. */
+  extra?: Record<string, unknown>;
 }
 
 export class CardQueue {
@@ -171,6 +183,14 @@ export class CardQueue {
 
   isHeld(now: number): boolean {
     return this.paused || this.dictating || now < this.holdUntil;
+  }
+
+  /**
+   * When a wait on this card (an ask, a consent, a surface's question) runs out: `timeoutMs` after it started. The
+   * hub asks again when that time comes, so a later answer here (held time not counting) moves the deadline out.
+   */
+  deadline(_id: string, startedAt: number, timeoutMs: number, _now: number): number {
+    return startedAt + timeoutMs;
   }
 
   /** Fades info cards that have been up long enough, and forgets old faded ones. Returns true when anything changed. */

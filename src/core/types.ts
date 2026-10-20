@@ -1,5 +1,10 @@
 // Shared types and defaults. Pure; browser-safe.
 import type { MicPref } from './mics';
+import type { InboxSettings } from './sections/inbox';
+import type { PeekSettings } from './sections/peek';
+import type { PointSettings } from './sections/point';
+import type { SnoozeSettings } from './sections/snooze';
+import type { VoiceSettings } from './sections/voice';
 import type { PendingTerm } from './vocabproposals';
 
 export const SAMPLE_RATE = 16000;
@@ -126,6 +131,12 @@ export interface Settings {
   agentPaneAlerts: boolean;
   /** Agents may ask to read dictation history, with consent on the pill each time. Off by default. */
   agentHistory: boolean;
+  /** The surfaces' own sections of Settings → Agents, each defined and checked in src/core/sections/. */
+  inbox: InboxSettings;
+  snooze: SnoozeSettings;
+  voice: VoiceSettings;
+  peek: PeekSettings;
+  point: PointSettings;
 }
 
 export interface StepResult {

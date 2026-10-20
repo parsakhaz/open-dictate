@@ -1,6 +1,7 @@
 // The tool contracts and the pill's card rules, at the hub: fake Pane, history and time; real queue and consent.
 import { describe, expect, it } from 'vitest';
 import { AgentHub, type HubDeps, type HubSession, matchChoice } from '../src/core/agenthub';
+import type { Card } from '../src/core/cards';
 import { HistoryStore } from '../src/core/history';
 import type { AccessRecord } from '../src/core/historyaccess';
 import type { PendingTerm } from '../src/core/vocabproposals';
@@ -112,7 +113,7 @@ describe('ask', () => {
     await settle();
     const card = hub.queue.view(Date.now()).top!;
     await hub.choose(card.id, 'Prod');
-    expect(await p).toEqual({ answered: true, text: 'Prod', raw: 'Prod', choice: 'Prod' });
+    expect(await p).toEqual({ answered: true, text: 'Prod', raw: 'Prod', choice: 'Prod', card_id: expect.any(String) });
     expect(hub.queue.view(Date.now()).all).toHaveLength(0);
   });
 
@@ -121,7 +122,7 @@ describe('ask', () => {
     const p = hub.call(inTab(), 'ask', { question: 'Staging or prod?', choices: ['Staging', 'Prod'] }, sig());
     await settle();
     await hub.reply(hub.queue.view(Date.now()).top!.id, 'Staging, please.', 'staging please');
-    expect(await p).toEqual({ answered: true, text: 'Staging, please.', raw: 'staging please', choice: 'Staging' });
+    expect(await p).toEqual({ answered: true, text: 'Staging, please.', raw: 'staging please', choice: 'Staging', card_id: expect.any(String) });
   });
 
   it('times out at timeout_s, and Esc returns dismissed', async () => {
@@ -130,11 +131,11 @@ describe('ask', () => {
     await settle();
     await advance(29_000);
     await advance(1_000);
-    expect(await p).toEqual({ answered: false, reason: 'timeout' });
+    expect(await p).toEqual({ answered: false, reason: 'timeout', card_id: expect.any(String) });
     const q = hub.call(inTab(), 'ask', { question: 'q?' }, sig());
     await settle();
     hub.dismiss(hub.queue.view(Date.now()).top!.id);
-    expect(await q).toEqual({ answered: false, reason: 'dismissed' });
+    expect(await q).toEqual({ answered: false, reason: 'dismissed', card_id: expect.any(String) });
   });
 
   it('is withdrawn when the agent cancels or its connection closes', async () => {
@@ -143,11 +144,11 @@ describe('ask', () => {
     const p = hub.call(inTab(), 'ask', { question: 'q?' }, ac.signal);
     await settle();
     ac.abort();
-    expect(await p).toEqual({ answered: false, reason: 'cancelled' });
+    expect(await p).toEqual({ answered: false, reason: 'cancelled', card_id: expect.any(String) });
     const q = hub.call(inTab('Y'), 'ask', { question: 'q?' }, sig());
     await settle();
     hub.sessionClosed('s-Y');
-    expect(await q).toEqual({ answered: false, reason: 'cancelled' });
+    expect(await q).toEqual({ answered: false, reason: 'cancelled', card_id: expect.any(String) });
     expect(hub.queue.view(Date.now()).all).toHaveLength(0);
   });
 });
@@ -316,5 +317,94 @@ describe('matchChoice', () => {
     expect(matchChoice('either staging or prod', ['Staging', 'Prod'])).toBeUndefined();
     expect(matchChoice('production', ['Staging', 'Prod'])).toBeUndefined();
     expect(matchChoice('go with plan B', ['Plan A', 'Plan B'])).toBe('Plan B');
+  });
+});
+
+describe('the surfaces seams', () => {
+  const card = (id: string, kind: Card['kind'] = 'decide'): Card => ({ id, key: `ask:${id}`, origin: 'agent', kind, urgency: 'needs_you', source: 'dictate-mcp · Codex', title: 'Ship it?', message: '', choices: [], target: null, createdAt: Date.now(), data: { questions: 2 } });
+
+  it('dispatches a surface tool to the handler its feature registered, and refuses one nobody did', async () => {
+    const { hub } = setup();
+    await expect(hub.call(inTab(), 'decide', {}, sig())).rejects.toThrow(/Unknown tool: decide/);
+    hub.handle('decide', async (session, args) => ({ from: session.id, args }));
+    expect(await hub.call(inTab(), 'decide', { title: 't' }, sig())).toEqual({ from: 's-X', args: { title: 't' } });
+  });
+
+  it('raises a card with its data and returns its card_id; a wait ends with what the person settles', async () => {
+    const { hub } = setup();
+    const id = hub.newId();
+    const answer = hub.wait<{ answered: true; picked: string }>(id, { session: 's-X', kind: 'decide', timeoutMs: 60_000, signal: sig() });
+    expect(hub.raise(card(id))).toEqual({ status: 'shown', card_id: id });
+    expect(hub.queue.get(id)?.data).toEqual({ questions: 2 });
+    expect(hub.waiting(id)).toBe(true);
+    expect(hub.settle(id, { answered: true, picked: 'Staging' })).toBe(true);
+    expect(await answer).toEqual({ answered: true, picked: 'Staging' });
+    expect(hub.queue.get(id)).toBeUndefined();
+    expect(hub.settle(id, 'again')).toBe(false);
+  });
+
+  it('a wait times out, is cancelled or dismissed like an ask, and can keep its card (a snoozed question)', async () => {
+    const { hub, advance } = setup();
+    const a = hub.newId();
+    const timedOut = hub.wait(a, { session: 's-X', kind: 'decide', timeoutMs: 30_000, signal: sig() });
+    hub.raise(card(a));
+    await advance(30_000);
+    expect(await timedOut).toEqual({ answered: false, reason: 'timeout' });
+    const b = hub.newId();
+    const dismissed = hub.wait(b, { session: 's-X', kind: 'decide', timeoutMs: 30_000, signal: sig() });
+    hub.raise(card(b));
+    hub.dismiss(b);
+    expect(await dismissed).toEqual({ answered: false, reason: 'dismissed' });
+    const c = hub.newId();
+    const kept = hub.wait(c, { session: 's-Y', kind: 'decide', timeoutMs: 30_000, signal: sig() });
+    hub.raise(card(c));
+    hub.settle(c, { answered: false, reason: 'snoozed' }, true);
+    expect(await kept).toEqual({ answered: false, reason: 'snoozed' });
+    expect(hub.queue.get(c)).toBeDefined();
+    const d = hub.newId();
+    const closed = hub.wait(d, { session: 's-Z', kind: 'approve', timeoutMs: 30_000, signal: sig() });
+    hub.raise(card(d, 'approve'));
+    hub.sessionClosed('s-Z');
+    expect(await closed).toEqual({ answered: false, reason: 'cancelled' });
+  });
+
+  it('waits on when the queue moves the deadline out, as held time will', async () => {
+    const { hub, advance } = setup();
+    let extra = 0;
+    hub.queue.deadline = (_id, startedAt, timeoutMs) => startedAt + timeoutMs + extra;
+    const id = hub.newId();
+    const p = hub.wait(id, { session: 's-X', kind: 'decide', timeoutMs: 10_000, signal: sig() });
+    hub.raise(card(id));
+    extra = 5_000;
+    await advance(10_000);
+    expect(hub.waiting(id)).toBe(true);
+    await advance(5_000);
+    expect(await p).toEqual({ answered: false, reason: 'timeout' });
+  });
+
+  it("sends a card's voice reply and its own buttons to its kind's handler", async () => {
+    const { hub } = setup();
+    const seen: string[] = [];
+    hub.cardKind('decide', {
+      reply: async (c, text, raw) => {
+        seen.push(`reply ${c.id} ${text} ${raw}`);
+        return { ok: true, message: 'Answered' };
+      },
+      action: async (c, name, value) => {
+        seen.push(`action ${c.id} ${name} ${JSON.stringify(value)}`);
+        return undefined;
+      },
+    });
+    const id = hub.newId();
+    hub.raise(card(id));
+    expect(await hub.reply(id, 'Staging.', 'staging')).toEqual({ ok: true, message: 'Answered' });
+    await hub.cardAction(id, 'pick', { q: 0, option: 1 });
+    expect(seen).toEqual([`reply ${id} Staging. staging`, `action ${id} pick {"q":0,"option":1}`]);
+  });
+
+  it('adds what features contribute to status', async () => {
+    const { hub } = setup();
+    hub.extendStatus(() => ({ focus: 'free', waiting: 0 }));
+    expect(await hub.call(inTab(), 'status', {}, sig())).toMatchObject({ running: true, focus: 'free', waiting: 0 });
   });
 });

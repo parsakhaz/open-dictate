@@ -182,3 +182,33 @@ describe('first-run walkthrough state', () => {
     expect(parseSettings({ onboarded: true }, d).onboarded).toBe(true);
   });
 });
+
+describe("the surfaces' settings sections", () => {
+  it('loads a profile from before them (0.1.x) with every default: the agent key Ctrl+Win, no point key', () => {
+    const s = parseSettings({ version: 2, hotkeys: [{ keys: [0xa3] }], agentChime: false }, d);
+    expect(s.agentChime).toBe(false);
+    expect(s.voice).toEqual({ key: { keys: ['ctrl', 'meta'] }, sessionId: null });
+    expect(s.point.key).toBeNull();
+    expect(s.snooze).toEqual({ key: { keys: ['ctrl', 'alt', 0x5a] }, minutes: [3, 5, 10], returnTo: 'top' });
+    expect(s.inbox.roundKey).toEqual({ keys: ['ctrl', 'alt', 0x20] });
+    expect(s.peek.hosts).toEqual(['rungrain.com']);
+  });
+
+  it('keeps what the person chose and checks each field, falling back field by field', () => {
+    const s = parseSettings(
+      {
+        snooze: { key: null, minutes: [30, 0, 500, 30, 2, 9], returnTo: 'inbox' },
+        voice: { key: [0x7c], sessionId: 'sess-123' },
+        peek: { hosts: ['Docs.Example.com', 'not a host', 'file://x', 'rungrain.com'] },
+        point: { key: { keys: ['ctrl', 0x7d] }, review: 'wait', excludedApps: ['Bank.exe', 'C:\\x\\y.exe'], target: 'nowhere' },
+        inbox: { roundKey: 'junk' },
+      },
+      d,
+    );
+    expect(s.snooze).toEqual({ key: null, minutes: [30, 1, 120], returnTo: 'inbox' });
+    expect(s.voice).toEqual({ key: { keys: [0x7c] }, sessionId: 'sess-123' });
+    expect(s.peek.hosts).toEqual(['docs.example.com', 'rungrain.com']);
+    expect(s.point).toEqual({ key: { keys: ['ctrl', 0x7d] }, review: 'wait', excludedApps: ['Bank.exe'], target: 'voice' });
+    expect(s.inbox.roundKey).toEqual({ keys: ['ctrl', 'alt', 0x20] });
+  });
+});

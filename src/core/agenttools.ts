@@ -3,7 +3,9 @@
 import { cleanMessage, cleanText, safeLink } from './agenttext';
 
 export const TOOL_NAMES = ['notify', 'ask', 'status', 'propose_vocabulary', 'list_vocabulary', 'read_history'] as const;
-export type ToolName = (typeof TOOL_NAMES)[number];
+/** The surfaces' tools, one module each in src/core/tools/, listed only once their lane turns them on. */
+export const SURFACE_TOOL_NAMES = ['decide', 'approve', 'card_status', 'lineup', 'peek'] as const;
+export type ToolName = (typeof TOOL_NAMES)[number] | (typeof SURFACE_TOOL_NAMES)[number];
 
 export const CAPS = { title: 60, message: 280, question: 120, choice: 24, choices: 4, reason: 120 } as const;
 export const ASK_TIMEOUT = { defaultS: 120, maxS: 600 } as const;

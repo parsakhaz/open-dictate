@@ -37,6 +37,11 @@ function agentSession(dataDir, { client = 'claude-code', title = 'Claude Code', 
       const res = r.result ?? {};
       return res.isError ? { error: res.content?.[0]?.text } : { result: res.structuredContent ?? res.content?.[0]?.text };
     },
+    /** The whole tools/call result, content blocks included (peek's image block). */
+    async raw(name, args = {}) {
+      await ready;
+      return (await request('tools/call', { name, arguments: args })).result ?? {};
+    },
     async list() {
       await ready;
       return (await request('tools/list', {})).result.tools.map((t) => t.name);

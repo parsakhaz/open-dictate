@@ -10,7 +10,7 @@ import { DICTATE_EXTRA, WM_APP_MASK, WM_QUIT } from './constants';
 
 export type ToHook =
   /** `mask`: keys that get the menu mask key injected while they are down (see menuMaskKeys). */
-  | { type: 'config'; swallow: Binding[]; mask: number[] }
+  | { type: 'config'; swallow: Binding[]; mask: number[]; maskCombos?: Binding[] }
   /** Picker open: swallow every key except modifiers and Alt/Win combos, and report clicks. */
   | { type: 'capture'; on: boolean }
   /** While recording, Esc cancels the dictation and is not passed to the app. */
@@ -55,6 +55,7 @@ const WM_RBUTTONDOWN = 0x204;
 
 let swallowCombos: Binding[] = [];
 let maskKeys = new Set<number>();
+let maskCombos: Binding[] = [];
 const altGr = new AltGrFilter();
 let tid = 0;
 let capture = false;
@@ -84,7 +85,7 @@ function track(vk: number, isDown: boolean, t: number): boolean {
     swallowed = repeat ? swallowedDown.has(vk) : shouldSwallow(vk);
     if (swallowed) swallowedDown.add(vk);
     // Injected from the message loop, after this callback returns: still well before the key's release.
-    if (!repeat && maskKeys.has(vk)) PostThreadMessageW(tid, WM_APP_MASK, 0, 0);
+    if (!repeat && (maskKeys.has(vk) || maskCombos.some((b) => bindingMatches(b, down)))) PostThreadMessageW(tid, WM_APP_MASK, 0, 0);
   } else {
     down.delete(vk);
     swallowed = swallowedDown.delete(vk);
@@ -133,6 +134,8 @@ function apply(m: ToHook): void {
   if (m.type === 'config') {
     swallowCombos = m.swallow;
     maskKeys = new Set(m.mask);
+    // Route keys held alone (Ctrl+Win): masked only once the whole binding is down.
+    maskCombos = m.maskCombos ?? [];
   }
   else if (m.type === 'recording') recording = m.on;
   else if (m.type === 'capture') {

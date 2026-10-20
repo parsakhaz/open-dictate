@@ -4,19 +4,29 @@ import type { Binding, KeySpec } from './types';
 
 export type RecordMode = 'push-to-talk' | 'toggle';
 
+/** Held keys that record for a feature instead of pasting: the agent key (L3) and the point key (L6). */
+export type RouteKey = 'agent' | 'point';
+/** One-shot shortcuts whose feature decides what they do: snooze the card (L2), start a round (L2). */
+export type ShortcutName = 'snooze' | 'round';
+
 export type HotkeyAction =
-  /** Capture starts at key down, before we know whether this is a hold or the first of a double-tap. */
-  | { type: 'start' }
+  /**
+   * Capture starts at key down, before we know whether this is a hold or the first of a double-tap. `route`: a
+   * route key started it, and its words go to that feature instead of being pasted.
+   */
+  | { type: 'start'; route?: RouteKey }
   /** The press is a hold (push-to-talk) or a double-tap (toggle): show the pill and keep recording. */
   /**
    * `key`: which dictation key (its index in `hotkeys`) started it. `via: 'combo'`: hands-free started from the
    * toggle combo, which also ends it (not a dictation key).
    */
-  | { type: 'mode'; mode: RecordMode; key?: number; via?: 'combo' }
+  | { type: 'mode'; mode: RecordMode; key?: number; via?: 'combo'; route?: RouteKey }
   | { type: 'stop' }
   /** `tap`: a lone tap, nothing to type; the pill was never shown. */
   | { type: 'cancel'; reason: 'tap' | 'shortcut' | 'escape' }
-  | { type: 'picker' };
+  | { type: 'picker' }
+  /** A one-shot shortcut went down. */
+  | { type: 'shortcut'; name: ShortcutName };
 
 export const VK = {
   Escape: 0x1b,
@@ -93,7 +103,8 @@ export function dictationKeyProblem(b: Binding): string | null {
  * Ctrl+V must not paste), and dedicated dictation keys. Right Ctrl and Right Alt pass through, so shortcuts work.
  */
 export function swallowBindings(b: Bindings): Binding[] {
-  return [b.picker, b.toggle, ...b.hotkeys.filter(isDedicated)].filter((x): x is Binding => !!x);
+  // A shortcut is bound only while its feature claims it (a card is up), so only then does the app lose the key.
+  return [b.picker, b.toggle, ...b.hotkeys.filter(isDedicated), ...Object.values(b.shortcuts ?? {})].filter((x): x is Binding => !!x);
 }
 
 function specMatches(spec: KeySpec, code: number): boolean {
@@ -122,6 +133,13 @@ export interface Bindings {
   toggle: Binding | null;
   /** Opens the history picker. */
   picker: Binding | null;
+  /**
+   * Route keys, push-to-talk only: hold to talk, release to send, a tap does nothing. Main binds one only while a
+   * feature has registered its route, so an unbuilt feature's default key does nothing.
+   */
+  routes?: Partial<Record<RouteKey, Binding | null>>;
+  /** One-shot shortcuts, bound the same way: only while a feature answers them. */
+  shortcuts?: Partial<Record<ShortcutName, Binding | null>>;
 }
 
 export interface Timers {
@@ -165,6 +183,8 @@ export class HotkeyMachine {
   private active = -1;
   /** A dedicated key's tap started hands-free: its presses before this time are the double-tap's second tap. */
   private tapToggleUntil = 0;
+  /** The route key of this recording; null for a dictation key or the toggle combo. */
+  private route: RouteKey | null = null;
 
   constructor(
     private bindings: Bindings,
@@ -192,6 +212,7 @@ export class HotkeyMachine {
   toggle(): void {
     if (this.state !== 'idle') { this.end({ type: 'stop' }); return; }
     this.active = -1;
+    this.route = null;
     this.tapToggleUntil = 0;
     this.state = 'toggle';
     this.emit({ type: 'start' });
@@ -230,15 +251,33 @@ export class HotkeyMachine {
         }
         if (bindingMatches(toggle, this.downKeys)) {
           this.active = -1;
+          this.route = null;
           this.tapToggleUntil = 0;
           this.emit({ type: 'start' });
           this.state = 'toggle';
           this.emit({ type: 'mode', mode: 'toggle', via: 'combo' });
           return;
         }
+        const shortcut = (Object.keys(this.bindings.shortcuts ?? {}) as ShortcutName[]).find((n) => bindingMatches(this.bindings.shortcuts?.[n] ?? null, this.downKeys));
+        if (shortcut) {
+          this.emit({ type: 'shortcut', name: shortcut });
+          return;
+        }
+        const route = (Object.keys(this.bindings.routes ?? {}) as RouteKey[]).find((r) => bindingMatches(this.bindings.routes?.[r] ?? null, this.downKeys));
+        if (route) {
+          this.active = -1;
+          this.route = route;
+          this.tapToggleUntil = 0;
+          this.state = 'press1';
+          this.pressedAt = t;
+          this.armHold();
+          this.emit({ type: 'start', route });
+          return;
+        }
         const key = this.bindings.hotkeys.findIndex((b) => bindingMatches(b, this.downKeys));
         if (key >= 0 && t >= this.quietUntil) {
           this.active = key;
+          this.route = null;
           this.tapToggleUntil = 0;
           this.state = 'press1';
           this.pressedAt = t;
@@ -302,6 +341,11 @@ export class HotkeyMachine {
           this.end({ type: 'stop' });
           return;
         }
+        // A route key is hold-to-talk only: a tap is nothing.
+        if (this.route) {
+          this.end({ type: 'cancel', reason: 'tap' });
+          return;
+        }
         if (isDedicated(this.hotkey)) {
           // Not a shortcut key, so one tap means hands-free; a second tap soon after is a double-tap, not a stop.
           this.state = 'toggle';
@@ -334,13 +378,14 @@ export class HotkeyMachine {
       this.timer = undefined;
       if (this.state === 'press1' || this.state === 'press2') {
         this.state = 'push-to-talk';
-        this.emit({ type: 'mode', mode: 'push-to-talk', key: this.active });
+        this.emit(this.route ? { type: 'mode', mode: 'push-to-talk', route: this.route } : { type: 'mode', mode: 'push-to-talk', key: this.active });
       }
     }, this.timing.tapMs);
   }
 
-  /** The dictation key of the recording in progress (or the last one). */
+  /** The dictation or route key of the recording in progress (or the last one). */
   private get hotkey(): Binding | null {
+    if (this.route) return this.bindings.routes?.[this.route] ?? null;
     return this.bindings.hotkeys[this.active] ?? null;
   }
 
@@ -367,6 +412,15 @@ export function menuMaskKeys(b: Bindings): number[] {
   const out = new Set<number>();
   for (const x of [...b.hotkeys, b.toggle, b.picker]) for (const k of x?.keys ?? []) if (typeof k === 'number' && masked.has(k)) out.add(k);
   return [...out];
+}
+
+/**
+ * Route keys held alone with Alt or Win in them (the agent key, Ctrl+Win): the mask goes in when the whole
+ * binding is down, never for Win or Alt on their own, so Start and menu bars still open as usual.
+ */
+export function menuMaskCombos(b: Bindings): Binding[] {
+  const altOrWin = (k: KeySpec) => k === 'alt' || k === 'meta' || ([VK.LAlt, VK.RAlt, VK.LWin, VK.RWin] as KeySpec[]).includes(k);
+  return Object.values(b.routes ?? {}).filter((x): x is Binding => !!x && x.keys.some(altOrWin));
 }
 
 /** The scan code Windows gives the fake Left Ctrl that AltGr layouts send along with Right Alt. */

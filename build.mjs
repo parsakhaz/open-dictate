@@ -1,7 +1,7 @@
 // Bundles every process with esbuild into out/. Native modules and electron stay external.
 import { build } from 'esbuild';
 import { prepareNative } from './qa/prepare-native.mjs';
-import { cpSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 
 const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
 
@@ -22,8 +22,13 @@ await Promise.all([
     platform: 'browser',
     format: 'esm',
     target: 'chrome140',
-    entryPoints: { pill: 'src/renderer/pill.ts', picker: 'src/renderer/picker.ts', settings: 'src/renderer/settings.ts', worklet: 'src/renderer/worklet.ts' },
+    entryPoints: { pill: 'src/renderer/pill.ts', picker: 'src/renderer/picker.ts', settings: 'src/renderer/settings.ts', sheet: 'src/renderer/sheet/index.ts', worklet: 'src/renderer/worklet.ts' },
     outdir: 'out/renderer',
   }),
 ]);
-for (const f of ['pill.html', 'pill.css', 'picker.html', 'picker.css', 'settings.html', 'settings.css', 'theme.css']) cpSync(`src/renderer/${f}`, `out/renderer/${f}`);
+for (const f of ['pill.html', 'pill.css', 'picker.html', 'picker.css', 'settings.html', 'settings.css', 'sheet.html', 'theme.css']) cpSync(`src/renderer/${f}`, `out/renderer/${f}`);
+// Each card kind and sheet page keeps its own stylesheet beside its module; they are joined here, base.css first.
+for (const [dir, out] of [['src/renderer/cards', 'cards.css'], ['src/renderer/sheet', 'sheet.css']]) {
+  const files = readdirSync(dir).filter((f) => f.endsWith('.css')).sort((a, b) => (a === 'base.css' ? -1 : b === 'base.css' ? 1 : a.localeCompare(b)));
+  writeFileSync(`out/renderer/${out}`, files.map((f) => `/* ${f} */\n${readFileSync(`${dir}/${f}`, 'utf8')}`).join('\n'));
+}

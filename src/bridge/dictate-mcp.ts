@@ -4,8 +4,9 @@
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
-import { NOT_RUNNING, SERVER_INSTRUCTIONS, TOOL_NAMES, TOOLS } from '../core/agenttools';
+import { NOT_RUNNING, SERVER_INSTRUCTIONS } from '../core/agenttools';
 import { type AppToBridge, CHANNEL_FILE, type ChannelInfo, type ClientInfo, frame, lineReader, paneIdsFrom } from '../core/agentwire';
+import { isListed, listedTools } from '../core/tools';
 
 declare const DICTATE_VERSION: string;
 
@@ -139,10 +140,10 @@ async function handle(m: Rpc): Promise<void> {
     case 'ping':
       return reply(id, {});
     case 'tools/list':
-      return reply(id, { tools: TOOLS });
+      return reply(id, { tools: listedTools() });
     case 'tools/call': {
       const name = String(m.params?.name ?? '');
-      if (!(TOOL_NAMES as readonly string[]).includes(name)) return fail(id, -32602, `Unknown tool: ${name}`);
+      if (!isListed(name)) return fail(id, -32602, `Unknown tool: ${name}`);
       const r = await callApp(id, name, m.params?.arguments);
       if ('error' in r) return toolText(id, r.error, true);
       return toolText(id, 'result' in r ? r.result : null);

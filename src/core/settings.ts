@@ -4,7 +4,13 @@ import { DEFAULT_HISTORY_LIMIT } from './history';
 import { DEFAULT_TIMING, VK } from './hotkeys';
 import { parseMicPrefs } from './mics';
 import { isStep } from './onboarding';
-import type { Binding, CleanupChain, HardwareResult, KeySpec, OutputMode, Settings, VocabTerm } from './types';
+import { binding, bool, num, str } from './sections/fields';
+import { DEFAULT_INBOX, parseInbox } from './sections/inbox';
+import { DEFAULT_PEEK, parsePeek } from './sections/peek';
+import { DEFAULT_POINT, parsePoint } from './sections/point';
+import { DEFAULT_SNOOZE, parseSnooze } from './sections/snooze';
+import { DEFAULT_VOICE, parseVoice } from './sections/voice';
+import type { Binding, CleanupChain, HardwareResult, OutputMode, Settings, VocabTerm } from './types';
 import { normalizeVocabulary } from './vocabulary';
 import { parsePending } from './vocabproposals';
 
@@ -63,23 +69,16 @@ export function defaultSettings(vocabulary: VocabTerm[] = []): Settings {
     agentChime: true,
     agentPaneAlerts: false,
     agentHistory: false,
+    inbox: DEFAULT_INBOX,
+    snooze: DEFAULT_SNOOZE,
+    voice: DEFAULT_VOICE,
+    peek: DEFAULT_PEEK,
+    point: DEFAULT_POINT,
   };
 }
 
 const CHAINS: CleanupChain[] = ['off', 'emberon', 'gemma', 'gemma-emberon'];
 const OUTPUTS: OutputMode[] = ['paste', 'clipboard', 'both'];
-const GENERIC = ['ctrl', 'shift', 'alt', 'meta'];
-
-function isKeySpec(x: unknown): x is KeySpec {
-  return (typeof x === 'number' && Number.isInteger(x) && x > 0) || (typeof x === 'string' && GENERIC.includes(x));
-}
-
-/** `{ "keys": [165] }`, or the shorthand `[165]` people write by hand. */
-function binding(x: unknown, fallback: Binding | null): Binding | null {
-  if (x === null) return null;
-  const keys = Array.isArray(x) ? x : (x as { keys?: unknown })?.keys;
-  return Array.isArray(keys) && keys.length > 0 && keys.every(isKeySpec) ? { keys } : fallback;
-}
 
 export const MAX_HOTKEYS = 4;
 
@@ -93,10 +92,6 @@ function hotkeys(d: Record<string, unknown>, fallback: Binding[]): Binding[] {
   const one = binding(d.hotkey, fallback[0] ?? null);
   return one ? [one] : [];
 }
-
-const str = (x: unknown, d: string) => (typeof x === 'string' && x.trim() ? x : d);
-const bool = (x: unknown, d: boolean) => (typeof x === 'boolean' ? x : d);
-const num = (x: unknown, d: number, lo: number, hi: number) => (typeof x === 'number' && Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : d);
 
 /** Version 1 saved every field, so a 15 there is the old default rather than a choice: it becomes 60. */
 function unloadMinutes(d: Record<string, unknown>, defaults: Settings): number {
@@ -172,6 +167,12 @@ export function parseSettings(data: unknown, defaults: Settings): Settings {
     // Before 0.1.2 there was no such setting and Dictate always followed Pane; those profiles start off too.
     agentPaneAlerts: bool(d.agentPaneAlerts, defaults.agentPaneAlerts),
     agentHistory: bool(d.agentHistory, defaults.agentHistory),
+    // The surfaces' sections: each feature checks its own fields (src/core/sections/); a profile from before them gets the defaults.
+    inbox: parseInbox(d.inbox, defaults.inbox),
+    snooze: parseSnooze(d.snooze, defaults.snooze),
+    voice: parseVoice(d.voice, defaults.voice),
+    peek: parsePeek(d.peek, defaults.peek),
+    point: parsePoint(d.point, defaults.point),
   };
 }
 
