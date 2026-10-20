@@ -5,7 +5,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
-import { type AppToBridge, type BridgeToApp, CHANNEL_FILE, type ChannelInfo, type ClientInfo, frame, lineReader, type PaneIds } from '../core/agentwire';
+import { type AppToBridge, type BridgeToApp, CHANNEL_FILE, type ChannelInfo, type ClientInfo, frame, lineReader, MAX_LINE, MAX_LINE_SIZE, megabytes, type PaneIds } from '../core/agentwire';
 
 export interface AgentSession {
   id: string;
@@ -81,7 +81,11 @@ export class AgentServer {
     let session: AgentSession | null = null;
     const calls = new Map<number, AbortController>();
     const write = (m: AppToBridge) => {
-      if (!socket.destroyed) socket.write(frame(m));
+      if (socket.destroyed) return;
+      const f = frame(m);
+      // The bridge can't read a line this long; an error it can read beats an answer that never arrives.
+      if (f.length > MAX_LINE && m.t === 'result') socket.write(frame({ t: 'result', id: m.id, error: `The answer is ${megabytes(f.length)}, and the bridge reads at most ${MAX_LINE_SIZE}.` }));
+      else socket.write(f);
     };
     // A connection that doesn't say hello promptly is dropped.
     const helloTimer = setTimeout(() => socket.destroy(), 5000);

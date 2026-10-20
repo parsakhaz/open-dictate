@@ -23,6 +23,8 @@ interface Bridge {
   proc: ChildProcessWithoutNullStreams;
   request(method: string, params?: unknown): Promise<{ result?: Record<string, unknown>; error?: { code: number; message: string } }>;
   notify(method: string, params?: unknown): void;
+  /** Writes `line` as is and waits for the answer to `id`. */
+  raw(id: number, line: string): Promise<{ result?: Record<string, unknown>; error?: { code: number; message: string } }>;
   close(): Promise<void>;
 }
 
@@ -53,6 +55,11 @@ function startBridge(env: Record<string, string> = {}, cwd = dir): Bridge {
         proc.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
       }),
     notify: (method, params) => proc.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method, params })}\n`),
+    raw: (id, line) =>
+      new Promise((resolve) => {
+        waiting.set(id, resolve);
+        proc.stdin.write(`${line}\n`);
+      }),
     close: () =>
       new Promise((resolve) => {
         if (proc.exitCode !== null) return resolve();
@@ -188,6 +195,31 @@ describe('the bridge with Dictate running', () => {
     b.notify('notifications/cancelled', { requestId: 2 });
     await pending;
     expect(aborted).toBe(true);
+  });
+
+  // 100 terms x 50 aliases x 500 characters: about 2.5 MB, as in #23.
+  const bigVocab = () => ({ terms: Array.from({ length: 100 }, (_, i) => ({ term: `term${i}`, aliases: Array.from({ length: 50 }, () => 'a'.repeat(500)) })) });
+
+  it('answers a call over 1 MB with an error instead of dropping it, then keeps working (#23)', async () => {
+    handler = async (_s, tool) => ({ ok: true, tool });
+    const b = startBridge();
+    await initialized(b);
+    const big = await b.request('tools/call', { name: 'propose_vocabulary', arguments: bigVocab() });
+    expect(big.error?.code).toBe(-32600);
+    expect(big.error?.message).toMatch(/2\.5 MB.*at most 1 MB/);
+    // The MCP SDK writes the id last.
+    const idLast = await b.raw(77, JSON.stringify({ method: 'tools/call', params: { name: 'propose_vocabulary', arguments: bigVocab() }, jsonrpc: '2.0', id: 77 }));
+    expect(idLast.error?.code).toBe(-32600);
+    expect((await b.request('tools/call', { name: 'status', arguments: {} })).result?.structuredContent).toEqual({ ok: true, tool: 'status' });
+  });
+
+  it('returns an answer too big for the channel as a tool error (#23)', async () => {
+    handler = async () => ({ text: 'x'.repeat(2_000_000) });
+    const b = startBridge();
+    await initialized(b);
+    const r = await b.request('tools/call', { name: 'read_history', arguments: {} });
+    expect(r.result?.isError).toBe(true);
+    expect(text(r)).toMatch(/answer.*2\.0 MB.*at most 1 MB/);
   });
 
   it('refuses a bridge with the wrong token', async () => {
