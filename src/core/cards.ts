@@ -155,6 +155,8 @@ export class CardQueue {
         next = { ...old, kind: 'pane-blocked', urgency: 'needs_you', target: card.target ?? old.target, faded: false, shownAt: undefined, beforePane };
       }
       this.cards.splice(i, 1);
+      // The old card left (unless Pane merged into it and it keeps its id): card_status still knows it.
+      if (next.id !== old.id && !this.ends.has(old.id)) this.ended(old.id, 'gone');
       if (this.onScreen === old.id) this.onScreen = null;
       replaced = true;
     }

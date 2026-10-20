@@ -193,6 +193,18 @@ describe('card status', () => {
     expect(q.status('nope', 0)).toBeNull();
   });
 
+  it('says gone for a card the same session replaced, and keeps a card Pane merged into', () => {
+    const q = new CardQueue();
+    const a = card({ key: 'session:s1' });
+    const b = card({ key: 'session:s1' });
+    q.add(a, 0);
+    expect(q.add(b, 0)).toBe('replaced');
+    expect(q.status(a.id, 0)).toEqual({ state: 'gone' });
+    expect(q.status(b.id, 0)).toEqual({ state: 'shown' });
+    q.add(card({ key: 'session:s1', kind: 'pane-blocked', origin: 'pane' }), 0);
+    expect(q.status(b.id, 0)).toEqual({ state: 'shown' });
+  });
+
   it('remembers an answer the inbox saw', () => {
     const q = new CardQueue();
     const c = card();
