@@ -14,7 +14,18 @@ interface Data {
 /** Decoded thumbnails by card and place, so a redraw draws at once. */
 const bitmaps = new Map<string, ImageBitmap | 'failed' | Promise<void>>();
 
-function decode(key: string, b64: string, redraw: () => void): void {
+/** Puts the decoded thumbnail into a tile, in place of its label. */
+function paint(el: HTMLElement, key: string): boolean {
+  const bmp = bitmaps.get(key);
+  if (!(bmp instanceof ImageBitmap) || el.querySelector('canvas')) return bmp instanceof ImageBitmap;
+  const cv = h('canvas', { width: bmp.width, height: bmp.height });
+  cv.getContext('2d')?.drawImage(bmp, 0, 0);
+  el.prepend(cv);
+  el.querySelector('.lu-l')?.remove();
+  return true;
+}
+
+function decode(key: string, b64: string): void {
   if (bitmaps.has(key)) return;
   const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
   bitmaps.set(
@@ -22,7 +33,8 @@ function decode(key: string, b64: string, redraw: () => void): void {
     createImageBitmap(new Blob([bytes], { type: 'image/png' })).then(
       (bmp) => {
         bitmaps.set(key, bmp);
-        redraw();
+        // The card may have been redrawn meanwhile: paint whichever tile shows this one now.
+        for (const el of document.querySelectorAll<HTMLElement>('.lu-tile')) if (el.dataset.key === key) paint(el, key);
       },
       () => {
         bitmaps.set(key, 'failed');
@@ -33,21 +45,10 @@ function decode(key: string, b64: string, redraw: () => void): void {
 
 function tile(c: CardDto, i: number, cand: Data['candidates'][number]): HTMLElement {
   const key = `${c.id}:${i}`;
-  const el = h('div.lu-tile', { title: cand.label }, h('span.lu-n', {}, String(i + 1)));
-  const draw = () => {
-    const bmp = bitmaps.get(key);
-    if (!(bmp instanceof ImageBitmap)) return false;
-    const cv = h('canvas', { width: bmp.width, height: bmp.height });
-    cv.getContext('2d')?.drawImage(bmp, 0, 0);
-    el.prepend(cv);
-    el.classList.add('img');
-    return true;
-  };
+  const el = h('div.lu-tile', { title: cand.label, 'data-key': key }, h('span.lu-n', {}, String(i + 1)));
   if (cand.thumb) {
-    decode(key, cand.thumb, () => {
-      if (el.isConnected && !el.querySelector('canvas')) draw();
-    });
-    if (!draw()) el.append(h('span.lu-l', {}, cand.label));
+    decode(key, cand.thumb);
+    if (!paint(el, key)) el.append(h('span.lu-l', {}, cand.label));
   } else el.append(h('span.lu-l', {}, cand.text ? `“${cand.text}”` : cand.label));
   return el;
 }

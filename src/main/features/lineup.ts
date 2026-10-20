@@ -177,6 +177,11 @@ function setup(host: FeatureHost): void {
           `(() => { const r = document.querySelector('.lu'); return { open: !!r, mode: r?.dataset.mode ?? null, index: Number(r?.dataset.index ?? -1), picks: r ? JSON.parse(r.dataset.picks || '[]') : [], ranks: [...document.querySelectorAll('.lu-cell .lu-rank')].map((x) => x.textContent), send: document.querySelector('.lu-send')?.textContent ?? null, images: [...document.querySelectorAll('.lu img')].map((i) => ({ type: (i.getAttribute('src') || '').slice(5, 18), loaded: i.complete && i.naturalWidth > 0 })), title: document.title, pwned: document.body.dataset.pwned ?? null, text: r?.innerText ?? '' }; })()`,
         )
         .then((s) => host.log('info', `QA lineup ${JSON.stringify(s)}`));
+    } else if (verb === 'card') {
+      const pill = host.windows().find((w) => !w.isDestroyed() && w.webContents.getURL().endsWith('pill.html'));
+      void (pill ? pill.webContents.executeJavaScript(`[...document.querySelectorAll('.lu-tile')].map((t) => ({ drawn: !!t.querySelector('canvas'), label: t.querySelector('.lu-l')?.textContent ?? null }))`) : Promise.resolve(null)).then((tiles) =>
+        host.log('info', `QA lineup card ${JSON.stringify({ tiles })}`),
+      );
     } else if (verb === 'say') {
       const id = shown ?? top();
       const card = id ? hub.queue.get(id) : undefined;

@@ -105,6 +105,8 @@ module.exports = {
         check('a needs-you lineup card shows', c?.top?.kind === 'lineup' && c.top.urgency === 'needs_you' && c.top.title === 'Pick a hero for the new homepage', c);
         cmd('cards-hover on');
         await sleep(900);
+        const tiles = await until(() => qa('lineup card', /QA lineup card (.+)\n/), (v) => v?.tiles?.length === 4 && v.tiles.every((t) => t.drawn), sleep);
+        check('the card shows a strip of four drawn thumbnails', tiles?.tiles?.length === 4 && tiles.tiles.every((t) => t.drawn), tiles);
         await shot('l4-warmup');
         await sleep(300);
         await shot('l4-card');
