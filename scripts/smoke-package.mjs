@@ -71,7 +71,12 @@ async function smoke(executable, label, { normalConfiguration = false } = {}) {
   for (const name of ['sherpa', 'koffi', 'uiohook']) {
     if (result.native?.[name] !== true) throw new Error(`${label}: native ${name} was not loaded: ${JSON.stringify(result)}`);
   }
-  if (result.agents?.bridgeCopied !== true || result.agents?.tools?.length !== 6 || result.agents?.status !== true) {
+  // The six built-in tools, then only the surface tools a lane has turned on.
+  const builtIn = ['notify', 'ask', 'status', 'propose_vocabulary', 'list_vocabulary', 'read_history'];
+  const surfaces = ['decide', 'approve', 'card_status', 'lineup', 'peek'];
+  const tools = result.agents?.tools ?? [];
+  const toolsOk = JSON.stringify(tools.slice(0, 6)) === JSON.stringify(builtIn) && tools.slice(6).every((t) => surfaces.includes(t));
+  if (result.agents?.bridgeCopied !== true || !toolsOk || result.agents?.status !== true) {
     throw new Error(`${label}: the agents' bridge did not run from the data folder and reach the app: ${JSON.stringify(result.agents)}`);
   }
   if (modelDir && (typeof result.inference?.text !== 'string' || !result.inference.text || result.inference.partials < 1)) {
