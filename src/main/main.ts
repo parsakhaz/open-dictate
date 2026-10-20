@@ -42,6 +42,11 @@ import { debouncedWriter, loadJson, readJson, writeJson } from './store';
 import { SttLink } from './sttlink';
 import { createPicker, createPill, createSettings, placePicker, showPill } from './windows';
 import { Agents, type AgentsHost, type CardAction } from './agents';
+import { syncInstructions } from './instructions';
+import { unregisterAgents } from './registration';
+
+/** The uninstaller's flag: remove Dictate's agent setup and quit. */
+const REMOVE_AGENT_SETUP = '--remove-agent-setup';
 
 if (process.env.DICTATE_DATA_DIR) app.setPath('userData', process.env.DICTATE_DATA_DIR);
 app.setName('dictate');
@@ -53,7 +58,10 @@ if (process.env.DICTATE_SMOKE_TEST) app.disableHardwareAcceleration();
 // The isolated container used for local QA forbids AF_UNIX sockets. Native CI keeps the real lock enabled.
 const isolatedQa = !!process.env.DICTATE_DATA_DIR && (!!process.env.DICTATE_SMOKE_TEST || !!process.env.DICTATE_QA_CONTROL);
 const skipInstanceLock = isolatedQa && process.env.DICTATE_SMOKE_SKIP_INSTANCE_LOCK === '1';
-if (!skipInstanceLock && !app.requestSingleInstanceLock()) {
+if (process.argv.includes(REMOVE_AGENT_SETUP)) {
+  // Run by the Windows uninstaller (build/installer.nsh): takes Dictate back out of the agents' files, then quits.
+  void app.whenReady().then(removeAgentSetup).catch((err) => log('warn', `agents: removal failed (${(err as Error).message})`)).finally(() => app.exit(0));
+} else if (!skipInstanceLock && !app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => openSettings());
@@ -1487,6 +1495,15 @@ function registrationOptions(): AgentsHost['registration'] {
   }
   const automated = !!process.env.DICTATE_SMOKE_TEST || !!process.env.DICTATE_QA_CONTROL;
   return { allowed: app.isPackaged && !automated, executable: process.env.APPIMAGE || process.execPath, env: process.env };
+}
+
+/** Removes the MCP entries and instruction blocks Dictate wrote, whatever the setting says; hand-written ones stay. */
+async function removeAgentSetup(): Promise<void> {
+  const r = registrationOptions();
+  if (!r.allowed) return;
+  const opts = { env: r.env, executable: r.executable, bridgePath: '', log };
+  await unregisterAgents(opts);
+  syncInstructions(opts, false);
 }
 
 function startAgents(): void {
