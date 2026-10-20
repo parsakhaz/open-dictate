@@ -101,6 +101,11 @@ module.exports = {
         check('a timeout with one answer returns it as partial', t?.answered === false && t.reason === 'timeout' && t.partial?.length === 1 && t.partial[0].picked[0] === 'Production' && typeof t.card_id === 'string', t);
         d = await dump(ctx);
         check('nothing of this lane is left waiting', d?.cards.length === 0, d);
+
+        const twin = { header: 'When', question: 'When?', options: [{ label: 'Today' }, { label: 'Tomorrow' }] };
+        const dup = await within(agent.call('decide', { title: 'Duplicate question ids', questions: [{ ...QUESTIONS[0], id: 'same' }, { ...twin, id: 'same' }] }), sleep, 3000);
+        d = await dump(ctx);
+        check('two questions with the same id are refused with a tool error, and no card opens (#27)', /share the id "same"/.test(dup?.error ?? '') && d?.cards.length === 0, { dup, d });
         cmd('cards-hover off');
       },
     },
