@@ -18,6 +18,17 @@ export function micKey(label: string): string {
     .toLowerCase();
 }
 
+/** The same endpoint: Chromium appends the USB vendor:product id to the name WASAPI reports. */
+export function sameMicName(a: string, b: string): boolean {
+  const strip = (s: string) => s.replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)\s*$/i, '').trim().toLowerCase();
+  return strip(a) === strip(b);
+}
+
+/** The listed device's label for a name native capture reports, so both paths key a mic's settings alike. */
+export function deviceLabelFor(name: string, devices: MicDevice[]): string {
+  return devices.find((d) => d.label === name)?.label ?? devices.find((d) => sameMicName(d.label, name))?.label ?? name;
+}
+
 /** A short name for toasts: "Microphone (BOYA mini 2) (2e8a:00f2)" -> "BOYA mini 2", "Microphone Array (AMD Audio Device)" -> "Microphone Array". */
 export function micName(label: string): string {
   const clean = label.replace(/^(Default|Communications) - /i, '').replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)\s*$/i, '');

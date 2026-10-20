@@ -5,6 +5,7 @@
 import { type MessagePort, parentPort, receiveMessageOnPort, workerData } from 'node:worker_threads';
 import type { GainSpec } from '../core/agc';
 import { Chunker, type ChunkerOut } from '../core/chunker';
+import { sameMicName } from '../core/mics';
 import { Resampler } from '../core/resample';
 import { readWav } from '../engine/wav';
 import * as wasapi from './wasapi';
@@ -94,18 +95,12 @@ let fakeStart: number | null = null;
 
 // ---------- opening ----------
 
-function sameName(a: string, b: string): boolean {
-  // Chromium appends the USB vendor:product id to the endpoint's friendly name.
-  const strip = (s: string) => s.replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)\s*$/i, '').trim().toLowerCase();
-  return strip(a) === strip(b);
-}
-
 function openEndpoint(label: string | null): Stream {
   if (fakeFile) return fakeStream();
   let ep: wasapi.Endpoint;
   if (label) {
     const all = wasapi.endpoints();
-    const matches = all.filter((e) => sameName(e.name, label));
+    const matches = all.filter((e) => sameMicName(e.name, label));
     for (const e of all) if (!matches.includes(e) || matches.length !== 1) wasapi.releaseEndpoint(e);
     // Two identical mics cannot be told apart by name here: the browser path, which has the exact device, takes it.
     if (matches.length !== 1) throw new Error(matches.length ? `${matches.length} mics are named "${label}"` : `no mic named "${label}"`);
@@ -136,7 +131,7 @@ function doOpen(label: string | null, keyDown: number): void {
       const same = d.id === stream.key;
       wasapi.releaseEndpoint(d);
       if (!same) close();
-    } else if (stream && label !== null && !sameName(stream.label, label)) close();
+    } else if (stream && label !== null && !sameMicName(stream.label, label)) close();
     const warm = !!stream;
     if (!stream) {
       stream = openEndpoint(label);

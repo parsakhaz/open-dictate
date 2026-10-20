@@ -10,7 +10,7 @@ import { runChain } from '../core/chain';
 import { HistoryStore } from '../core/history';
 import { type Bindings, bindingFromKeys, bindingLabel, type HotkeyAction, HotkeyMachine, isModifier, menuMaskKeys, type RecordMode, swallowBindings, VK } from '../core/hotkeys';
 import { DEFAULT_SEGMENTER, LiveCleanup, Segmenter } from '../core/live';
-import { type MicDevice, type MicEvent, MicSelector, micKey, micName } from '../core/mics';
+import { deviceLabelFor, type MicDevice, type MicEvent, MicSelector, micKey, micName } from '../core/mics';
 import { appliesMeasuredChain, keepsLlamaServer, upgradedOnboarded } from '../core/onboarding';
 import { finishHint } from '../core/pillhint';
 import { applyEnv, GEMMA_GGUF, parseSettings, resolveModelsDir, STT_MODEL } from '../core/settings';
@@ -325,7 +325,8 @@ function gainFor(d: MicDevice | null): GainSpec {
 /** A dictation ended with automatic gain at `gainDb` on mic `label`: the next one on that mic starts there. */
 function rememberGain(id: number, label: string, gainDb: number): void {
   if (!settings.autoGain || !label) return;
-  const key = micKey(label);
+  // Native capture reports the WASAPI name; gainFor looks the mic up by its listed (browser) label.
+  const key = micKey(deviceLabelFor(label, devicesCache));
   const db = Math.round(gainDb * 10) / 10;
   log('info', `capture ${id}: automatic gain ended at ${db > 0 ? '+' : ''}${db} dB`);
   if (Math.abs((settings.agcGainDb[key] ?? Number.NaN) - db) < 0.5) return;
