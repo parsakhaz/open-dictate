@@ -1,1 +1,134 @@
-/* Cards: point and say: the review card, and the pill while the point key records ([data-route=point]) (L6). */
+/* The point-and-say review card (L6): the approved review mockup in the card family's material. */
+
+.card[data-kind='point-review'] {
+  gap: 6px;
+}
+.pgrid {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: 10px;
+  margin-top: 4px;
+}
+.pshot {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+}
+.pthumb {
+  display: block;
+  width: 140px;
+  height: auto;
+  max-height: 110px;
+  object-fit: contain;
+  object-position: left top;
+  border-radius: 6px;
+  border: 1px solid var(--stroke-strong);
+  background: rgba(255, 255, 255, 0.04);
+}
+.pthumb.broken {
+  height: 60px;
+}
+.pcaption,
+.plabel {
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--text-3);
+}
+.pread {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  min-width: 0;
+}
+.plabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.psecrets {
+  padding: 0 6px;
+  border-radius: 5px;
+  background: rgba(255, 181, 76, 0.16);
+  color: #ffb54c;
+  font-weight: 600;
+}
+.ptext {
+  max-height: 136px;
+  overflow-y: auto;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--stroke-strong);
+  background: rgba(0, 0, 0, 0.22);
+  font-family: 'Cascadia Mono', Consolas, ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
+.psecret {
+  white-space: nowrap;
+  padding: 0 3px;
+  border-radius: 4px;
+  background: rgba(255, 181, 76, 0.16);
+  color: #ffb54c;
+}
+.pnone {
+  font-family: inherit;
+  color: var(--text-3);
+}
+.psaid {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 18px;
+}
+.pwords {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pto {
+  flex: none;
+  max-width: 50%;
+  padding: 1px 9px;
+  border-radius: 999px;
+  background: rgba(96, 205, 255, 0.12);
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.prow {
+  align-items: center;
+  margin-top: 4px;
+}
+.pcount {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.pring {
+  --p: 0;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: conic-gradient(var(--accent) calc(var(--p) * 360deg), rgba(255, 255, 255, 0.14) 0);
+  -webkit-mask: radial-gradient(circle, transparent 3.5px, #000 4px);
+  mask: radial-gradient(circle, transparent 3.5px, #000 4px);
+}
+.pcount[data-paused='true'] .pring {
+  background: rgba(255, 255, 255, 0.3);
+}

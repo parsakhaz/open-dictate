@@ -22,6 +22,8 @@ module.exports = {
     target: ['nsis'],
     artifactName: 'Dictate-${version}-windows-${arch}-setup.${ext}',
     executableName: 'Dictate',
+    // Point and say's UI Automation helper runs as its own process, from resources/pointhelper (src/main/features/pointhelper.ts).
+    extraResources: [{ from: 'src/native/pointhelper', to: 'pointhelper', filter: ['*.ps1'] }],
   },
   nsis: {
     oneClick: false,
