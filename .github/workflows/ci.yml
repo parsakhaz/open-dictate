@@ -109,7 +109,8 @@ jobs:
       - name: Transcribe real speech on this native OS and architecture
         run: |
           mkdir -p tmp/package-smoke
-          pnpm exec vitest run test/stt.integration.test.ts test/agc.integration.test.ts --silent=false --reporter=verbose 2>&1 | tee tmp/package-smoke/stt-integration.log
+          # Each suite loads a four-thread native model; avoid competing model instances on hosted runners.
+          pnpm exec vitest run test/stt.integration.test.ts test/agc.integration.test.ts --no-file-parallelism --silent=false --reporter=verbose 2>&1 | tee tmp/package-smoke/stt-integration.log
       - name: Read the production cleanup manifest and installer digest for its separate cache
         id: cleanup
         run: node scripts/cleanup-smoke.mjs --key >> "$GITHUB_OUTPUT"
