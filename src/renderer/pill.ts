@@ -266,3 +266,22 @@ void capture.prepare().then(async () => {
   report(await capture.devices());
   dictate.send('dictate:pill-ready');
 });
+
+// Native input follows visible surfaces, never the OS pointer. Track animation
+// geometry too; unchanged frames produce no IPC.
+let lastRegion = '';
+function reportRegion(): void {
+  const surfaces = [...root.querySelectorAll<HTMLElement>('.cards.shown > *, .inbox.shown > *, .status')];
+  const rects = surfaces.filter((el) => el !== status || root.classList.contains('visible')).map((el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x - 2, y: r.y - 2, width: r.width + 4, height: r.height + 4 };
+  });
+  const interactive = surfaces.some((el) => el !== status) || (root.classList.contains('visible') && !undo.hidden);
+  const encoded = JSON.stringify([rects, interactive]);
+  if (encoded !== lastRegion) {
+    lastRegion = encoded;
+    dictate.send('dictate:pill-region', rects, interactive);
+  }
+  requestAnimationFrame(reportRegion);
+}
+requestAnimationFrame(reportRegion);

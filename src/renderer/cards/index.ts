@@ -1,8 +1,6 @@
-// Agent cards above the pill: the top card shows its source, its whole title and message at a glance, and on hover
-// Dictate's own buttons; the list behind "+N". While the person answers it by voice it stays up, marked as such.
-// Every word is shown as plain text. Only the cards take clicks: main watches the pointer, lets the window catch it
-// while it is over a card, and says so here. The card's body eases to its new height whenever what it shows changes.
-// The frame (head, list, easing) is here; each kind's body is its own module (bodies.ts).
+// Agent cards above the pill, with actions always visible. Hover only pauses
+// timers in main; it never controls discoverability. The frame and each kind's
+// body are separate so a card keeps its identity while its contents update.
 import { type Rect, resizeReach } from '../../core/cardpointer';
 import { plainTitle } from '../../core/cardtext';
 import { dictate, h } from '../bridge';
@@ -26,7 +24,6 @@ export function mountCards(parent: HTMLElement, before: Node): void {
   parent.insertBefore(box, before);
   for (const x of EXTRAS) x.mount?.(parent);
   let view: CardsView = { top: null, more: 0, list: [], replying: false };
-  let hovered = false;
   let listOpen = false;
   let armed: string | null = null;
   /** The card on screen, kept while the same card is on top so redraws never replace it under the pointer. */
@@ -35,13 +32,6 @@ export function mountCards(parent: HTMLElement, before: Node): void {
   /** Everywhere the card is drawn while it resizes, for main's hit test. */
   let reach: Rect | null = null;
 
-  // From main, which watches the pointer against the card's rectangle (sent below), and opens the card once the
-  // pointer is on its body.
-  dictate.on('dictate:card-hover', (on: boolean) => {
-    if (hovered === on) return;
-    hovered = on;
-    draw();
-  });
   dictate.on('dictate:qa-list', () => {
     listOpen = true;
     draw();
@@ -66,7 +56,7 @@ export function mountCards(parent: HTMLElement, before: Node): void {
     ].filter((x): x is HTMLElement => !!x);
   }
 
-  /** The kind's own body: its title and message always; buttons on hover; a note while it is being answered. */
+  /** The kind's body and actions, or a note while it is being answered. */
   function bodyParts(c: CardDto, expanded: boolean): HTMLElement[] {
     const ctx = { expanded, replying: view.replying, armed: armed === c.id, button, act };
     return [...(BODIES[c.kind] ?? standard).parts(c, ctx), ...EXTRAS.flatMap((x) => x.cardParts?.(c, ctx) ?? [])];
@@ -74,7 +64,7 @@ export function mountCards(parent: HTMLElement, before: Node): void {
 
   /** Sets the card's contents, and eases its body from the old height to the new one. */
   function fill(c: CardDto, fresh: boolean): void {
-    const expanded = hovered && !view.replying;
+    const expanded = !view.replying;
     const drawn = JSON.stringify([c, view.more, view.replying, expanded, armed === c.id]);
     if (!shown || fresh) {
       const headEl = h('div.chead');

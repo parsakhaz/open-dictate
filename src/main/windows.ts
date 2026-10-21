@@ -8,7 +8,7 @@ const renderer = (file: string) => path.join(app.getAppPath(), 'out', 'renderer'
 const preload = () => path.join(app.getAppPath(), 'out', 'main', 'preload.js');
 
 export const PILL_W = 600;
-/** Tall enough for an expanded agent card above the pill; everything but the cards lets clicks through. */
+/** Tall enough for an agent card above the pill; Windows shapes input to visible surfaces. */
 export const PILL_H = 420;
 
 export function createPill(): BrowserWindow {
@@ -30,7 +30,8 @@ export function createPill(): BrowserWindow {
     webPreferences: { preload: preload(), backgroundThrottling: false, contextIsolation: true, sandbox: false },
   });
   w.setAlwaysOnTop(true, 'screen-saver');
-  // Clicks pass through; pointer moves still reach the page so a card can take them while the pointer is on it.
+  // Start click-through. Windows acquires input when the renderer reports its visible
+  // controls; other platforms keep the pointer-based input policy.
   w.setIgnoreMouseEvents(true, { forward: true });
   void w.loadFile(renderer('pill.html'));
   return w;

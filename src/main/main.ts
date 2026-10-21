@@ -1,3 +1,4 @@
+import { applyPillRegion } from './pillinput';
 // dictate: a tray app. Hold Right Ctrl (or double-tap it) and speak; on release the words are transcribed
 // locally, cleaned by local LLMs and typed into the focused app.
 import fs from 'node:fs';
@@ -287,6 +288,8 @@ let hoverPoll: ReturnType<typeof setInterval> | undefined;
 let passesClicks = true;
 
 function clickThrough(): void {
+  // Windows input belongs to the visible native region, never to pointer polling.
+  if (process.platform === 'win32') return;
   passesClicks = !(cardHover || undoToast || extraHover);
   if (!pill.isDestroyed()) pill.setIgnoreMouseEvents(passesClicks, { forward: true });
 }
@@ -1429,6 +1432,10 @@ function registerIpc(): void {
     if (typeof url === 'string' && /^https:\/\/\S+$/.test(url)) return shell.openExternal(url);
   });
 
+  ipcMain.on('dictate:pill-region', (event, rects: unknown, interactive: unknown) => {
+    if (event.sender !== pill.webContents || process.platform !== 'win32' || pill.isDestroyed()) return;
+    passesClicks = applyPillRegion(pill, rects, interactive);
+  });
   ipcMain.on('dictate:pill-ready', () => {
     log('info', 'pill ready');
     pillConfig();
