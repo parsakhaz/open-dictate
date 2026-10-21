@@ -1,5 +1,9 @@
 Fully local dictation: hold a key, speak, and clean text appears where you type. Nothing leaves your computer.
 
+## What's new in 0.2.1
+
+Security update: the bundled desktop runtime is now Electron 44.9.2, which rejects the compromised eMudhra certificate chains ([#36](https://github.com/parsakhaz/open-dictate/pull/36)). Install this patch to receive the updated runtime; updating Node on your computer does not update an existing Dictate installation.
+
 ## What's new in 0.2.0
 
 Agents reach you in more ways, and you can reach them. Everything is in Settings → **Agents**.
