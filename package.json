@@ -29,7 +29,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
     "@types/node": "24.19.2",
-    "electron": "44.9.3",
+    "electron": "44.9.2",
     "electron-builder": "26.17.0",
     "esbuild": "0.28.2",
     "node-gyp": "12.2.0",
