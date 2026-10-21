@@ -1,16 +1,18 @@
-// The history picker uses normal focused input, semantic actions and native search.
-// Main remembers its previous target and restores it before pasting.
+// The history picker (Right Ctrl+V by default): like Windows clipboard history, for dictations. The window never takes
+// focus; main forwards the keys it swallows while the picker is open.
 import { type HistoryEntry, HistoryStore, relativeTime } from '../core/history';
 import { dictate, h } from './bridge';
 
 const ICON = { copy: '⧉', pin: '●', unpin: '○', del: '×', search: '⌕', mic: '●' };
 
 const root = document.getElementById('root')!;
-const query = h('input.query', { type: 'search', placeholder: 'Type to search', 'aria-label': 'Search dictation history', oninput: () => { q = query.value; selected = 0; render(); } });
-const search = h('div.search', {}, h('span.icon', {}, ICON.search), query);
-const list = h('div.list', { role: 'list' });
-const footer = h('div.footer', {}, h('span', {}, 'Enter paste'), h('span', {}, 'Shift+Enter paste raw'), h('span', {}, 'Tab navigate controls'), h('span', {}, 'Esc close'));
-const panel = h('div.panel', {}, h('div.header', {}, h('div.heading', {}, h('div.title', {}, 'Dictation history'), h('button.close', { type: 'button', 'aria-label': 'Close history', onclick: () => dictate.send('dictate:picker-close') }, 'Close')), search), list, footer);
+const query = h('span.query');
+const placeholder = h('span.placeholder', {}, 'Type to search');
+const caret = h('span.caret');
+const search = h('div.search', {}, h('span.icon', {}, ICON.search), query, caret, placeholder);
+const list = h('div.list', { role: 'listbox' });
+const footer = h('div.footer', {}, h('span', {}, 'Enter paste'), h('span', {}, 'Shift+Enter paste raw'), h('span', {}, 'Tab show raw'), h('span', {}, 'Esc close'));
+const panel = h('div.panel', {}, h('div.header', {}, h('div.title', {}, 'Dictation history'), search), list, footer);
 root.append(panel);
 
 let items: HistoryEntry[] = [];
@@ -43,14 +45,15 @@ function card(e: HistoryEntry, i: number): HTMLElement {
   const el = h(
     'div.card',
     {
-      role: 'listitem',
-      'aria-current': String(i === selected),
+      role: 'option',
+      'aria-selected': String(i === selected),
+      onclick: () => choose(e),
       onmouseenter: () => {
         selected = i;
         mark();
       },
     },
-    h('button.text.paste', { type: 'button', 'aria-label': `Paste dictation: ${e.text}`, onclick: () => choose(e) }, e.text),
+    h('div.text', {}, e.text),
     showRaw ? h('div.raw', {}, h('span.rawlabel', {}, 'Heard'), e.raw, h('button.pasteraw', { onclick: (ev: MouseEvent) => {
             ev.stopPropagation();
             choose(e, true);
@@ -95,7 +98,8 @@ function toggleRaw(id: string): void {
 function render(): void {
   shown = new HistoryStore(items, Number.MAX_SAFE_INTEGER).filter(q);
   selected = Math.max(0, Math.min(selected, shown.length - 1));
-  if (query.value !== q) query.value = q;
+  query.textContent = q;
+  placeholder.hidden = !!q;
   list.replaceChildren(
     ...(shown.length
       ? shown.map(card)
@@ -107,7 +111,7 @@ function render(): void {
 function mark(): void {
   list.querySelectorAll('.card').forEach((c, i) => {
     c.classList.toggle('selected', i === selected);
-    c.setAttribute('aria-current', String(i === selected));
+    c.setAttribute('aria-selected', String(i === selected));
   });
   list.querySelectorAll('.card')[selected]?.scrollIntoView({ block: 'nearest' });
 }
@@ -160,13 +164,11 @@ function onPickerKey(k: { vk: number; shift: boolean }): void {
 }
 
 dictate.on('dictate:picker-key', onPickerKey);
+dictate.on('dictate:picker-local-keys', (on: boolean) => { localKeys = on; });
 const LOCAL_KEYS: Record<string, number> = { Escape: 0x1b, Enter: 0x0d, Tab: 0x09, ArrowUp: 0x26, ArrowDown: 0x28, PageUp: 0x21, PageDown: 0x22, Home: 0x24, End: 0x23, Backspace: 0x08 };
 document.addEventListener('keydown', (e) => {
   if (!localKeys) return;
-  if (e.key === 'Escape') { e.preventDefault(); dictate.send('dictate:picker-close'); return; }
-  if (e.key === 'Tab') return;
-  if (e.target instanceof Element && e.target.closest('button, a[href], select, textarea')) return;
-  if (e.target === query && !['Enter', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown'].includes(e.key)) return;
+  if (['Enter', ' '].includes(e.key) && e.target instanceof Element && e.target.closest('button, input, select, textarea, a[href]')) return;
   if (LOCAL_KEYS[e.key]) { e.preventDefault(); onPickerKey({ vk: LOCAL_KEYS[e.key], shift: e.shiftKey }); }
   else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && !(e.key === ' ' && !q)) {
     e.preventDefault(); q += e.key; selected = 0; render();
@@ -185,7 +187,6 @@ dictate.on('dictate:picker-open', (a: { items: HistoryEntry[]; now: number; hotk
   list.scrollTop = 0;
   root.classList.remove('visible');
   requestAnimationFrame(() => root.classList.add('visible'));
-  query.focus();
 });
 
 dictate.on('dictate:picker-items', (next: HistoryEntry[]) => {

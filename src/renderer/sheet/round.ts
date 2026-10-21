@@ -50,7 +50,7 @@ export const round: SheetPage = {
       : null;
     const approve = c.choices.length ? `Approve 1` : c.canOpen ? 'Open' : null;
     root.replaceChildren(
-      h('div.rhead', {}, h('span.ttl', {}, 'Decision round'), bar, h('span.pos', {}, `${p.position.n} of ${p.position.of}`), h('button.leave.rbtn', { type: 'button', 'aria-label': 'Leave round', onclick: () => dictate.send('dictate:sheet-esc') }, 'Leave round', kbd('Esc'))),
+      h('div.rhead', {}, h('span.ttl', {}, 'Decision round'), bar, h('span.pos', {}, `${p.position.n} of ${p.position.of}`), h('span.leave', {}, kbd('Esc'), 'leave')),
       chips(p),
       h('div.rcard', {}, h('div.src', {}, `${c.source} · asked ${age}`), h('div.rtitle', {}, plainTitle(c.title)), c.message ? message(c.message) : null, tiles),
       h(

@@ -1,15 +1,14 @@
-// The four windows. The pill and the picker never take focus, so the app being dictated into keeps it; the sheet
-// takes it only when a surface asks (a round, the wide decision sheet) and gives it back when it closes.
+// Transparent native surfaces accept ordinary input. The pill and Windows picker
+// appear without activation; clicking their controls may focus them. Sheets focus on request.
 import path from 'node:path';
 import { app, BrowserWindow, screen } from 'electron';
 import { appIcon } from './icons';
-import { sheetBounds } from '../core/sheetbounds';
 
 const renderer = (file: string) => path.join(app.getAppPath(), 'out', 'renderer', file);
 const preload = () => path.join(app.getAppPath(), 'out', 'main', 'preload.js');
 
 export const PILL_W = 600;
-/** Room for status captions above the passive dictation pill. */
+/** Original transparent bounds, tall enough for an expanded card above the pill. */
 export const PILL_H = 420;
 
 export function createPill(): BrowserWindow {
@@ -24,15 +23,15 @@ export function createPill(): BrowserWindow {
     minimizable: false,
     maximizable: false,
     skipTaskbar: true,
-    focusable: false,
+    focusable: true,
     hasShadow: false,
     alwaysOnTop: true,
     title: 'dictate',
     webPreferences: { preload: preload(), backgroundThrottling: false, contextIsolation: true, sandbox: false },
   });
   w.setAlwaysOnTop(true, 'screen-saver');
-  // Passive status only. Real controls live in the normally interactive card window.
-  w.setIgnoreMouseEvents(true, { forward: true });
+  // The real transparent surface owns native input continuously. Alpha-zero desktop
+  // margins stay visually empty; input ownership never depends on hover or a relay.
   void w.loadFile(renderer('pill.html'));
   return w;
 }
@@ -67,8 +66,7 @@ export function createSheet(): BrowserWindow {
     height: 240,
     show: false,
     frame: false,
-    transparent: false,
-    backgroundColor: '#202020',
+    transparent: true,
     resizable: false,
     movable: false,
     minimizable: false,
@@ -94,8 +92,10 @@ export function placeSheet(w: BrowserWindow, size: { width: number; height: numb
   const a = d.workArea;
   // QA screenshots are taken off-screen, out of the person's way, as the pill's are.
   const away = process.env.DICTATE_PILL_SHOTS ? -10_000 : 0;
-  const bounds = sheetBounds(a, size, SHEET_MARGIN, PILL_STATUS_H);
-  w.setBounds({ ...bounds, x: bounds.x + away });
+  const width = size.width + 2 * SHEET_MARGIN;
+  const height = size.height + 2 * SHEET_MARGIN;
+  const pillBottom = a.y + a.height + 12;
+  w.setBounds({ x: Math.round(a.x + (a.width - width) / 2) + away, y: Math.round(pillBottom - PILL_STATUS_H - height + SHEET_MARGIN), width, height });
 }
 
 export const PICKER_W = 380;
@@ -107,8 +107,7 @@ export function createPicker(): BrowserWindow {
     height: PICKER_H,
     show: false,
     frame: false,
-    transparent: false,
-    backgroundColor: '#202020',
+    transparent: true,
     resizable: false,
     movable: false,
     minimizable: false,
@@ -140,29 +139,22 @@ export function placePicker(w: BrowserWindow, caretPhysical: { x: number; y: num
     anchor = { x: p.x, top: p.y, bottom: p.y };
   }
   const a = screen.getDisplayNearestPoint({ x: Math.round(anchor.x), y: Math.round(anchor.bottom) }).workArea;
-  const width = Math.min(PICKER_W, a.width);
-  const height = Math.min(PICKER_H, a.height);
   // The window has a 12 px transparent margin for the shadow.
   let x = Math.round(anchor.x - 24);
   let y = Math.round(anchor.bottom + 2);
-  if (y + height > a.y + a.height) y = Math.round(anchor.top - height - 2);
-  x = Math.max(a.x, Math.min(x, a.x + a.width - width));
-  y = Math.max(a.y, Math.min(y, a.y + a.height - height));
-  w.setBounds({ x: x + (process.env.DICTATE_PILL_SHOTS ? -10_000 : 0), y, width, height });
+  if (y + PICKER_H > a.y + a.height) y = Math.round(anchor.top - PICKER_H - 2);
+  x = Math.max(a.x, Math.min(x, a.x + a.width - PICKER_W));
+  y = Math.max(a.y, Math.min(y, a.y + a.height - PICKER_H));
+  w.setBounds({ x, y, width: PICKER_W, height: PICKER_H });
 }
 
 export function createSettings(): BrowserWindow {
-  const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
-  const width = Math.min(900, area.width);
-  const height = Math.min(680, area.height);
   const w = new BrowserWindow({
-    width, height,
-    x: Math.round(area.x + (area.width - width) / 2) + (process.env.DICTATE_PILL_SHOTS ? -10_000 : 0),
-    y: Math.round(area.y + (area.height - height) / 2),
-    minWidth: Math.min(720, area.width),
-    minHeight: Math.min(520, area.height),
+    width: 900,
+    height: 680,
+    minWidth: 720,
+    minHeight: 520,
     show: false,
-    focusable: true,
     title: 'dictate settings',
     icon: appIcon(),
     backgroundColor: '#202020',
@@ -175,6 +167,6 @@ export function createSettings(): BrowserWindow {
     webPreferences: { preload: preload(), contextIsolation: true, sandbox: false },
   });
   void w.loadFile(renderer('settings.html'));
-  w.once('ready-to-show', () => process.env.DICTATE_PILL_SHOTS ? w.showInactive() : w.show());
+  w.once('ready-to-show', () => w.show());
   return w;
 }

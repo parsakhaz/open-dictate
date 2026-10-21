@@ -169,8 +169,8 @@ export const inbox: PillExtra = {
         h(
           'div.snz',
           {},
-          h('button.cbtn.snooze', { type: 'button', 'aria-label': `Snooze for ${lengths[0] ?? 3} minutes`, onclick: (e: Event) => { e.stopPropagation(); invoke('snooze', c.id, lengths[0] ?? 3); } }, `Snooze ${lengths[0] ?? 3} min`),
-          ...lengths.slice(1).map((m) => h('button.cbtn.chip', { 'data-min': String(m), 'aria-label': `Snooze for ${m} minutes`, onclick: (e: Event) => { e.stopPropagation(); invoke('snooze', c.id, m); } }, `${m}m`)),
+          h('span.lbl', {}, h('span.clock', {}, '◷'), 'Snooze'),
+          ...lengths.map((m) => h('button.cbtn.chip', { 'data-min': String(m), onclick: (e: Event) => { e.stopPropagation(); invoke('snooze', c.id, m); } }, `${m}m`)),
           snoozeKey === 'Off' ? null : h('span.keys', {}, ...snoozeKey.split(' + ').map((k) => h('kbd', {}, k))),
         ),
       );

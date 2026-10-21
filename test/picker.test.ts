@@ -11,7 +11,7 @@ class FakeWindow implements PickerWindow {
     if (this.destroyed) throw new Error('destroyed');
     this.sent.push(channel);
   }
-  show() {
+  showInactive() {
     this.visible = true;
   }
   hide() {
@@ -34,7 +34,7 @@ class FakeWindow implements PickerWindow {
 }
 
 /** Manual timers: fire() runs every pending timeout. */
-function setup(opts: { autoReady?: boolean; takesFocus?: boolean } = { autoReady: true }) {
+function setup(opts: { autoReady?: boolean } = { autoReady: true }) {
   const windows: FakeWindow[] = [];
   const capture: boolean[] = [];
   let fg = 7;
@@ -52,7 +52,6 @@ function setup(opts: { autoReady?: boolean; takesFocus?: boolean } = { autoReady
     caret: () => null,
     items: () => [],
     log: () => undefined,
-    takesFocus: opts.takesFocus,
     setTimeout: (fn) => {
       const id = ++seq;
       timeouts.set(id, fn);
@@ -74,17 +73,6 @@ function setup(opts: { autoReady?: boolean; takesFocus?: boolean } = { autoReady
 }
 
 describe('PickerController', () => {
-  it('uses ordinary focused input without capturing or forwarding keys', async () => {
-    const t = setup({ autoReady: true, takesFocus: true });
-    t.setFg(99);
-    await t.ctrl.open();
-    expect(t.ctrl.isOpen).toBe(true);
-    expect(t.ctrl.target).toBe(99);
-    expect(t.capture).toEqual([]);
-    t.ctrl.close();
-    expect(t.capture).toEqual([]);
-    expect(t.windows[0].visible).toBe(false);
-  });
   it('opens once its page is ready, captures keys, and releases them on close', async () => {
     const t = setup();
     await t.ctrl.open();

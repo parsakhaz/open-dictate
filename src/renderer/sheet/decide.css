@@ -165,7 +165,6 @@ body[data-kind='decide'] kbd {
   gap: 2px;
 }
 .dopt {
-  width: 100%; background: transparent; text-align: left; font: inherit; color: inherit;
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr) auto;
   column-gap: 10px;

@@ -1,95 +1,57 @@
-Dictate interactive-surface audit — 2026-10-21
+Dictate input repair / original UX restoration audit - 2026-10-21
+Baseline: 73c93989e8c3ddb7fe5ba78bac3c882726602ab8 (pre-fix origin/main).
+Latest user acceptance overrides the earlier opaque-window redesign.
 
-Scope: app-owned controls, native windows, keyboard dispatch, dismissal and focus.
-Acceptance: ordinary native input for every actionable surface; semantic controls;
-visible focus; reachable close paths. Passive overlays may ignore mouse input.
+Native policy
+- Original transparent pill hosts original cards, inbox and mic Undo together.
+  It is focusable, shown with showInactive, and never uses ignore-mouse gating,
+  native hit regions, an input overlay, or runtime synthetic mouse forwarding.
+- Original 600x420 placement, card material, hover disclosure, easing and timers
+  retained. Pointer polling changes disclosure only, never native input ownership.
+- A renderer visibility observer hides the native host after the last original
+  visible content disappears (220ms fade allowance). No idle invisible host.
+- Picker transparent/focusable, original showInactive presentation on Windows.
+  Original hook keyboard navigation runs until an actual click activates picker;
+  then capture releases and normal page keys take over. Blur closes. No automatic
+  Windows focus theft on appearance. Portable focus behavior remains original.
+- Sheet and settings native policies/layout/bounds match baseline. Sheet focused
+  Enter/Space activation and Tab defer to real controls; other shortcuts remain.
 
-Shared policy
-- Cards, history picker and sheets are opaque, focusable native BrowserWindows.
-  No actionable window uses setIgnoreMouseEvents, setShape or a mouse-event relay.
-- Settings/welcome use a normal focusable native window with native close chrome.
-- History uses normal focused input on Windows too: no hook capture or forwarded
-  picker keystrokes. It retains the original target and restores it before paste.
-- Button helper defaults type=button. Theme provides visible keyboard focus;
-  hidden checkbox/radio inputs show focus on their visible track/dot.
-- Sheet and picker command handlers defer to native control activation and Tab.
-- Sheet, picker and settings geometry fits small work areas; content scrolls.
+Surface audit
+Surface | Restored behavior / retained repair | Evidence and limits
+Cards: info/ask/consent/vocab/decide/approve/draft/point/lineup/peek/summary |
+  Original shared card renderer, CSS and individual bodies, original labels and
+  dismiss cross; original hover actions and +N list. Native input always enabled.
+  No outer dialog/header/Close. Real renderer Snooze chip and Dismiss mutate queue.
+Inbox/shelf/Undo | Original Snooze label, 3m/5m/10m duration buttons, original
+  five-second toast and compact snoozed capsule. Capsule intentionally persists
+  while snoozed cards exist, as baseline. Shelf countdown preserves button nodes.
+  Real IPC verifies Snooze, shelf Drop, Dismiss, toast expiry and empty host hide.
+Mic/Undo | Original pill placement and timer, no separate CardsWindow. Real
+  renderer toast auto-hide checked offscreen. Physical mic switching not replayed.
+History picker | Original labels, raw toggle, search, layout and close hint;
+  original geometry restored. Focusable native input, keyboard ownership changes
+  only on real activation. Live paste/first-click OS behavior needs manual check.
+Sheets decide/lineup/peek/round | Original labels, page shortcuts, dimensions and
+  scroll/layout restored. No added Leave/Close control or bounds redesign. Focused
+  native activation cannot run a different page command. Native close cleanup
+  retained so routes/dock do not outlive their surface. Source and unit checks.
+Settings/history/welcome | Original CSS/theme/window sizes restored. Normal
+  native controls/titlebar; no input gating. Source comparison, no desktop popup.
+Tray | Original native Electron menu restored, no added inbox entry.
+Passive glow/thumbnail | Original passive behavior; no actionable input relay.
 
-Surface-by-surface findings and evidence
+Safety fixes with no visible redesign retained: EPIPE-safe log mirror, capture
+protection leases, native sheet/peek/picker close cleanup, stable shelf nodes.
 
-Surface | Ownership / semantic actions / exit | Verification and limits
-Standard info, ask, consent, vocabulary cards | Normal CardsWindow; native buttons
-  for choices, consent, review, links and reply; Dismiss/Close; focused Escape.
-  Shared host source audited. Real renderer/queue Snooze, Undo, Dismiss, Close,
-  Escape checked offscreen. Consent Close follows existing deny settlement.
-Decision / approval cards | Shared normal host; native chips/actions; dismiss.
-  Body modules and action IPC audited; existing decision/approval unit coverage.
-  Not every permission/answer combination exercised in this offscreen run.
-Voice draft / point review cards | Shared normal host; native Send/Cancel and
-  other kind actions. Source/action routing audited and existing feature tests.
-  Real speech, UI Automation capture and delivery into another app not exercised.
-Lineup card | Normal host; thumbnails are named buttons, plus Open lineup/None.
-  Nonsemantic clickable thumbnail strip removed. Source audited; sheet keyboard
-  behavior checked offscreen. No full image-import workflow in this run.
-Peek card | Normal host; native Peek/browser/Pane/reply controls; dismiss.
-  Card module and native dock ownership audited. No remote browsing/sign-in run.
-Round summary | Normal host; native Undo/Open controls and host dismissal.
-  Module/action routing audited; existing inbox/round unit coverage.
-Inbox waiting / snoozed shelf / toast Undo | Normal host; named capsule, Now,
-  Drop and Undo buttons. Real queue/renderer Snooze/Now/Undo checked offscreen.
-  Countdown repaints only passive rings; identical redraws are skipped so buttons
-  and keyboard focus survive ticks. Node identity/focus checked across a tick.
-Microphone selection / Undo | Settings native radios/range; tray native radio
-  submenu; Undo lives in normal CardsWindow. Focus styles and fresh-Undo reopen
-  checked offscreen. Physical mic capture/switching disabled in the audit harness.
-History picker | Opaque focused window; native search input, named Paste/Copy/
-  Pin/Delete/Show raw and Close buttons; Tab and Escape; blur/native close cleanup.
-  Native-window policy and no-key-capture controller regression tests pass.
-  Real renderer Close Enter semantics and visible actions checked offscreen.
-  Actual paste-target restoration is unit-covered; real cross-app paste remains
-  a manual test. Picker thumbnails/search rendering does not use OS-pointer QA.
-Sheet decision | Opaque focused sheet; options are pressed-state buttons;
-  native Tab and focused Enter/Space; Close/Escape/native close cleanup.
-  Hover changes preview only, retaining the option nodes. Button semantics,
-  node retention, Tab-to-Submit and Enter-on-Close checked offscreen.
-Sheet lineup / lightbox | Opaque focused sheet; native candidate/star/navigation/
-  None/Send/Close buttons; Escape leaves lightbox then closes. Source audited;
-  focused Close Enter and 360x320 close/footer reachability checked offscreen.
-Sheet round | Opaque focused sheet; native choice/Snooze/Skip/Leave buttons;
-  Escape/native close end route through feature cleanup. Focused Skip Enter and
-  Leave checked offscreen; native Sheet close cleanup unit-tested.
-Sheet peek / docked page | Opaque focused parent and normal native web child;
-  app chrome uses buttons, child Escape returns via sheet cleanup. Native child
-  close now follows the same sheet/undock path. ResizeObserver continues reporting
-  the dock hole after bounded resizing. Source/lifecycle routing audited, existing
-  URL/navigation guard tests pass. Native dock Alt+F4, page sign-ins and remote
-  website controls were not exercised or certified by this run.
-Settings / stored-history settings / welcome | Native focusable window and native
-  Close/Alt+F4; navigation/buttons, native checkbox/radio/select/input controls.
-  Settings keeps controls alive through active pointer/input updates. Source
-  audited; offscreen nav, history controls, mic radio focus and welcome Next
-  checked. No downloads, login-registration changes or live mic capture triggered.
-Tray | Native Electron menu items/radios/checkboxes; explicit Agent inbox reopen,
-  History, Settings and Quit. Menu construction/routing source audited; no real
-  tray clicks while user works. Platform-native menu behavior is a manual limit.
-Passive pill / point glow / thumbnail windows | No user action controls. Only
-  passive pill and glow ignore mouse input; offscreen thumbnail is nonfocusable.
-  Source policy scan and window-policy tests distinguish these from controls.
-
-Checks
-- Typecheck, lint, full unit suite, build and offscreen renderer/IPC harness.
-- Geometry tests cover small/offset work areas; window-policy tests enforce
-  normal interactive ownership and small settings bounds.
-- Harness uses isolated profile and offscreen windows, emulated page focus and
-  protocol keyboard input. It does not move the OS pointer or show desktop cards.
-- Installed bundle/output hashes, healthy normal startup and direct status are
-  verified separately in the installation report. Profile/history/model hashes
-  are compared before and after local installation.
-
-Limits / final acceptance
-This audit is not a blanket guarantee of all native interactions. Physical first
-clicks, real tray use, multi-monitor/mixed-DPI transitions, native Alt+F4 on docked
-peek, screen-reader usability, physical microphones, real speech and cross-app
-paste require manual/platform verification. No normal-profile test card is
-created by this audit. Root/user coordinate the one stable installed-app manual
-test. Keep PR37 unmerged until that confirmation; no version bump or release.
+Validation
+- qa/ux-baseline-build.cjs + hidden qa/ux-baseline.cjs compare baseline/restored
+  card, hover, +N, toast, badge, mic Undo, history and round screenshots.
+  Outputs: tmp/verify/ux-restore/visual/{baseline,restored}/ and comparison.json.
+- node qa/ux-restore.js: isolated-profile/offscreen real app + native socket/DOM
+  action assertions. Native HWND has neither WS_EX_TRANSPARENT nor NOACTIVATE;
+  empty native host is hidden. No OS pointer automation or normal-profile cards.
+- Unit/build/type/lint checks recorded in final report. No claim of universal
+  native first-click reliability; user manual visual/click approval remains.
+- Restored fixed sheet sizes retain baseline small-display limitations. Original
+  round/history mouse-only exit limitations remain rather than adding UX scope.

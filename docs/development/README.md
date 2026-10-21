@@ -97,3 +97,5 @@ node qa/media/build.mjs                                            # frame, opti
 ```
 
 (`electron` is `node_modules/electron/dist/electron.exe` on Windows.) `qa/fixture-timeline.mjs` records the real recognizer's words and the real cleanup for a WAV; the demo replays that file. `build.mjs` needs ffmpeg.
+
+Original UX regression checks: `node qa/ux-baseline-build.cjs`, then run `qa/ux-baseline.cjs` with Electron (hidden offscreen rendering). Compare PNGs under `tmp/verify/ux-restore/visual`. `node qa/ux-restore.js` checks real isolated IPC, toast expiry and native host hiding without OS pointer input.

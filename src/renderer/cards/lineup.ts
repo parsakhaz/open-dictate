@@ -43,9 +43,9 @@ function decode(key: string, b64: string): void {
   );
 }
 
-function tile(c: CardDto, i: number, cand: Data['candidates'][number], open: (e: Event) => void): HTMLElement {
+function tile(c: CardDto, i: number, cand: Data['candidates'][number]): HTMLElement {
   const key = `${c.id}:${i}`;
-  const el = h('button.lu-tile', { type: 'button', title: cand.label, 'aria-label': `Open lineup: ${cand.label}`, 'data-key': key, onclick: open }, h('span.lu-n', {}, String(i + 1)));
+  const el = h('div.lu-tile', { title: cand.label, 'data-key': key }, h('span.lu-n', {}, String(i + 1)));
   if (cand.thumb) {
     decode(key, cand.thumb);
     if (!paint(el, key)) el.append(h('span.lu-l', {}, cand.label));
@@ -64,7 +64,7 @@ export const lineup: CardBody = {
       e.stopPropagation();
       ctx.act({ id: c.id, action: 'kind', name: 'open' });
     };
-    parts.push(h('div.lu-strip', {}, ...d.candidates.map((cand, i) => tile(c, i, cand, open))));
+    parts.push(h('div.lu-strip', { onclick: open }, ...d.candidates.map((cand, i) => tile(c, i, cand))));
     if (ctx.replying) parts.push(h('div.creply', {}, h('span.rdot'), 'Replying by voice…'));
     else if (ctx.expanded) {
       const n = d.candidates.length;
