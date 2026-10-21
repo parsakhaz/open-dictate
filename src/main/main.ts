@@ -368,7 +368,7 @@ function pillSend(channel: string, ...args: unknown[]): void {
 /** The pill's look: the comparison variant (QA), and whether it shows the live words. */
 function pillConfig(): void {
   const v = process.env.DICTATE_PILL_VARIANT;
-  pillSend('dictate:pill-config', { variant: v === 'b' || v === 'c' ? v : 'a', showText: settings.pillText });
+  pillSend('dictate:pill-config', { variant: v === 'b' || v === 'c' ? v : 'a', showText: settings.pillText, nativeRegion: process.platform === 'win32' });
 }
 
 /** QA (DICTATE_PILL_SHOTS=<dir>): a PNG of the real pill window on each state change, and on request. */

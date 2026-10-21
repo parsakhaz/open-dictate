@@ -8,6 +8,7 @@ import { hintVisible } from '../core/pillhint';
 import { dictate, h } from './bridge';
 import * as capture from './capture';
 import { mountCards } from './cards';
+import { watchPillRegion } from './pillregion';
 import { type Cue, play } from './sounds';
 
 export type PillState =
@@ -31,6 +32,7 @@ export interface PillConfig {
   variant: 'a' | 'b' | 'c';
   /** Show the live words; off leaves just the waveform. */
   showText: boolean;
+  nativeRegion?: boolean;
 }
 
 const BARS = 9;
@@ -56,6 +58,7 @@ const status = h('div.status', {}, above, pill);
 root.append(status);
 mountCards(root, status);
 
+let stopRegion: (() => void) | undefined;
 let config: PillConfig = { variant: 'a', showText: true };
 let state: PillState = { kind: 'hidden' };
 let partial = '';
@@ -147,6 +150,7 @@ function fitWidth(): void {
 dictate.on('dictate:pill-config', (c: PillConfig) => {
   config = c;
   render();
+  if (c.nativeRegion && !stopRegion) stopRegion = watchPillRegion(root);
 });
 
 dictate.on('dictate:notice', (msg: string) => {
@@ -266,22 +270,3 @@ void capture.prepare().then(async () => {
   report(await capture.devices());
   dictate.send('dictate:pill-ready');
 });
-
-// Native input follows visible surfaces, never the OS pointer. Track animation
-// geometry too; unchanged frames produce no IPC.
-let lastRegion = '';
-function reportRegion(): void {
-  const surfaces = [...root.querySelectorAll<HTMLElement>('.cards.shown > *, .inbox.shown > *, .status')];
-  const rects = surfaces.filter((el) => el !== status || root.classList.contains('visible')).map((el) => {
-    const r = el.getBoundingClientRect();
-    return { x: r.x - 2, y: r.y - 2, width: r.width + 4, height: r.height + 4 };
-  });
-  const interactive = surfaces.some((el) => el !== status) || (root.classList.contains('visible') && !undo.hidden);
-  const encoded = JSON.stringify([rects, interactive]);
-  if (encoded !== lastRegion) {
-    lastRegion = encoded;
-    dictate.send('dictate:pill-region', rects, interactive);
-  }
-  requestAnimationFrame(reportRegion);
-}
-requestAnimationFrame(reportRegion);
