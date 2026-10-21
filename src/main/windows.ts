@@ -67,7 +67,8 @@ export function createSheet(): BrowserWindow {
     height: 240,
     show: false,
     frame: false,
-    transparent: true,
+    transparent: false,
+    backgroundColor: '#202020',
     resizable: false,
     movable: false,
     minimizable: false,
@@ -106,13 +107,14 @@ export function createPicker(): BrowserWindow {
     height: PICKER_H,
     show: false,
     frame: false,
-    transparent: true,
+    transparent: false,
+    backgroundColor: '#202020',
     resizable: false,
     movable: false,
     minimizable: false,
     maximizable: false,
     skipTaskbar: true,
-    focusable: process.platform !== 'win32',
+    focusable: true,
     hasShadow: false,
     alwaysOnTop: true,
     title: 'dictate history',
@@ -138,22 +140,29 @@ export function placePicker(w: BrowserWindow, caretPhysical: { x: number; y: num
     anchor = { x: p.x, top: p.y, bottom: p.y };
   }
   const a = screen.getDisplayNearestPoint({ x: Math.round(anchor.x), y: Math.round(anchor.bottom) }).workArea;
+  const width = Math.min(PICKER_W, a.width);
+  const height = Math.min(PICKER_H, a.height);
   // The window has a 12 px transparent margin for the shadow.
   let x = Math.round(anchor.x - 24);
   let y = Math.round(anchor.bottom + 2);
-  if (y + PICKER_H > a.y + a.height) y = Math.round(anchor.top - PICKER_H - 2);
-  x = Math.max(a.x, Math.min(x, a.x + a.width - PICKER_W));
-  y = Math.max(a.y, Math.min(y, a.y + a.height - PICKER_H));
-  w.setBounds({ x, y, width: PICKER_W, height: PICKER_H });
+  if (y + height > a.y + a.height) y = Math.round(anchor.top - height - 2);
+  x = Math.max(a.x, Math.min(x, a.x + a.width - width));
+  y = Math.max(a.y, Math.min(y, a.y + a.height - height));
+  w.setBounds({ x: x + (process.env.DICTATE_PILL_SHOTS ? -10_000 : 0), y, width, height });
 }
 
 export function createSettings(): BrowserWindow {
+  const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
+  const width = Math.min(900, area.width);
+  const height = Math.min(680, area.height);
   const w = new BrowserWindow({
-    width: 900,
-    height: 680,
-    minWidth: 720,
-    minHeight: 520,
+    width, height,
+    x: Math.round(area.x + (area.width - width) / 2) + (process.env.DICTATE_PILL_SHOTS ? -10_000 : 0),
+    y: Math.round(area.y + (area.height - height) / 2),
+    minWidth: Math.min(720, area.width),
+    minHeight: Math.min(520, area.height),
     show: false,
+    focusable: true,
     title: 'dictate settings',
     icon: appIcon(),
     backgroundColor: '#202020',
@@ -166,6 +175,6 @@ export function createSettings(): BrowserWindow {
     webPreferences: { preload: preload(), contextIsolation: true, sandbox: false },
   });
   void w.loadFile(renderer('settings.html'));
-  w.once('ready-to-show', () => w.show());
+  w.once('ready-to-show', () => process.env.DICTATE_PILL_SHOTS ? w.showInactive() : w.show());
   return w;
 }

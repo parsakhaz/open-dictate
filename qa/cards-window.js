@@ -57,6 +57,7 @@ async function main() {
   await new Promise(r => ws.onopen = r);
   ws.onmessage = e => { const m = JSON.parse(e.data); pending.get(m.id)?.(m); pending.delete(m.id); };
   await until(() => fs.existsSync(path.join(DATA, 'agents/channel.json')));
+  await cdp('Emulation.setFocusEmulationEnabled', { enabled: true });
   const channel = JSON.parse(fs.readFileSync(path.join(DATA, 'agents/channel.json')));
   socket = net.connect(channel.path);
   let buf = '';
@@ -102,6 +103,14 @@ async function main() {
   await click('.snooze');
   await until(async () => (await call('card_status', { card_id: card.card_id })).state === 'snoozed');
   check('Snooze immediately mutates queue and removes card', await evaluate("!document.querySelector('.card') && !!document.querySelector('.toast .undo')"));
+  await click('button.capsule.snoozed');
+  await until(() => evaluate("!!document.querySelector('.shelf .now')"));
+  await evaluate("window.__shelfButton=document.querySelector('.shelf .now');window.__shelfButton.focus()");
+  await sleep(1200);
+  check('shelf countdown preserves action node and keyboard focus', await evaluate("window.__shelfButton===document.querySelector('.shelf .now')&&document.activeElement===window.__shelfButton"));
+  await click('.shelf .now');
+  await until(() => evaluate("!!document.querySelector('.card')"));
+  await click('.snooze');
   await click('.toast .undo');
   await until(() => evaluate("!!document.querySelector('.card')"));
   await click('.card button[aria-label="Dismiss card"]');
@@ -139,6 +148,8 @@ async function main() {
 
   const questions = [{ id: 'q1', header: 'First', options: [{ label: 'A' }, { label: 'B' }], multi: false, other: false }];
   await openSheet('decide', { cardId: 'audit-decide', source: 'Audit', client: 'Audit', title: 'Keyboard test', message: '', questions, answers: [{ picked: [] }], previews: false });
+  check('decision options are semantic buttons with pressed state', await evaluate("[...document.querySelectorAll('.dopt')].every(b=>b.tagName==='BUTTON'&&b.hasAttribute('aria-pressed'))"));
+  check('hover keeps option nodes alive', await evaluate("(()=>{const b=document.querySelector('.dopt');b.dispatchEvent(new MouseEvent('mouseenter'));return b===document.querySelector('.dopt')})()"));
   await evaluate("[...document.querySelectorAll('button')].find(b=>b.textContent==='Skip').focus()");
   await key('Tab', 'Tab', 9);
   check('decide Tab reaches Submit instead of navigating questions', (await evaluate('document.activeElement.textContent')).startsWith('Submit answers'));
@@ -160,6 +171,31 @@ async function main() {
   fs.writeFileSync(path.join(DATA, 'small-sheet.png'), Buffer.from(smallShot.result.data, 'base64'));
   await connectPage(port, 'picker.html');
   check('empty history offers a real mouse Close button', await evaluate("document.querySelector('button[aria-label=\"Close history\"]')?.tagName==='BUTTON'"));
+  fs.appendFileSync(CONTROL, 'picker-render ' + JSON.stringify([{ id: 'audit-history', at: new Date().toISOString(), text: 'History sample', raw: 'Raw history sample' }]) + '\n');
+  await until(() => evaluate("!!document.querySelector('button.paste')"));
+  check('history has native search, semantic Paste and visible actions', await evaluate("document.querySelector('.query').tagName==='INPUT'&&getComputedStyle(document.querySelector('.actions')).pointerEvents==='auto'&&getComputedStyle(document.querySelector('.actions')).opacity==='1'"));
+  const pickerShot = await cdp('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(path.join(DATA, 'history-picker.png'), Buffer.from(pickerShot.result.data, 'base64'));
+  await evaluate("window.__clicked='';document.addEventListener('click',e=>{const b=e.target.closest('button');if(b)window.__clicked=b.textContent.trim();},true);document.querySelector('button.close').focus()");
+  await key('Enter', 'Enter', 13);
+  check('picker Enter activates focused Close rather than pasting selected history', await evaluate("window.__clicked==='Close'"));
+  fs.appendFileSync(CONTROL, 'picker-render []\n');
+  await until(() => evaluate("!document.querySelector('button.paste')"));
+
+  fs.appendFileSync(CONTROL, 'settings-page general\n');
+  await connectPage(port, 'settings.html');
+  await until(() => evaluate("!!document.querySelector('.navitem')"));
+  check('settings navigation consists of semantic buttons', await evaluate("[...document.querySelectorAll('.navitem')].every(b=>b.tagName==='BUTTON')"));
+  await evaluate("navigator.mediaDevices.getUserMedia=async()=>{throw new Error('Audit skips physical microphone capture')}");
+  fs.appendFileSync(CONTROL, 'settings-page microphone\n');
+  await until(() => evaluate("!!document.querySelector('input[name=\"mic\"]')"));
+  check('microphone selection uses native radio controls with visible keyboard focus', await evaluate("(()=>{const input=document.querySelector('input[name=\"mic\"]');input.focus();return input.type==='radio'&&getComputedStyle(input.nextElementSibling).outlineStyle!=='none'})()"));
+  fs.appendFileSync(CONTROL, 'settings-page history\n');
+  await until(() => evaluate("document.querySelector('h1')?.textContent==='History'"));
+  check('settings history uses native controls', await evaluate("!!document.querySelector('select')&&[...document.querySelectorAll('button')].some(b=>b.textContent==='Clear')"));
+  fs.appendFileSync(CONTROL, 'settings-page start\n');
+  await until(() => evaluate("!!document.querySelector('button[data-wiz=\"next\"]')"));
+  check('welcome has a semantic next button', await evaluate("document.querySelector('[data-wiz=\"next\"]').tagName==='BUTTON'"));
   const errors = fs.readFileSync(path.join(DATA, 'logs/dictate.log'), 'utf8').split('\n').filter(l => /renderer .*error|renderer .*unhandled|cards renderer gone/.test(l));
   check('no card renderer errors', errors.length === 0);
 }

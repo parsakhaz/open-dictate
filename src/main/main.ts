@@ -8,7 +8,7 @@ import { dbfs } from '../core/audio';
 import { CaptureController, type CaptureEvents } from '../core/capture';
 import { runChain } from '../core/chain';
 import { HistoryStore } from '../core/history';
-import { type Bindings, bindingFromKeys, bindingLabel, type HotkeyAction, HotkeyMachine, isModifier, menuMaskCombos, menuMaskKeys, type RecordMode, swallowBindings, VK } from '../core/hotkeys';
+import { type Bindings, bindingFromKeys, bindingLabel, type HotkeyAction, HotkeyMachine, menuMaskCombos, menuMaskKeys, type RecordMode, swallowBindings, VK } from '../core/hotkeys';
 import { type CardBox, type CardPointer, inRect, nextCardPointer } from '../core/cardpointer';
 import { isSheetKind } from '../core/sheetkinds';
 import { DEFAULT_SEGMENTER, LiveCleanup, Segmenter } from '../core/live';
@@ -887,7 +887,10 @@ function makePickerWindow(): PickerWindow {
   const w = createPicker();
   pickerWin = w;
   const gone: (() => void)[] = [];
-  if (!platformCapabilities().canSwallowKeys) w.on('blur', () => closePicker());
+  w.on('blur', () => closePicker());
+  w.on('close', (event) => {
+    if (!quitting) { event.preventDefault(); closePicker(); }
+  });
   const fireGone = () => {
     if (pickerWin === w) pickerWin = undefined;
     for (const cb of gone.splice(0)) cb();
@@ -898,9 +901,9 @@ function makePickerWindow(): PickerWindow {
     send: (ch, ...args) => {
       if (!w.isDestroyed()) w.webContents.send(ch, ...args);
     },
-    showInactive: () => {
-      if (platformCapabilities().canSwallowKeys) w.showInactive();
-      else { w.show(); w.focus(); }
+    show: () => {
+      w.show();
+      w.focus();
       w.setAlwaysOnTop(true, 'pop-up-menu');
     },
     hide: () => {
@@ -993,10 +996,7 @@ function onHook(e: FromHook): void {
   }
   if (e.down && e.vk === VK.Escape && escapeKeyless()) return;
   if (picker.isOpen) {
-    if (!platformCapabilities().canSwallowKeys) return;
-    // Alt and Win combos (Alt+Tab, Win+D) are the person leaving: let them through and close.
-    if (e.down && [0xa4, 0xa5, 0x5b, 0x5c].includes(e.vk)) closePicker();
-    else if (e.down && !isModifier(e.vk)) picker.send('dictate:picker-key', { vk: e.vk, shift: e.shift });
+    // The picker receives ordinary focused window input on every platform.
     return;
   }
   if (e.down) machine.down(e.vk, e.t);
@@ -1081,8 +1081,8 @@ function openSettings(page?: string): void {
   if (settingsWin && !settingsWin.isDestroyed()) {
     if (page) settingsWin.webContents.send('dictate:navigate', page);
     if (settingsWin.isMinimized()) settingsWin.restore();
-    settingsWin.show();
-    settingsWin.focus();
+    if (process.env.DICTATE_PILL_SHOTS) settingsWin.showInactive();
+    else { settingsWin.show(); settingsWin.focus(); }
     return;
   }
   pendingPage = page ?? null;
@@ -1577,7 +1577,7 @@ async function main(): Promise<void> {
     caret: caretRect,
     items: pickerItems,
     hotkey: () => hotkeyLabel(),
-    takesFocus: !platformCapabilities().canSwallowKeys,
+    takesFocus: true,
     log,
   });
   void picker.ensure();
@@ -1619,6 +1619,10 @@ async function main(): Promise<void> {
         else if (line.startsWith('state ')) {
           pillSend('dictate:pill', JSON.parse(line.slice(6)));
           showPill(pill);
+        } else if (line.startsWith('picker-render ')) {
+          picker.send('dictate:picker-open', { items: JSON.parse(line.slice(14)), now: Date.now(), hotkey: hotkeyLabel(), localKeys: true });
+        } else if (line.startsWith('settings-page ')) {
+          openSettings(line.slice(14));
         } else if (line.startsWith('partial ')) pillSend('dictate:partial', line.slice(8));
         // Agent cards: hover (expanded) without a mouse, and the top card's buttons ("card choose Prod").
         else if (line.startsWith('cards-hover ')) {

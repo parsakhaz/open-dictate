@@ -110,14 +110,19 @@ function draw(): void {
   });
   const opts = q.options.map((o, i) => {
     const on = a.picked.includes(o.label);
+    const preview = () => {
+      if (hover === i) return;
+      hover = i;
+      root?.querySelectorAll('.dopt').forEach((el, index) => { el.classList.toggle('hov', index === hover); });
+      root?.querySelector('.dright')?.replaceWith(previewPane());
+    };
     return h(
-      `div.dopt${on ? '.sel' : ''}${hover === i ? '.hov' : ''}`,
+      `button.dopt${on ? '.sel' : ''}${hover === i ? '.hov' : ''}`,
       {
-        onmouseenter: () => {
-          if (hover === i) return;
-          hover = i;
-          draw();
-        },
+        type: 'button',
+        'aria-pressed': String(on),
+        onmouseenter: preview,
+        onfocus: preview,
         onclick: () => void choose(cur, o.label, 'click'),
       },
       h('kbd', {}, String(i + 1)),
@@ -127,7 +132,7 @@ function draw(): void {
   });
   const left = d.questions.length - answeredCount(d);
   root.replaceChildren(
-    h('div.shead', {}, h('span.src', {}, d.source), d.client ? h('span', {}, d.client) : null, h('button.x', { title: 'Close (Esc)', onclick: () => dictate.send('dictate:sheet-esc') }, '✕')),
+    h('div.shead', {}, h('span.src', {}, d.source), d.client ? h('span', {}, d.client) : null, h('button.x', { title: 'Close (Esc)', 'aria-label': 'Close decision sheet', onclick: () => dictate.send('dictate:sheet-esc') }, '✕')),
     h('div.dtitle', {}, h('span.ttl', {}, d.title), h('span.msg', {}, d.message || 'Hover an option to see what it changes.')),
     h('div.dtabs', {}, ...tabs),
     h(

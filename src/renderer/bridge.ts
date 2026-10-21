@@ -20,6 +20,7 @@ export function h<K extends keyof HTMLElementTagNameMap>(
 ): HTMLElementTagNameMap[K] {
   const [tag, ...classes] = spec.split('.');
   const el = document.createElement(tag as K);
+  if (tag === 'button') el.setAttribute('type', 'button');
   if (classes.length) el.className = classes.join(' ');
   for (const [k, v] of Object.entries(props)) {
     if (v === undefined || v === null || v === false) continue;

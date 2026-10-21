@@ -274,6 +274,7 @@ h2 {
   background: var(--accent);
   border-color: var(--accent);
 }
+.toggle input:focus-visible + .track, .radio input:focus-visible + .radiodot { outline: 2px solid var(--accent); outline-offset: 3px; }
 .toggle input:checked + .track .thumb {
   transform: translateX(20px);
   background: #000;
