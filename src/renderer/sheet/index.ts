@@ -29,6 +29,9 @@ dictate.on('dictate:sheet-close', close);
 
 document.addEventListener('keydown', (e) => {
   if (!current) return;
+  // Native controls own Enter/Space/arrows; Tab always traverses focus normally.
+  // Escape still reaches the page (for a lightbox) or closes the sheet below.
+  if (e.key !== 'Escape' && (e.key === 'Tab' || (e.target instanceof Element && e.target.closest('button, input, textarea, select, a[href], summary, [contenteditable]')))) return;
   if (PAGES[current].key?.(e)) {
     e.preventDefault();
     return;

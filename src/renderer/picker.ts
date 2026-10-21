@@ -12,7 +12,7 @@ const caret = h('span.caret');
 const search = h('div.search', {}, h('span.icon', {}, ICON.search), query, caret, placeholder);
 const list = h('div.list', { role: 'listbox' });
 const footer = h('div.footer', {}, h('span', {}, 'Enter paste'), h('span', {}, 'Shift+Enter paste raw'), h('span', {}, 'Tab show raw'), h('span', {}, 'Esc close'));
-const panel = h('div.panel', {}, h('div.header', {}, h('div.title', {}, 'Dictation history'), search), list, footer);
+const panel = h('div.panel', {}, h('div.header', {}, h('div.heading', {}, h('div.title', {}, 'Dictation history'), h('button.close', { type: 'button', 'aria-label': 'Close history', onclick: () => dictate.send('dictate:picker-close') }, 'Close')), search), list, footer);
 root.append(panel);
 
 let items: HistoryEntry[] = [];

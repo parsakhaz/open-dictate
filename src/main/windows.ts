@@ -3,6 +3,7 @@
 import path from 'node:path';
 import { app, BrowserWindow, screen } from 'electron';
 import { appIcon } from './icons';
+import { sheetBounds } from '../core/sheetbounds';
 
 const renderer = (file: string) => path.join(app.getAppPath(), 'out', 'renderer', file);
 const preload = () => path.join(app.getAppPath(), 'out', 'main', 'preload.js');
@@ -92,10 +93,8 @@ export function placeSheet(w: BrowserWindow, size: { width: number; height: numb
   const a = d.workArea;
   // QA screenshots are taken off-screen, out of the person's way, as the pill's are.
   const away = process.env.DICTATE_PILL_SHOTS ? -10_000 : 0;
-  const width = size.width + 2 * SHEET_MARGIN;
-  const height = size.height + 2 * SHEET_MARGIN;
-  const pillBottom = a.y + a.height + 12;
-  w.setBounds({ x: Math.round(a.x + (a.width - width) / 2) + away, y: Math.round(pillBottom - PILL_STATUS_H - height + SHEET_MARGIN), width, height });
+  const bounds = sheetBounds(a, size, SHEET_MARGIN, PILL_STATUS_H);
+  w.setBounds({ ...bounds, x: bounds.x + away });
 }
 
 export const PICKER_W = 380;

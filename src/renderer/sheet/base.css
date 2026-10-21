@@ -4,7 +4,7 @@
 html,
 body {
   background: transparent;
-  overflow: hidden;
+  overflow: auto;
   height: 100%;
 }
 
@@ -42,6 +42,15 @@ body:not([data-kind]) .sheet {
   font-size: 11px;
   line-height: 15px;
   color: var(--text-3);
+}
+.shead, .sfoot, .rhead, .rfoot, .dtitle, .dtabs, .rchips { flex-shrink: 0; }
+.shead, .sfoot, .rhead, .rfoot { flex-wrap: wrap; }
+.sheet { overflow: auto; }
+.sheet button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+@media (max-width: 620px) {
+  body[data-kind='decide'] .dbody { grid-template-columns: minmax(0, 1fr); overflow: auto; }
+  body[data-kind='decide'] .dtabs { flex-wrap: wrap; }
+  body[data-kind='lineup'] .lu-grid[data-n] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .shead .ttl {
   color: var(--text);

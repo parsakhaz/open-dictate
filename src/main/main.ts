@@ -1049,6 +1049,7 @@ function rebuildTrayMenu(): void {
       { type: 'separator' },
       { label: rec ? 'Finish dictation' : 'Start dictation', enabled: sttReady, click: () => toggleFromApp() },
       { label: 'Copy last dictation', enabled: !!last, click: () => last && void writeClipboardText(last.text, { history: true }).catch(() => undefined) },
+      { label: 'Agent inbox', click: () => cardsWindow?.reopen() },
       { label: `History…   ${bindingLabel(settings.picker)}`, enabled: !!last, click: () => void picker.open() },
       { type: 'separator' },
       { label: 'Microphone', submenu: micItems },

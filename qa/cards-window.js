@@ -35,8 +35,20 @@ async function call(tool, args = {}) {
   return reply.result;
 }
 async function click(selector) { check(`semantic button ${selector}`, await evaluate(`(()=>{const b=document.querySelector(${JSON.stringify(selector)});if(!b||b.tagName!=='BUTTON')return false;b.click();return true;})()`)); }
+async function connectPage(port, suffix) {
+  const target = await until(async () => (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find(t => t.url.endsWith(suffix)));
+  ws?.close();
+  ws = new WebSocket(target.webSocketDebuggerUrl);
+  await new Promise(resolve => ws.onopen = resolve);
+  ws.onmessage = e => { const m = JSON.parse(e.data); pending.get(m.id)?.(m); pending.delete(m.id); };
+  await cdp('Emulation.setFocusEmulationEnabled', { enabled: true });
+}
+async function key(key, code, vk) {
+  await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: vk, ...(key === 'Enter' ? { text: '\r', unmodifiedText: '\r' } : {}) });
+  await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: vk });
+}
 async function main() {
-  proc = spawn(ELECTRON, ['.', '--remote-debugging-port=0'], { cwd: ROOT, env: { ...process.env, DICTATE_DATA_DIR: DATA, DICTATE_QA_CONTROL: CONTROL, DICTATE_QA_SINK: 'none', DICTATE_SMOKE_SKIP_INSTANCE_LOCK: '1', DICTATE_PILL_SHOTS: 'offscreen', PANE_SESSION_ID: '', PANE_PANEL_ID: '', PANE_DIR: path.join(DATA, 'no-pane') }, stdio: 'ignore' });
+  proc = spawn(ELECTRON, ['.', '--remote-debugging-port=0'], { cwd: ROOT, env: { ...process.env, DICTATE_DATA_DIR: DATA, DICTATE_QA_CONTROL: CONTROL, DICTATE_QA_SINK: 'none', DICTATE_SMOKE_SKIP_INSTANCE_LOCK: '1', DICTATE_PILL_SHOTS: path.join(DATA, 'shots'), PANE_SESSION_ID: '', PANE_PANEL_ID: '', PANE_DIR: path.join(DATA, 'no-pane') }, stdio: 'ignore' });
   const port = await until(() => { const f = path.join(DATA, 'DevToolsActivePort'); return fs.existsSync(f) && fs.readFileSync(f, 'utf8').split('\n')[0]; });
   const targets = await until(async () => { try { return await (await fetch(`http://127.0.0.1:${port}/json/list`)).json(); } catch {} });
   const target = targets.find(t => t.url.endsWith('cards.html'));
@@ -105,6 +117,49 @@ async function main() {
   await click('.window-close');
   await until(async () => (await call('card_status', { card_id: card.card_id })).state === 'dismissed');
   check('Close dismisses current card', true);
+  await click('.window-close');
+  fs.appendFileSync(CONTROL, 'state ' + JSON.stringify({ kind: 'toast', undo: true, message: 'Offscreen mic Undo', ms: 60000 }) + '\n');
+  await until(() => evaluate("!document.querySelector('.mic-undo').hidden && document.visibilityState==='visible'"));
+  check('fresh mic Undo reopens a previously closed card window', true);
+  fs.appendFileSync(CONTROL, 'state {"kind":"info","message":"Done"}\n');
+
+  const openSheet = async (kind, payload) => {
+    fs.appendFileSync(CONTROL, `sheet ${kind} ${JSON.stringify(payload)}\n`);
+    await connectPage(port, 'sheet.html');
+    await until(() => evaluate(`document.body?.dataset.kind===${JSON.stringify(kind)}`));
+    await evaluate("window.__clicked='';document.addEventListener('click',e=>{const b=e.target.closest('button');if(b)window.__clicked=b.textContent.trim();},true)");
+  };
+  await openSheet('round', { position: { n: 1, of: 1 }, chips: [], card: { id: 'audit-round', source: 'Audit', age: 0, title: 'Keyboard test', message: '', choices: ['Approve'], canOpen: false }, lengths: [3, 5], listening: false, heard: '' });
+  await evaluate("[...document.querySelectorAll('button')].find(b=>b.textContent.startsWith('Skip')).focus()");
+  await key('Enter', 'Enter', 13);
+  check('Enter activates focused round Skip instead of approving', (await evaluate('window.__clicked')).startsWith('Skip'));
+  await click('button[aria-label="Leave round"]');
+  await until(() => evaluate('!document.body.dataset.kind'));
+  check('Leave round is a working mouse button', true);
+
+  const questions = [{ id: 'q1', header: 'First', options: [{ label: 'A' }, { label: 'B' }], multi: false, other: false }];
+  await openSheet('decide', { cardId: 'audit-decide', source: 'Audit', client: 'Audit', title: 'Keyboard test', message: '', questions, answers: [{ picked: [] }], previews: false });
+  await evaluate("[...document.querySelectorAll('button')].find(b=>b.textContent==='Skip').focus()");
+  await key('Tab', 'Tab', 9);
+  check('decide Tab reaches Submit instead of navigating questions', (await evaluate('document.activeElement.textContent')).startsWith('Submit answers'));
+  await evaluate("window.__clicked='';document.querySelector('button.x').focus()");
+  await key('Enter', 'Enter', 13);
+  await until(() => evaluate('!document.body.dataset.kind'));
+  check('Enter on decide Close closes instead of submitting', true);
+
+  await openSheet('lineup', { cardId: 'audit-lineup', title: 'Keyboard test', source: 'Audit', message: '', pick: 'one', max: 1, candidates: [{ label: 'A', caption: '', text: 'Candidate A' }, { label: 'B', caption: '', text: 'Candidate B' }] });
+  await evaluate("document.querySelector('button.x').focus()");
+  await key('Enter', 'Enter', 13);
+  await until(() => evaluate('!document.body.dataset.kind'));
+  check('Enter on lineup Close closes instead of submitting picks', true);
+  await openSheet('lineup', { cardId: 'audit-lineup-small', title: 'Small work area', source: 'Audit', message: '', pick: 'one', max: 1, candidates: [{ label: 'A', caption: '', text: 'Candidate A' }, { label: 'B', caption: '', text: 'Candidate B' }] });
+  await cdp('Emulation.setDeviceMetricsOverride', { width: 360, height: 320, deviceScaleFactor: 1, mobile: false });
+  check('small sheet Close remains in reachable viewport', await evaluate("(()=>{const r=document.querySelector('button.x').getBoundingClientRect();return r.x>=0&&r.y>=0&&r.right<=innerWidth&&r.bottom<=innerHeight})()"));
+  check('small lineup footer buttons reflow inside viewport', await evaluate("[...document.querySelectorAll('.lu-foot button')].every(b=>{const r=b.getBoundingClientRect();return r.x>=0&&r.y>=0&&r.right<=innerWidth&&r.bottom<=innerHeight})"));
+  const smallShot = await cdp('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(path.join(DATA, 'small-sheet.png'), Buffer.from(smallShot.result.data, 'base64'));
+  await connectPage(port, 'picker.html');
+  check('empty history offers a real mouse Close button', await evaluate("document.querySelector('button[aria-label=\"Close history\"]')?.tagName==='BUTTON'"));
   const errors = fs.readFileSync(path.join(DATA, 'logs/dictate.log'), 'utf8').split('\n').filter(l => /renderer .*error|renderer .*unhandled|cards renderer gone/.test(l));
   check('no card renderer errors', errors.length === 0);
 }

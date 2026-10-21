@@ -84,3 +84,30 @@ it('keeps a closed inbox hidden until a new card arrives', () => {
   size(event, 100, true);
   expect(win.visible).toBe(true);
 });
+
+it('reopens for fresh microphone Undo and explicit inbox access, but not stale inbox redraws', () => {
+  const surface = new CardsWindow(vi.fn(), vi.fn());
+  const win = mock.windows[0];
+  const event = { sender: win.webContents };
+  mock.handlers.get('dictate:cards-ready')!(event);
+  const close = () => mock.handlers.get('dictate:cards-close')!(event);
+  const size = () => mock.handlers.get('dictate:cards-size')!(event, 100, true);
+  close();
+  surface.send('dictate:pill', { kind: 'toast', undo: true, message: 'New microphone' });
+  size();
+  expect(win.visible).toBe(true);
+  expect(win.webContents.send).toHaveBeenCalledWith('dictate:cards-reopen');
+  const toast = { id: 'k1', minutes: 3 };
+  surface.send('dictate:inbox:toast', toast);
+  close();
+  surface.send('dictate:inbox:toast', toast);
+  size();
+  expect(win.visible).toBe(false);
+  surface.reopen();
+  size();
+  expect(win.visible).toBe(true);
+  close();
+  surface.send('dictate:inbox:toast', { id: 'k2', minutes: 3 });
+  size();
+  expect(win.visible).toBe(true);
+});

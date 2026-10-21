@@ -50,11 +50,20 @@ export class CardsWindow {
 
   send(channel: string, ...args: unknown[]): void {
     if (channel.startsWith('dictate:capture') || channel === 'dictate:level' || channel === 'dictate:enumerate' || channel === 'dictate:sound') return;
+    const previous = this.pending.get(channel);
+    const status = args[0] as { kind?: string; undo?: boolean } | undefined;
+    const freshUndo = channel === 'dictate:pill' && status?.kind === 'toast' && status.undo;
+    const freshInbox = channel === 'dictate:inbox:toast' && !!args[0] && JSON.stringify(previous) !== JSON.stringify(args);
     this.pending.set(channel, args);
     if (channel === 'dictate:cards' && (args[0] as { top?: unknown })?.top) this.suppressed = false;
     if (this.ready && !this.win.isDestroyed()) this.win.webContents.send(channel, ...args);
+    if (freshUndo || freshInbox) this.reopen();
   }
 
+  reopen(): void {
+    this.suppressed = false;
+    if (this.ready && !this.win.isDestroyed()) this.win.webContents.send('dictate:cards-reopen');
+  }
   hide(): void { if (!this.win.isDestroyed()) this.win.hide(); }
   private close(): void { this.suppressed = true; this.hide(); this.dismiss(); }
   bounds(): Electron.Rectangle { return this.win.getBounds(); }

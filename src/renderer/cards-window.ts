@@ -36,5 +36,6 @@ function schedule(): void {
 new ResizeObserver(schedule).observe(root);
 new MutationObserver(schedule).observe(root, { subtree: true, childList: true, attributes: true, characterData: true });
 dictate.on('dictate:cards', () => { last = ''; schedule(); });
+dictate.on('dictate:cards-reopen', () => { last = ''; schedule(); });
 dictate.send('dictate:cards-ready');
 schedule();
