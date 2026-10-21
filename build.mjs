@@ -22,11 +22,11 @@ await Promise.all([
     platform: 'browser',
     format: 'esm',
     target: 'chrome140',
-    entryPoints: { pill: 'src/renderer/pill.ts', picker: 'src/renderer/picker.ts', settings: 'src/renderer/settings.ts', sheet: 'src/renderer/sheet/index.ts', worklet: 'src/renderer/worklet.ts' },
+    entryPoints: { pill: 'src/renderer/pill.ts', 'cards-window': 'src/renderer/cards-window.ts', picker: 'src/renderer/picker.ts', settings: 'src/renderer/settings.ts', sheet: 'src/renderer/sheet/index.ts', worklet: 'src/renderer/worklet.ts' },
     outdir: 'out/renderer',
   }),
 ]);
-for (const f of ['pill.html', 'pill.css', 'picker.html', 'picker.css', 'settings.html', 'settings.css', 'sheet.html', 'theme.css']) cpSync(`src/renderer/${f}`, `out/renderer/${f}`);
+for (const f of ['cards.html', 'cards-window.css', 'pill.html', 'pill.css', 'picker.html', 'picker.css', 'settings.html', 'settings.css', 'sheet.html', 'theme.css']) cpSync(`src/renderer/${f}`, `out/renderer/${f}`);
 // Each card kind and sheet page keeps its own stylesheet beside its module; they are joined here, base.css first.
 for (const [dir, out] of [['src/renderer/cards', 'cards.css'], ['src/renderer/sheet', 'sheet.css']]) {
   const files = readdirSync(dir).filter((f) => f.endsWith('.css')).sort((a, b) => (a === 'base.css' ? -1 : b === 'base.css' ? 1 : a.localeCompare(b)));

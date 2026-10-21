@@ -1,5 +1,4 @@
-// The overlay pill: what dictate is doing right now, a live waveform and the live words, and agents' cards above
-// it. It also hosts mic capture (the browser fallback path) and the sound cues. Never takes focus (the window is
+// The passive overlay pill: current dictation status, waveform and live words. It also hosts mic capture (the browser fallback path) and the sound cues. Never takes focus (the window is
 // not focusable).
 // Small and centred, its width following its content; every state keeps the same height and cross-fades.
 import type { GainSpec } from '../core/agc';
@@ -7,8 +6,6 @@ import { dbfs } from '../core/audio';
 import { hintVisible } from '../core/pillhint';
 import { dictate, h } from './bridge';
 import * as capture from './capture';
-import { mountCards } from './cards';
-import { watchPillRegion } from './pillregion';
 import { type Cue, play } from './sounds';
 
 export type PillState =
@@ -32,7 +29,6 @@ export interface PillConfig {
   variant: 'a' | 'b' | 'c';
   /** Show the live words; off leaves just the waveform. */
   showText: boolean;
-  nativeRegion?: boolean;
 }
 
 const BARS = 9;
@@ -48,17 +44,15 @@ const glyph = h('span.glyph');
 const lead = h('div.lead', {}, dot, spinner, glyph);
 const text = h('span.text');
 const textwrap = h('div.textwrap', {}, text);
-const undo = h('button.undo', { onclick: () => dictate.send('dictate:undo-mic') }, 'Undo');
-const content = h('div.content', {}, lead, wave, textwrap, undo);
+const content = h('div.content', {}, lead, wave, textwrap);
 const pill = h('div.pill', {}, content);
 /** Above the pill: the hint for the first seconds of the first recordings, or the caption (variant B). */
 const above = h('div.above');
 /** The status (hint and pill) fades as one; agent cards sit above it, or at the bottom while it is away. */
 const status = h('div.status', {}, above, pill);
 root.append(status);
-mountCards(root, status);
 
-let stopRegion: (() => void) | undefined;
+
 let config: PillConfig = { variant: 'a', showText: true };
 let state: PillState = { kind: 'hidden' };
 let partial = '';
@@ -110,7 +104,6 @@ function render(): void {
   pill.dataset.starting = String(s.kind === 'listening' && !!s.starting);
   pill.dataset.placeholder = String((recording(s.kind) || working(s.kind)) && !partial);
   pill.dataset.silent = String(recording(s.kind) && silent);
-  undo.hidden = !(s.kind === 'toast' && s.undo);
   glyph.textContent = GLYPHS[s.kind] ?? '';
   // Working states animate the bars themselves (a travelling pulse), not the last level.
   if (!recording(s.kind)) for (const b of bars) b.style.transform = '';
@@ -150,7 +143,6 @@ function fitWidth(): void {
 dictate.on('dictate:pill-config', (c: PillConfig) => {
   config = c;
   render();
-  if (c.nativeRegion && !stopRegion) stopRegion = watchPillRegion(root);
 });
 
 dictate.on('dictate:notice', (msg: string) => {

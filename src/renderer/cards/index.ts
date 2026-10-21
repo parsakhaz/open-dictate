@@ -52,7 +52,7 @@ export function mountCards(parent: HTMLElement, before: Node): void {
     return [
       h('span.src', {}, expanded && c.sourceDetail ? `${c.source} · ${c.sourceDetail}` : c.source),
       view.more ? h('button.more', { onclick: (e: Event) => { e.stopPropagation(); listOpen = !listOpen; draw(); } }, `+${view.more}`) : null,
-      c.kind === 'consent' || view.replying ? null : h('button.x', { title: 'Dismiss', onclick: (e: Event) => { e.stopPropagation(); act({ id: c.id, action: 'dismiss' }); } }, '✕'),
+      c.kind === 'consent' || view.replying ? null : h('button.x', { type: 'button', title: 'Dismiss', 'aria-label': 'Dismiss card', onclick: (e: Event) => { e.stopPropagation(); act({ id: c.id, action: 'dismiss' }); } }, 'Dismiss'),
     ].filter((x): x is HTMLElement => !!x);
   }
 
@@ -69,12 +69,7 @@ export function mountCards(parent: HTMLElement, before: Node): void {
     if (!shown || fresh) {
       const headEl = h('div.chead');
       const body = h('div.cbody');
-      const el = h('div.card', {
-        onclick: () => {
-          const top = view.top;
-          if (top?.canOpen && top.kind !== 'consent' && !view.replying) act({ id: top.id, action: 'open' });
-        },
-      }, headEl, body);
+      const el = h('div.card', {}, headEl, body);
       shown = { id: c.id, el, body, head: headEl, drawn: '' };
     }
     const s = shown;
@@ -97,7 +92,7 @@ export function mountCards(parent: HTMLElement, before: Node): void {
     reach = null;
     was?.cancel();
     body.style.overflow = '';
-    if (reducedMotion() || !body.isConnected) return;
+    if (location.pathname.endsWith('/cards.html') || reducedMotion() || !body.isConnected) return;
     const to = body.getBoundingClientRect().height;
     // A new card starts from its first line of title.
     const start = from ?? Math.min(to, (body.firstElementChild as HTMLElement | null)?.getBoundingClientRect().height ?? to);
@@ -124,10 +119,10 @@ export function mountCards(parent: HTMLElement, before: Node): void {
       'div.list',
       {},
       ...cards.map((c) =>
-        h('div.item', { 'data-urgency': c.urgency, onclick: () => c.canOpen && act({ id: c.id, action: 'open' }) },
+        h('div.item', { 'data-urgency': c.urgency },
           h('span.src', {}, c.source),
-          h('span.title', {}, plainTitle(c.title)),
-          h('button.x', { title: 'Dismiss', onclick: (e: Event) => { e.stopPropagation(); act({ id: c.id, action: 'dismiss' }); } }, '✕'),
+          c.canOpen ? h('button.cbtn', { onclick: () => act({ id: c.id, action: 'open' }) }, plainTitle(c.title)) : h('span.title', {}, plainTitle(c.title)),
+          h('button.x', { type: 'button', title: 'Dismiss', 'aria-label': 'Dismiss card', onclick: (e: Event) => { e.stopPropagation(); act({ id: c.id, action: 'dismiss' }); } }, 'Dismiss'),
         ),
       ),
       h('button.cbtn.ghost.close', { onclick: () => { listOpen = false; draw(); } }, 'Close'),
@@ -135,8 +130,8 @@ export function mountCards(parent: HTMLElement, before: Node): void {
   }
 
   /**
-   * Main takes clicks inside this, opens the card once the pointer is below its head, and checks the pointer against it
-   * at key down: holding the key over the card answers it.
+   * Main uses card bounds to pause timers and target voice replies. Mouse input
+   * belongs to the normal card window and does not depend on this geometry.
    */
   function sendRect(): void {
     requestAnimationFrame(() => {

@@ -1,4 +1,3 @@
-import { applyPillRegion } from './pillinput';
 // dictate: a tray app. Hold Right Ctrl (or double-tap it) and speak; on release the words are transcribed
 // locally, cleaned by local LLMs and typed into the focused app.
 import fs from 'node:fs';
@@ -45,6 +44,7 @@ import { type Delivery, finishDictation, type OutputSink } from './pipeline';
 import { debouncedWriter, loadJson, readJson, writeJson } from './store';
 import { SttLink } from './sttlink';
 import { createPicker, createPill, createSettings, placePicker, showPill } from './windows';
+import { CardsWindow } from './cardswindow';
 import { Agents, type AgentsHost, type CardAction } from './agents';
 import { syncInstructions } from './instructions';
 import { unregisterAgents } from './registration';
@@ -98,6 +98,7 @@ let hook: KeyHook;
 let mics: MicSelector;
 let tray: Tray | undefined;
 let pill: Electron.BrowserWindow;
+let cardsWindow: CardsWindow;
 let settingsWin: Electron.BrowserWindow | undefined;
 let stt: UtilityProcess | undefined;
 let sttReady = false;
@@ -196,7 +197,7 @@ let topCardId: string | null = null;
 
 /** QA: the centre of the card button with this label (or of what a ".selector" finds), in the pill page's CSS pixels. */
 async function qaButtonAt(label: string): Promise<{ x: number; y: number } | null> {
-  return (await pill.webContents.executeJavaScript(`(() => {
+  return (await cardsWindow.window().webContents.executeJavaScript(`(() => {
     const l = ${JSON.stringify(label)};
     const b = l.startsWith('.') ? document.querySelector('.cards ' + l) : [...document.querySelectorAll('.cards button')].find((x) => x.textContent === l);
     const r = b && b.getBoundingClientRect();
@@ -207,23 +208,23 @@ async function qaButtonAt(label: string): Promise<{ x: number; y: number } | nul
 /** QA: a click where the stand-in pointer is, as the window would get it: none at all while it lets clicks through. */
 async function qaPointerClick(): Promise<void> {
   const at = qaPointer;
-  if (!at || passesClicks) {
+  if (!at) {
     log('info', `QA pointer-click ${JSON.stringify({ at, hit: at ? 'passed through' : 'no pointer' })}`);
     return;
   }
-  const hit = (await pill.webContents.executeJavaScript(`(() => {
+  const hit = (await cardsWindow.window().webContents.executeJavaScript(`(() => {
     const e = document.elementFromPoint(${at.x}, ${at.y});
     return e ? (e.textContent && e.tagName === 'BUTTON' ? 'button ' + e.textContent : e.tagName.toLowerCase() + '.' + e.className) : 'nothing';
   })()`)) as string;
-  pill.webContents.sendInputEvent({ type: 'mouseMove', x: at.x, y: at.y });
-  pill.webContents.sendInputEvent({ type: 'mouseDown', x: at.x, y: at.y, button: 'left', clickCount: 1 });
-  pill.webContents.sendInputEvent({ type: 'mouseUp', x: at.x, y: at.y, button: 'left', clickCount: 1 });
+  cardsWindow.window().webContents.sendInputEvent({ type: 'mouseMove', x: at.x, y: at.y });
+  cardsWindow.window().webContents.sendInputEvent({ type: 'mouseDown', x: at.x, y: at.y, button: 'left', clickCount: 1 });
+  cardsWindow.window().webContents.sendInputEvent({ type: 'mouseUp', x: at.x, y: at.y, button: 'left', clickCount: 1 });
   log('info', `QA pointer-click ${JSON.stringify({ at, hit })}`);
 }
 
 /** QA: finds a card button by its label, logs what is under its centre, and clicks there with page input events. */
 async function qaCardClick(label: string, click: boolean): Promise<void> {
-  const at = (await pill.webContents.executeJavaScript(`(() => {
+  const at = (await cardsWindow.window().webContents.executeJavaScript(`(() => {
     const b = [...document.querySelectorAll('.cards button')].find((x) => x.textContent === ${JSON.stringify(label)});
     if (!b) return null;
     const r = b.getBoundingClientRect();
@@ -232,15 +233,15 @@ async function qaCardClick(label: string, click: boolean): Promise<void> {
     return { x, y, hit: hit && (hit === b || b.contains(hit)) ? 'button' : hit ? hit.tagName.toLowerCase() + '.' + hit.className : 'nothing' };
   })()`)) as { x: number; y: number; hit: string } | null;
   if (!click) {
-    const b = pill.getBounds();
+    const b = cardsWindow.bounds();
     log('info', `QA card-locate ${JSON.stringify(label)} ${JSON.stringify(at && screen.dipToScreenPoint({ x: b.x + at.x, y: b.y + at.y }))}`);
     return;
   }
   log('info', `QA card-click ${JSON.stringify(label)} ${JSON.stringify(at)}`);
   if (!at) return;
-  pill.webContents.sendInputEvent({ type: 'mouseMove', x: at.x, y: at.y });
-  pill.webContents.sendInputEvent({ type: 'mouseDown', x: at.x, y: at.y, button: 'left', clickCount: 1 });
-  pill.webContents.sendInputEvent({ type: 'mouseUp', x: at.x, y: at.y, button: 'left', clickCount: 1 });
+  cardsWindow.window().webContents.sendInputEvent({ type: 'mouseMove', x: at.x, y: at.y });
+  cardsWindow.window().webContents.sendInputEvent({ type: 'mouseDown', x: at.x, y: at.y, button: 'left', clickCount: 1 });
+  cardsWindow.window().webContents.sendInputEvent({ type: 'mouseUp', x: at.x, y: at.y, button: 'left', clickCount: 1 });
 }
 
 type Rect = { x: number; y: number; width: number; height: number };
@@ -256,7 +257,7 @@ function pointerAt(): { x: number; y: number } | null {
   if (pill.isDestroyed()) return null;
   if (qaPointer) return qaPointer;
   const p = screen.getCursorScreenPoint();
-  const b = pill.getBounds();
+  const b = cardsWindow?.bounds() ?? pill.getBounds();
   return { x: p.x - b.x, y: p.y - b.y };
 }
 
@@ -271,39 +272,22 @@ function pointerOverCard(): boolean {
 
 let cardPointer: CardPointer = { over: false, openFor: null };
 
-/**
- * The pill is click-through except over a card (and an Undo toast). Main watches the pointer itself while cards are
- * up: on Windows a click-through window gets no forwarded pointer moves, so the page never learns it is hovered and
- * the window would never start taking clicks (issue #9).
- */
+/** Hover only pauses card timers and targets voice replies; it never controls mouse input. */
 let cardHover = false;
 /** The top card is open under the pointer, showing its buttons. */
 let cardOpen = false;
 /** QA: hovered without a mouse. */
 let qaCardHover = false;
-let undoToast = false;
 let hoverPoll: ReturnType<typeof setInterval> | undefined;
-
-/** The pill window lets clicks through to the window behind it. */
-let passesClicks = true;
-
-function clickThrough(): void {
-  // Windows input belongs to the visible native region, never to pointer polling.
-  if (process.platform === 'win32') return;
-  passesClicks = !(cardHover || undoToast || extraHover);
-  if (!pill.isDestroyed()) pill.setIgnoreMouseEvents(passesClicks, { forward: true });
-}
 
 function pollCardHover(): void {
   const overExtra = extraRects.some(pointerIn);
   if (overExtra !== extraHover) {
     extraHover = overExtra;
-    clickThrough();
   }
   cardPointer = nextCardPointer(cardPointer, cardsShown ? topCardId : null, cardRect, pointerAt(), qaCardHover);
   if (cardPointer.over !== cardHover) {
     cardHover = cardPointer.over;
-    clickThrough();
     agents?.setHovered(cardHover);
   }
   const open = cardPointer.openFor !== null;
@@ -362,13 +346,14 @@ function idleTray(): void {
 
 function pillSend(channel: string, ...args: unknown[]): void {
   if (!pill.isDestroyed()) pill.webContents.send(channel, ...args);
+  cardsWindow?.send(channel, ...args);
   if (channel === 'dictate:pill') pillShot(args[0] as { kind: string; mode?: string });
 }
 
 /** The pill's look: the comparison variant (QA), and whether it shows the live words. */
 function pillConfig(): void {
   const v = process.env.DICTATE_PILL_VARIANT;
-  pillSend('dictate:pill-config', { variant: v === 'b' || v === 'c' ? v : 'a', showText: settings.pillText, nativeRegion: process.platform === 'win32' });
+  pillSend('dictate:pill-config', { variant: v === 'b' || v === 'c' ? v : 'a', showText: settings.pillText });
 }
 
 /** QA (DICTATE_PILL_SHOTS=<dir>): a PNG of the real pill window on each state change, and on request. */
@@ -867,19 +852,9 @@ function applyPendingMicSwitch(): void {
   if (e) setTimeout(() => micToast(e), 1200);
 }
 
-let toastTimer: ReturnType<typeof setTimeout> | undefined;
 function showToast(message: string, undo: boolean, ms: number): void {
   pillSend('dictate:pill', { kind: 'toast', message, undo, ms });
   showPill(pill);
-  clearTimeout(toastTimer);
-  if (undo) {
-    undoToast = true;
-    clickThrough();
-    toastTimer = setTimeout(() => {
-      undoToast = false;
-      clickThrough();
-    }, ms);
-  }
 }
 
 /** `deviceId` null = the system default. Devices are picked by id, so two identical mics are never confused. */
@@ -1011,8 +986,6 @@ function onHook(e: FromHook): void {
     replyPreview.cancel();
     return;
   }
-  // Esc with the pointer over an agent's card dismisses it (the app in front sees the Esc too).
-  if (e.down && e.vk === VK.Escape && !rec && !cancellable.size && pointerOverCard()) agents?.dismissTop();
   // Esc after release cancels a dictation still transcribing or cleaning (the hook swallowed it).
   if (e.down && e.vk === VK.Escape && !rec && cancellable.size) {
     cancelAfterRelease();
@@ -1432,10 +1405,6 @@ function registerIpc(): void {
     if (typeof url === 'string' && /^https:\/\/\S+$/.test(url)) return shell.openExternal(url);
   });
 
-  ipcMain.on('dictate:pill-region', (event, rects: unknown, interactive: unknown) => {
-    if (event.sender !== pill.webContents || process.platform !== 'win32' || pill.isDestroyed()) return;
-    passesClicks = applyPillRegion(pill, rects, interactive);
-  });
   ipcMain.on('dictate:pill-ready', () => {
     log('info', 'pill ready');
     pillConfig();
@@ -1445,14 +1414,19 @@ function registerIpc(): void {
   });
   ipcMain.on('dictate:renderer-error', (_e, page: string, message: string) => log('error', `renderer ${page}: ${String(message).slice(0, 2000)}`));
   ipcMain.on('dictate:pill-hidden', () => {
-    if (!rec?.shown && !cardsShown && !extraRects.length) pill.hide();
+    if (!rec?.shown) pill.hide();
   });
   ipcMain.on('dictate:extra-rects', (_e, rs: unknown) => {
     extraRects = Array.isArray(rs) ? rs.filter((r): r is Rect => !!r && [r.x, r.y, r.width, r.height].every(Number.isFinite)) : [];
-    if (extraRects.length) showPill(pill);
+
     watchCardHover(cardsShown || extraRects.length > 0);
   });
-  ipcMain.handle('dictate:card-action', (_e, a: CardAction) => agents?.action(a));
+  ipcMain.handle('dictate:card-action', async (_e, a: CardAction) => {
+    log('info', `card action ${JSON.stringify(a)}`);
+    const result = await agents?.action(a);
+    log('info', `card action result ${JSON.stringify(result)}`);
+    return result;
+  });
   ipcMain.on('dictate:card-rect', (_e, r: typeof cardRect) => {
     cardRect = r && [r.x, r.y, r.width, r.height].every(Number.isFinite) ? { x: r.x, y: r.y, width: r.width, height: r.height, id: typeof r.id === 'string' ? r.id : null, head: Number.isFinite(r.head) ? r.head : 0 } : null;
   });
@@ -1474,8 +1448,6 @@ function registerIpc(): void {
   ipcMain.on('dictate:undo-mic', () => {
     const d = mics.undo();
     log('info', `undo mic switch: back to ${d?.label ?? 'system default'}`);
-    undoToast = false;
-    clickThrough();
     pillSend('dictate:pill', { kind: 'info', message: `Using ${d ? micName(d.label) : 'the default mic'}` });
     pushState();
     rebuildTrayMenu();
@@ -1580,6 +1552,10 @@ async function main(): Promise<void> {
   startCapture();
   void startUpdater().catch((e) => log('error', `updater did not start: ${e instanceof Error ? e.message : String(e)}`));
   pill = createPill();
+  cardsWindow = new CardsWindow(log, () => {
+    if (topCardId) void agents?.action({ id: topCardId, action: 'dismiss' });
+    else cardsWindow.hide();
+  });
   pill.webContents.on('render-process-gone', (_e, d) => {
     log('error', `pill renderer gone: ${d.reason}`);
     if (!quitting) {
@@ -1772,7 +1748,7 @@ function startAgents(): void {
       // Before the cards: a card that takes the place of an open one is drawn closed.
       pollCardHover();
       pillSend('dictate:cards', view);
-      if (cardsShown) showPill(pill);
+
       watchCardHover(cardsShown || extraRects.length > 0);
     },
     chime: () => pillSend('dictate:sound', 'chime'),
@@ -1805,7 +1781,7 @@ function startSurfaces(a: Agents): void {
       show: () => showPill(pill),
       pointerOverCard,
     },
-    windows: () => [pill, pickerWin, settingsWin, sheet.isOpen ? sheet.window() : undefined].filter((w): w is Electron.BrowserWindow => !!w && !w.isDestroyed()),
+    windows: () => [pill, cardsWindow?.window(), pickerWin, settingsWin, sheet.isOpen ? sheet.window() : undefined].filter((w): w is Electron.BrowserWindow => !!w && !w.isDestroyed()),
     preview: previewReply,
     recording: {
       start: (route) => {
@@ -1846,5 +1822,6 @@ app.on('before-quit', () => {
   agents?.stop();
   surfaces?.stop();
   sheet?.destroy();
+  cardsWindow?.destroy();
   log('info', 'quit');
 });

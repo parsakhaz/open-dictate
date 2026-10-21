@@ -1,0 +1,115 @@
+// Offscreen real-renderer/IPC checks. Never moves the OS pointer or opens a desktop card.
+// This verifies action logic and native window configuration; manual OS clicking is still required.
+const fs = require('node:fs');
+const path = require('node:path');
+const net = require('node:net');
+const { spawn } = require('node:child_process');
+const assert = require('node:assert/strict');
+const { ELECTRON } = require('./agent-bridge');
+const ROOT = path.resolve(__dirname, '..');
+const DATA = path.join(ROOT, 'tmp/verify/cards-window', `data-${process.pid}`);
+const CONTROL = path.join(DATA, 'control.txt');
+fs.mkdirSync(DATA, { recursive: true });
+fs.writeFileSync(CONTROL, '');
+fs.writeFileSync(path.join(DATA, 'settings.json'), JSON.stringify({ onboarded: true, hotkeys: [{ keys: [0x81] }], toggle: null, picker: null, sounds: false }));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function until(fn) { for (let i = 0; i < 100; i++) { const value = await fn(); if (value) return value; await sleep(100); } throw Error('Timed out'); }
+let proc, ws, socket, seq = 1;
+const pending = new Map();
+const appPending = new Map();
+const checks = [];
+function check(name, ok) { assert.ok(ok, name); checks.push(name); console.log('PASS', name); }
+function cdp(method, params) {
+  const id = seq++;
+  const promise = new Promise(resolve => pending.set(id, resolve));
+  ws.send(JSON.stringify({ id, method, params }));
+  return promise;
+}
+async function evaluate(expression) { const reply = await cdp('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }); if (reply.result?.exceptionDetails) throw Error(JSON.stringify(reply.result.exceptionDetails)); return reply.result?.result?.value; }
+async function call(tool, args = {}) {
+  const id = seq++;
+  const promise = new Promise(resolve => appPending.set(id, resolve));
+  socket.write(JSON.stringify({ t: 'call', id, tool, args }) + '\n');
+  const reply = await promise;
+  if (reply.error) throw Error(reply.error);
+  return reply.result;
+}
+async function click(selector) { check(`semantic button ${selector}`, await evaluate(`(()=>{const b=document.querySelector(${JSON.stringify(selector)});if(!b||b.tagName!=='BUTTON')return false;b.click();return true;})()`)); }
+async function main() {
+  proc = spawn(ELECTRON, ['.', '--remote-debugging-port=0'], { cwd: ROOT, env: { ...process.env, DICTATE_DATA_DIR: DATA, DICTATE_QA_CONTROL: CONTROL, DICTATE_QA_SINK: 'none', DICTATE_SMOKE_SKIP_INSTANCE_LOCK: '1', DICTATE_PILL_SHOTS: 'offscreen', PANE_SESSION_ID: '', PANE_PANEL_ID: '', PANE_DIR: path.join(DATA, 'no-pane') }, stdio: 'ignore' });
+  const port = await until(() => { const f = path.join(DATA, 'DevToolsActivePort'); return fs.existsSync(f) && fs.readFileSync(f, 'utf8').split('\n')[0]; });
+  const targets = await until(async () => { try { return await (await fetch(`http://127.0.0.1:${port}/json/list`)).json(); } catch {} });
+  const target = targets.find(t => t.url.endsWith('cards.html'));
+  assert.ok(target, 'card renderer exists separately from pill');
+  ws = new WebSocket(target.webSocketDebuggerUrl);
+  await new Promise(r => ws.onopen = r);
+  ws.onmessage = e => { const m = JSON.parse(e.data); pending.get(m.id)?.(m); pending.delete(m.id); };
+  await until(() => fs.existsSync(path.join(DATA, 'agents/channel.json')));
+  const channel = JSON.parse(fs.readFileSync(path.join(DATA, 'agents/channel.json')));
+  socket = net.connect(channel.path);
+  let buf = '';
+  const hello = new Promise(resolve => socket.on('data', chunk => {
+    buf += chunk;
+    for (let i; (i = buf.indexOf('\n')) >= 0;) {
+      const m = JSON.parse(buf.slice(0, i)); buf = buf.slice(i + 1);
+      if (m.t === 'hello') resolve(m);
+      if (m.t === 'result') { appPending.get(m.id)?.(m); appPending.delete(m.id); }
+    }
+  }));
+  socket.write(JSON.stringify({ t: 'hello', token: channel.token, client: { name: 'claude-code', title: 'Offscreen card validation' } }) + '\n');
+  await hello;
+  fs.appendFileSync(CONTROL, 'inbox busy off\n');
+  let card = await call('notify', { title: 'Offscreen standard buttons', urgency: 'needs_you' });
+  await until(() => evaluate("!!document.querySelector('.card .snooze')"));
+  check('Snooze names the default duration', await evaluate("document.querySelector('.snooze').getAttribute('aria-label')==='Snooze for 3 minutes'"));
+  const shot = await cdp('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(path.join(DATA, 'card.png'), Buffer.from(shot.result.data, 'base64'));
+  if (process.platform === 'win32') {
+    const k = require('koffi');
+    const user = k.load('user32.dll');
+    const proto = k.proto('bool __stdcall CardsEnum(intptr hwnd,intptr lp)');
+    const enumerate = user.func('bool __stdcall EnumWindows(CardsEnum *cb,intptr lp)');
+    const pidOf = user.func('uint __stdcall GetWindowThreadProcessId(intptr hwnd,_Out_ uint *pid)');
+    const text = user.func('int __stdcall GetWindowTextW(intptr hwnd,_Out_ uint16 *buf,int count)');
+    const style = user.func('uint __stdcall GetWindowLongW(intptr hwnd,int index)');
+    const rect = user.func('bool __stdcall GetWindowRect(intptr hwnd,_Out_ int *rect)');
+    let native;
+    enumerate(hwnd => {
+      const pid = [0]; pidOf(hwnd, pid);
+      if (pid[0] !== proc.pid) return true;
+      const title = Buffer.alloc(1024); text(hwnd, title, 512);
+      if (title.toString('utf16le').split('\0')[0] !== 'Dictate cards') return true;
+      const bounds = [0, 0, 0, 0]; rect(hwnd, bounds);
+      native = { hwnd: String(hwnd), exstyle: style(hwnd, -20), bounds };
+      return true;
+    }, 0);
+    check('card HWND uses normal input and activation styles', native && !(native.exstyle & (0x20 | 0x8000000)));
+    check('validation card remains offscreen', native.bounds[2] < 0);
+    fs.writeFileSync(path.join(DATA, 'native.json'), JSON.stringify(native, null, 2));
+  }
+  await click('.snooze');
+  await until(async () => (await call('card_status', { card_id: card.card_id })).state === 'snoozed');
+  check('Snooze immediately mutates queue and removes card', await evaluate("!document.querySelector('.card') && !!document.querySelector('.toast .undo')"));
+  await click('.toast .undo');
+  await until(() => evaluate("!!document.querySelector('.card')"));
+  await click('.card button[aria-label="Dismiss card"]');
+  await until(async () => (await call('card_status', { card_id: card.card_id })).state === 'dismissed');
+  check('Dismiss mutates queue', true);
+  card = await call('notify', { title: 'Offscreen Escape', urgency: 'needs_you' });
+  await until(() => evaluate("!!document.querySelector('.card')"));
+  await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await until(async () => (await call('card_status', { card_id: card.card_id })).state === 'dismissed');
+  check('Escape dismisses through real renderer key handler', true);
+  card = await call('notify', { title: 'Offscreen Close', urgency: 'needs_you' });
+  await until(() => evaluate("!!document.querySelector('.card')"));
+  await click('.window-close');
+  await until(async () => (await call('card_status', { card_id: card.card_id })).state === 'dismissed');
+  check('Close dismisses current card', true);
+  const errors = fs.readFileSync(path.join(DATA, 'logs/dictate.log'), 'utf8').split('\n').filter(l => /renderer .*error|renderer .*unhandled|cards renderer gone/.test(l));
+  check('no card renderer errors', errors.length === 0);
+}
+main().catch(e => { console.error(e); process.exitCode = 1; }).finally(async () => {
+  fs.writeFileSync(path.join(DATA, 'results.json'), JSON.stringify({ checks, limitation: 'No OS pointer input: manual click validation remains required.' }, null, 2));
+  ws?.close(); socket?.destroy();
+  if (proc) { fs.appendFileSync(CONTROL, 'quit\n'); await sleep(1000); if (proc.exitCode === null) proc.kill(); }
+});
