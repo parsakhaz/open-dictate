@@ -4,10 +4,11 @@
 import { cleanMessage } from './agenttext';
 import { CAPS, parseAsk, parseHistoryRequest, parseNotify, ToolInputError } from './agenttools';
 import type { ClientInfo, PaneIds } from './agentwire';
-import { type AddResult, type Card, type CardKind, type CardTarget, CardQueue } from './cards';
+import { type AddResult, type Card, type CardKind, CardQueue, type CardTarget } from './cards';
 import type { HistoryStore } from './history';
 import { type AccessOutcome, type AccessRecord, CONSENT_TIMEOUT_MS, consentSummary, GrantBook, HISTORY_NOTE, readHistory } from './historyaccess';
 import { clientSourceLine, type PaneAction, paneSourceLine, WORDS } from './panewatch';
+import type { Origin, RequestKind, RequestOwner } from './requests';
 import type { VocabTerm } from './types';
 import { checkProposals, type PendingTerm } from './vocabproposals';
 
@@ -17,6 +18,8 @@ export interface HubSession {
   client: ClientInfo;
   pane: PaneIds | null;
   cwd: string;
+  origin?: Origin;
+  requestOwned?: boolean;
 }
 
 export interface Source {
@@ -89,6 +92,7 @@ interface Waiter {
   kind: CardKind;
   resolve(v: unknown): void;
   timer: unknown;
+  detach?: () => void;
   ends: { timeout: unknown; cancelled: unknown; dismissed: unknown };
 }
 
@@ -120,8 +124,40 @@ export class AgentHub {
   private kinds = new Map<CardKind, CardHandler>();
   private statusParts: (() => Record<string, unknown>)[] = [];
   private enders: ((cardId: string, how: CardEnd, value: unknown) => void)[] = [];
+  private owners = new Map<string, RequestOwner>();
+  private cardOwners = new Map<string, RequestOwner>();
 
   constructor(private deps: HubDeps) {}
+
+  async callOwned(session: HubSession, tool: RequestKind, args: unknown, owner: RequestOwner): Promise<unknown> {
+    this.owners.set(session.id, owner);
+    try {
+      return await this.call({ ...session, requestOwned: true }, tool, args, owner.signal);
+    } catch (error) {
+      // An exception after raise must withdraw the request's resources, never leave an orphan card.
+      for (const [id, wait] of this.waits) if (wait.session === session.id) this.fail(id, 'feature_failed');
+      throw error;
+    } finally {
+      this.owners.delete(session.id);
+    }
+  }
+
+  requestOwned(cardId: string): boolean { return this.cardOwners.has(cardId); }
+
+  tickOwned(): void {
+    for (const [id] of this.cardOwners) {
+      const card = this.queue.get(id);
+      if (!card || (card.kind === 'notify' && card.urgency === 'info' && card.faded)) this.settle(id, { reason: 'faded', card_id: id });
+    }
+  }
+
+  /** A request-owned surface failed after admission; preserve identity and fail closed. */
+  fail(cardId: string, code: string): boolean {
+    const owner = this.cardOwners.get(cardId);
+    if (!owner) return false;
+    owner.ending('failed');
+    return this.settle(cardId, { answered: false, reason: code, code, card_id: cardId });
+  }
 
   // ---------- the surfaces' seams ----------
 
@@ -167,17 +203,22 @@ export class AgentHub {
     return new Promise((resolve) => {
       const startedAt = this.deps.now();
       const w: Waiter = { session: o.session, kind: o.kind, resolve: resolve as (v: unknown) => void, timer: undefined, ends: o.ends ?? WAIT_ENDS };
+      const owner = this.owners.get(o.session);
+      if (owner) this.cardOwners.set(cardId, owner);
       // When the time comes the queue may have moved the deadline out (time held doesn't count): wait on.
       const arm = (due: number) => {
         w.timer = this.deps.setTimer(() => {
-          const next = this.queue.deadline(cardId, startedAt, o.timeoutMs, this.deps.now());
+          const next = this.queue.deadline(cardId, startedAt, o.timeoutMs, this.deps.now(), !!owner);
           if (next > due) arm(next);
           else this.settle(cardId, w.ends.timeout);
         }, Math.max(0, due - this.deps.now()));
       };
       this.waits.set(cardId, w);
-      arm(this.queue.deadline(cardId, startedAt, o.timeoutMs, startedAt));
-      o.signal.addEventListener('abort', () => this.settle(cardId, w.ends.cancelled), { once: true });
+      arm(this.queue.deadline(cardId, startedAt, o.timeoutMs, startedAt, !!owner));
+      const abort = () => this.settle(cardId, o.signal.reason === 'request_expired' ? w.ends.timeout : w.ends.cancelled);
+      o.signal.addEventListener('abort', abort, { once: true });
+      w.detach = () => o.signal.removeEventListener('abort', abort);
+      if (o.signal.aborted) abort();
     });
   }
 
@@ -186,7 +227,14 @@ export class AgentHub {
     const w = this.waits.get(cardId);
     if (!w) return false;
     this.deps.clearTimer(w.timer);
+    w.detach?.();
     this.waits.delete(cardId);
+    const how = value === w.ends.timeout ? 'expired' : value === w.ends.cancelled ? 'cancelled' : value === w.ends.dismissed ? 'dismissed' : 'answered';
+    if (!keepCard) {
+      const result = value as { answered?: boolean } | undefined;
+      this.cardOwners.get(cardId)?.ending(w.kind === 'notify' && how === 'answered' && result?.answered !== true ? 'completed' : how);
+      this.cardOwners.delete(cardId);
+    }
     if (!keepCard && this.queue.remove(cardId)) this.deps.changed();
     w.resolve(value);
     // A wait settled with keepCard (a snoozed question) hasn't ended: its card is still in Dictate.
@@ -230,6 +278,10 @@ export class AgentHub {
 
   /** Where a session really is: its Pane tab when Pane knows it, else its client and folder. */
   async source(session: HubSession): Promise<Source> {
+    if (session.origin) {
+      const o = session.origin;
+      return { line: [o.machine, o.agent, o.workspace].filter(Boolean).join(' · ') || o.id, detail: 'Claimed remote origin', target: null };
+    }
     if (session.pane) {
       const tab = await this.deps.pane.tab(session.pane.sessionId, session.pane.panelId).catch(() => null);
       if (tab) return { line: paneSourceLine(tab.paneName, tab.panelTitle, tab.agentType), target: { paneId: session.pane.sessionId, panelId: session.pane.panelId } };
@@ -239,7 +291,9 @@ export class AgentHub {
   }
 
   private add(card: Card): AddResult {
+    if (this.cardOwners.has(card.id)) card.requestOwned = true;
     const r = this.queue.add(card, this.deps.now());
+    this.cardOwners.get(card.id)?.accepted(card.id, { state: r }, { source: card.source, ...(card.target ? { local_pane: card.target } : {}) });
     this.queue.tick(this.deps.now());
     if (card.urgency !== 'info' && this.queue.view(this.deps.now()).top?.id === card.id) this.deps.chime();
     this.deps.changed();
@@ -253,6 +307,18 @@ export class AgentHub {
   private async notify(session: HubSession, args: unknown) {
     const a = parseNotify(args);
     const src = await this.source(session);
+    const owner = this.owners.get(session.id);
+    if (owner?.signal.aborted) return { answered: false, reason: 'cancelled' };
+    if (owner) {
+      const id = this.id();
+      const key = JSON.stringify(['cli-notify', session.origin ? ['origin', session.origin.id] : src.target ? ['tab', src.target.panelId] : ['request', session.id]]);
+      const old = this.queue.byKey(key);
+      if (old) this.settle(old.id, { reason: 'replaced', replaced_by: owner.requestId, card_id: old.id });
+      const answer = this.wait(id, { session: session.id, kind: 'notify', timeoutMs: 24 * 3600_000, signal: owner.signal });
+      const status = this.add({ id, key, origin: 'agent', kind: 'notify', urgency: a.urgency, source: src.line, sourceDetail: src.detail, title: a.title, message: a.message, action: a.action, choices: a.choices, link: a.link, target: src.target, createdAt: this.deps.now() });
+      const result = await answer as Record<string, unknown>;
+      return { ...result, status, card_id: id, ...(a.truncated ? { truncated: true } : {}) };
+    }
     const status = this.add({
       id: this.id(),
       key: src.target ? `tab:${src.target.panelId}` : `session:${session.id}`,
@@ -279,6 +345,7 @@ export class AgentHub {
     if (this.queue.paused) return { answered: false, reason: 'dnd' };
     if (this.waitingOn(session.id, 'ask')) return { answered: false, reason: 'busy' };
     const src = await this.source(session);
+    if (signal.aborted) return { answered: false, reason: 'cancelled' };
     const id = this.id();
     const answer = this.wait<AskResult>(id, { session: session.id, kind: 'ask', timeoutMs: a.timeoutS * 1000, signal });
     this.add({
@@ -409,7 +476,7 @@ export class AgentHub {
   async choose(cardId: string, choice: string): Promise<{ ok: boolean; message: string }> {
     const card = this.queue.get(cardId);
     if (!card?.choices.includes(choice)) return { ok: false, message: 'That card is gone' };
-    if (this.waits.get(cardId)?.kind === 'ask') {
+    if (this.waits.get(cardId)?.kind === 'ask' || (card.requestOwned && card.kind === 'notify')) {
       this.settle(cardId, { answered: true, text: choice, raw: choice, choice });
       return { ok: true, message: 'Answered' };
     }
@@ -423,7 +490,7 @@ export class AgentHub {
     if (!card) return { ok: false, message: 'That card is gone' };
     const handler = this.kinds.get(card.kind);
     if (handler?.reply) return handler.reply(card, text, raw);
-    if (this.waits.get(cardId)?.kind === 'ask') {
+    if (this.waits.get(cardId)?.kind === 'ask' || (card.requestOwned && card.kind === 'notify')) {
       const choice = matchChoice(text, card.choices) ?? matchChoice(raw, card.choices);
       this.settle(cardId, { answered: true, text, raw, ...(choice ? { choice } : {}) });
       return { ok: true, message: `Answered ${card.source.split(' · ').pop()}` };

@@ -79,6 +79,9 @@ async function smoke(executable, label, { normalConfiguration = false } = {}) {
   if (result.agents?.bridgeCopied !== true || !toolsOk || result.agents?.status !== true) {
     throw new Error(`${label}: the agents' bridge did not run from the data folder and reach the app: ${JSON.stringify(result.agents)}`);
   }
+  for (const check of ['copied', 'status', 'schema', 'create', 'detached', 'wait', 'cancel', 'get']) {
+    if (result.cli?.[check] !== true) throw new Error(`${label}: packaged CLI ${check} did not pass: ${JSON.stringify(result.cli)}`);
+  }
   if (modelDir && (typeof result.inference?.text !== 'string' || !result.inference.text || result.inference.partials < 1)) {
     throw new Error(`${label}: packaged recognizer did not transcribe the speech fixture: ${JSON.stringify(result)}`);
   }

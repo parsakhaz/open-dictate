@@ -11,17 +11,21 @@ import type { Card } from '../core/cards';
 import type { HistoryStore } from '../core/history';
 import { type AccessRecord, addRecord, logLine, parseAccessLog } from '../core/historyaccess';
 import { actionFor } from '../core/panewatch';
-import { serverEntry, setupSnippets, type Snippet } from '../core/registration';
+import { type Snippet, serverEntry, setupSnippets } from '../core/registration';
 import type { Settings } from '../core/types';
 import { approveTerm, rejectTerm } from '../core/vocabproposals';
+import { AgentRequests } from './agentrequests';
 import { type AgentHandlers, AgentServer } from './agentserver';
+import { installCli } from './cliinstall';
+import { type InstructionsFile, instructionsStatus, syncInstructions } from './instructions';
 import type { Logger } from './log';
 import { PaneLink } from './panelink';
-import { type InstructionsFile, instructionsStatus, syncInstructions } from './instructions';
 import { type AgentState, agentStatus, registerAgents, unregisterAgents } from './registration';
 import { debouncedWriter, loadJson } from './store';
 
 export const agentsDir = (userData: string) => path.join(userData, 'agents');
+declare const DICTATE_BUILD: string;
+declare const DICTATE_VERSION: string;
 
 /** Copies the bridge next to the channel file when it differs; returns where it is. */
 export function installBridge(appRoot: string, userData: string, log: Logger): string {
@@ -132,11 +136,12 @@ const dto = (c: Card): CardDto => ({
   choices: c.choices,
   linkHost: c.link?.host ?? null,
   canOpen: !!c.target,
-  canReply: !!c.target || c.kind === 'ask',
+  canReply: !!c.target || c.kind === 'ask' || !!c.requestOwned,
   ...(c.data !== undefined ? { data: c.data } : {}),
 });
 
 export class Agents {
+  readonly requests: AgentRequests;
   readonly hub: AgentHub;
   readonly pane: PaneLink;
   server: AgentServer | undefined;
@@ -185,6 +190,7 @@ export class Agents {
       },
     });
     this.hub.queue.paused = host.settings().agentAlertsPaused;
+    this.requests = new AgentRequests(this.hub, { profile: host.userData, executable: host.registration.executable, build: typeof DICTATE_BUILD === 'undefined' ? 'development' : DICTATE_BUILD, version: typeof DICTATE_VERSION === 'undefined' ? 'development' : DICTATE_VERSION });
     const paneDir = process.env.PANE_DIR || path.join(os.homedir(), '.pane');
     this.pane = new PaneLink({
       paneDir,
@@ -199,10 +205,13 @@ export class Agents {
 
   async start(): Promise<void> {
     installBridge(this.host.appRoot, this.host.userData, this.host.log);
+    try { installCli(this.host.appRoot, this.host.userData, this.host.registration.executable); }
+    catch { this.host.log('warn', 'agents: CLI launcher could not be installed'); }
     this.server = await startAgentChannel(
       this.host.userData,
       {
         call: (session, tool, args, signal) => this.hub.call(session, tool, args, signal),
+        request: (session, op, args, signal) => this.requests.call(session, op, args, signal),
         closed: (session) => this.hub.sessionClosed(session.id),
         log: this.host.log,
       },
@@ -237,6 +246,8 @@ export class Agents {
   render(): void {
     const now = Date.now();
     this.hub.queue.tick(now);
+    this.hub.tickOwned();
+    this.requests?.render();
     const v = this.hub.queue.view(now);
     if (this.armed && !this.hub.queue.get(this.armed)) this.armed = null;
     this.host.showCards({ top: v.top ? dto(v.top) : null, more: v.more, list: v.all.map(dto), replying: !!v.top && v.top.id === this.hub.queue.replyingTo, ...(v.extra ? { extra: v.extra } : {}) });

@@ -258,3 +258,41 @@ describe('the round', () => {
 function AFTER(): number {
   return 5000;
 }
+
+it('CLI answer time starts when shown and pauses across snooze, quiet return and round Undo', () => {
+  const q = new CardQueue();
+  const blocker = card({ createdAt: 0 });
+  const request = card({ kind: 'ask', createdAt: 1, requestOwned: true });
+  q.add(blocker, 0);
+  q.add(request, 1);
+  q.tick(1);
+  expect(q.deadline(request.id, 1, 120_000, 900_000, true)).toBe(1_020_000);
+  q.remove(blocker.id);
+  q.tick(900_000);
+  q.snooze(request.id, 2_000_000, 910_000);
+  q.returnTo = 'inbox';
+  q.wake(request.id, 2_000_000);
+  expect(q.deadline(request.id, 1, 120_000, 2_500_000, true)).toBe(2_610_000);
+  q.unquiet(request.id, 2_500_000);
+  q.park(request.id, true, 2_510_000);
+  q.park(request.id, false, 2_520_000);
+  expect(q.deadline(request.id, 1, 120_000, 2_530_000, true)).toBe(2_620_000);
+  q.snooze(request.id, 90_000_000, 2_530_000);
+  expect(q.deadline(request.id, 1, 120_000, 86_400_002, true)).toBe(86_400_001);
+});
+
+it('resumes a quiet CLI card budget while displayed in a round and pauses it again when the round closes', () => {
+  const q = new CardQueue();
+  const request = card({ kind: 'ask', createdAt: 0, requestOwned: true });
+  q.add(request, 0);
+  q.tick(0);
+  q.snooze(request.id, 1200, 200);
+  q.returnTo = 'inbox';
+  q.wake(request.id, 1200);
+  q.setRound(true);
+  q.markShown(request.id, 1300);
+  expect(q.deadline(request.id, 0, 1000, 1500, true)).toBe(2100);
+  expect(q.deadline(request.id, 0, 1000, 1800, true)).toBe(2100);
+  q.setRound(false, 1800);
+  expect(q.deadline(request.id, 0, 1000, 2500, true)).toBe(2800);
+});

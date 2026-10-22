@@ -64,6 +64,7 @@ function setup(host: FeatureHost): void {
     shown = null;
     if (sheet.kind === 'lineup') sheet.close('closed');
   };
+  hub.onEnded((id) => { closeSheet(id); open.delete(id); });
 
   sheet.onClosed((kind) => {
     if (kind === 'lineup') shown = null;
@@ -93,6 +94,7 @@ function setup(host: FeatureHost): void {
       }
     });
     const src = await hub.source(session);
+    if (signal.aborted) return { answered: false, reason: 'cancelled' };
     const id = hub.newId();
     open.set(id, { args, payload: { cardId: id, title: args.title, message: args.message, source: src.line, pick: args.pick, max: args.max, candidates } });
     const waiting = hub.wait<LineupAnswer>(id, { session: session.id, kind: 'lineup', timeoutMs: args.timeoutS * 1000, signal });

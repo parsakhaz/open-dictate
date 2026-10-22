@@ -3,9 +3,12 @@
 // agent session. Pure, apart from hashing.
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 
 export const CHANNEL_FILE = 'channel.json';
 export const BRIDGE_FILE = 'dictate-mcp.js';
+export const CLI_FILE = 'dictate-cli.js';
+export type RequestOperation = 'status' | 'create' | 'get' | 'list' | 'wait' | 'cancel';
 
 /** What the app writes next to the bridge: where to connect and the token to present. */
 export interface ChannelInfo {
@@ -30,10 +33,11 @@ export interface ClientInfo {
 export type BridgeToApp =
   | { t: 'hello'; token: string; client: ClientInfo; pane: PaneIds | null; cwd: string; pid: number }
   | { t: 'call'; id: number; tool: string; args: unknown }
+  | { t: 'request'; id: number; version: number; operation: RequestOperation; args: unknown }
   | { t: 'cancel'; id: number };
 
 export type AppToBridge =
-  | { t: 'hello'; ok: true; session: string }
+  | { t: 'hello'; ok: true; session: string; requests?: 1 }
   | { t: 'hello'; ok: false; error: string }
   | { t: 'result'; id: number; result: unknown }
   | { t: 'result'; id: number; error: string };
@@ -76,10 +80,11 @@ const ENDS = 200;
  */
 export function lineReader(onMessage: (m: unknown) => void, max = MAX_LINE, tooLong?: (line: LongLine) => void): (chunk: Buffer | string) => void {
   let buf = '';
+  const decoder = new StringDecoder('utf8');
   // The line being skipped, once it outgrew `max` before its end arrived.
   let skipping: LongLine | null = null;
   return (chunk) => {
-    buf += chunk.toString();
+    buf += typeof chunk === 'string' ? chunk : decoder.write(chunk);
     for (let i = buf.indexOf('\n'); i >= 0; i = buf.indexOf('\n')) {
       const piece = buf.slice(0, i);
       buf = buf.slice(i + 1);

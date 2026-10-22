@@ -2,8 +2,9 @@
 // src/core/cards.ts; the typing and busy signals come from here), a card can be snoozed from the pill, the shortcut
 // or a round, and the round works through the waiting cards in the sheet right above the pill, by keys or by open
 // listening. card_status reports where a card is, also an answer given after the agent's call returned.
-import { ToolInputError } from '../../core/agenttools';
+
 import type { CardEnd } from '../../core/agenthub';
+import { ToolInputError } from '../../core/agenttools';
 import { type Card, MAX_WAIT_MS } from '../../core/cards';
 import { BUSY_POLL_MS, isBusyState } from '../../core/flowguard';
 import { clockTime, nextLength, parseCommand, Round, type RoundCommand, type RoundResult, summaryLine } from '../../core/round';
@@ -244,7 +245,7 @@ class Inbox {
     const now = this.now();
     const until = now + Math.round(Math.min(120, Math.max(1, minutes))) * 60_000;
     if (!c || !this.q.snooze(id, until, now)) return false;
-    if (this.host.hub.waiting(id) && until > c.createdAt + MAX_WAIT_MS) {
+    if (!this.host.hub.requestOwned(id) && this.host.hub.waiting(id) && until > c.createdAt + MAX_WAIT_MS) {
       this.host.hub.settle(id, { answered: false, reason: 'snoozed', until: iso(until), card_id: id }, true);
       this.lateAnswer(c);
     }
@@ -287,8 +288,8 @@ class Inbox {
   }
 
   private bringBack(id: string): void {
-    if (!this.q.wake(id, this.now(), true)) this.q.unquiet(id);
-    this.q.unquiet(id);
+    if (!this.q.wake(id, this.now(), true)) this.q.unquiet(id, this.now());
+    this.q.unquiet(id, this.now());
     this.render();
   }
 
@@ -391,7 +392,7 @@ class Inbox {
   private act(result: RoundResult, commit?: () => Promise<unknown>): void {
     this.commitPending();
     if (commit) {
-      this.q.park(result.id, true);
+      this.q.park(result.id, true, this.now());
       this.pending = { id: result.id, commit };
     }
     this.round?.act(result);
@@ -409,7 +410,7 @@ class Inbox {
     const p = this.pending;
     this.pending = null;
     if (!p) return;
-    this.q.park(p.id, false);
+    this.q.park(p.id, false, this.now());
     void p.commit().catch((err) => this.host.log('warn', `inbox: a round answer failed (${(err as Error).message})`));
   }
 
@@ -419,7 +420,7 @@ class Inbox {
     if (!r) return;
     this.round = null;
     this.stopListening();
-    this.q.setRound(false);
+    this.q.setRound(false, this.now());
     if (this.host.sheet.kind === 'round') this.host.sheet.close();
     if (this.before) setForeground(this.before);
     this.host.log('info', `inbox: round ended (${why}) after ${r.results.length} action${r.results.length === 1 ? '' : 's'}`);
@@ -479,7 +480,7 @@ class Inbox {
       const last = r?.undo();
       if (last) {
         if (this.pending?.id === last.id) {
-          this.q.park(last.id, false);
+          this.q.park(last.id, false, this.now());
           this.pending = null;
         }
         if (last.action === 'snoozed') this.q.wake(last.id, this.now(), false);

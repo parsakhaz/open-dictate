@@ -4,6 +4,7 @@ import { AgentHub, type HubDeps, type HubSession, matchChoice } from '../src/cor
 import type { Card } from '../src/core/cards';
 import { HistoryStore } from '../src/core/history';
 import type { AccessRecord } from '../src/core/historyaccess';
+import { RequestBook } from '../src/core/requests';
 import type { PendingTerm } from '../src/core/vocabproposals';
 
 function setup(over: { inFront?: boolean; historyOn?: boolean; sendOk?: boolean } = {}) {
@@ -62,6 +63,50 @@ const inTab = (panelId = 'X'): HubSession => ({ id: `s-${panelId}`, client: { na
 const outside: HubSession = { id: 's-out', client: { name: 'cursor-vscode' }, pane: null, cwd: '/home/me/open-dictate' };
 const sig = () => new AbortController().signal;
 const settle = () => new Promise((r) => setTimeout(r, 0));
+
+it('CLI ownership survives connection closure and long snooze, then retains the enriched answer', async () => {
+  const { hub, advance } = setup();
+  const book = new RequestBook();
+  const input = { kind: 'ask' as const, args: { question: 'Which?', choices: ['Blue'] }, cwd: outside.cwd };
+  const receipt = await book.create(input, (owner) => hub.callOwned({ ...outside, id: 'request-one' }, input.kind, input.args, owner));
+  hub.sessionClosed(outside.id);
+  const card = hub.queue.get(receipt.card_id!)!;
+  expect(card).toBeDefined();
+  hub.queue.snooze(card.id, card.createdAt + 20 * 60_000, card.createdAt);
+  await advance(11 * 60_000);
+  expect(book.get(receipt.request_id).terminal).toBe(false);
+  expect(hub.waiting(card.id)).toBe(true);
+  hub.queue.wake(card.id, card.createdAt + 11 * 60_000, false);
+  await hub.choose(card.id, 'Blue');
+  const result = await book.wait(receipt.request_id, 1000);
+  expect(result).toMatchObject({ state: 'answered', result: { answered: true, choice: 'Blue', raw: 'Blue', card_id: card.id } });
+});
+
+it('CLI notify has an answer sink without a Pane target and never sends to a claimed remote panel', async () => {
+  const { hub, sent } = setup();
+  const book = new RequestBook();
+  const receipt = await book.create({ kind: 'notify', args: {}, cwd: outside.cwd }, (owner) => hub.callOwned({ ...outside, id: 'request-note', pane: { sessionId: 'P', panelId: 'X' }, origin: { id: 'remote', machine: 'Mac', agent: 'Codex', panel_id: 'X' } }, 'notify', { title: 'Pick a colour', urgency: 'needs_you', choices: ['Blue'] }, owner));
+  const card = hub.queue.get(receipt.card_id!)!;
+  expect(card.target).toBeNull();
+  expect(card.source).toContain('Mac');
+  expect(card.choices).toEqual(['Blue']);
+  await hub.choose(card.id, 'Blue');
+  expect(await book.wait(receipt.request_id, 1000)).toMatchObject({ state: 'answered', result: { choice: 'Blue' } });
+  expect(sent).toEqual([]);
+});
+
+it('CLI info completes on fade and coalesced requests retain distinct replacement outcomes', async () => {
+  const { hub, advance } = setup();
+  const book = new RequestBook();
+  const make = () => book.create({ kind: 'notify', args: {}, cwd: outside.cwd }, (owner) => hub.callOwned({ ...outside, id: `cli:${hub.newId()}`, origin: { id: 'same-source' } }, 'notify', { title: 'Info' }, owner));
+  const first = await make();
+  const second = await make();
+  expect(await book.wait(first.request_id, 1000)).toMatchObject({ state: 'completed', result: { reason: 'replaced' } });
+  await advance(4500);
+  hub.queue.tick(Date.now() + 24 * 3600_000);
+  hub.tickOwned();
+  expect(await book.wait(second.request_id, 1000)).toMatchObject({ state: 'completed', result: { reason: 'faded' } });
+});
 
 describe('notify', () => {
   it('labels the card with its real tab, whatever the agent claims (J3, J4)', async () => {

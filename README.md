@@ -152,6 +152,83 @@ Models are downloaded by you, from their official sources, and keep their own li
 
 **Linux?** X11 works fully. On Wayland, the desktop doesn't let apps see key releases or type into other apps, so you start and stop from the tray and paste yourself. [Details](docs/release/README.md#platform-behaviour).
 
+## Dictate CLI for agents
+
+On a Windows notification host, launch Dictate once to install its CLI at
+`%APPDATA%\dictate\agents\dictate.cmd`. It uses Dictate's own runtime; no system
+Node or repository checkout is needed. From any fresh PowerShell window:
+
+```powershell
+& "$env:APPDATA\dictate\agents\dictate.cmd" doctor --json
+```
+
+Use that absolute launcher path for automation. The installer does not change
+PATH. For convenience in the current PowerShell session only, use
+`$env:PATH += ";$env:APPDATA\dictate\agents"`; then `dictate --help` works.
+`doctor` reports the selected profile/channel, app and CLI build, and connection
+problems. `DICTATE_AGENT_CHANNEL` explicitly selects another profile's
+`channel.json`; a missing override never falls back to your normal profile.
+
+Copy the following into your root or user-level **AGENTS.md**, replacing
+`CHOSEN-HOST` with the one machine where you want to see cards. This is a manual
+setup step; Dictate does not add these remote instructions for you.
+
+```text
+Use Dictate on CHOSEN-HOST through `runpane workspace CHOSEN-HOST exec`; its Windows launcher is `%APPDATA%\dictate\agents\dictate.cmd`. Workspaces must be authorized and that app running.
+On that host verify `doctor --json` and `schema KIND --json`; use MCP aliases notify, ask, decide, approve, lineup, peek with `--from-json FILE --json`.
+Creation returns immediately: save request_id, then collect `request get ID` or `request wait ID --timeout 45s`. Held/snoozed is not an answer. Never blindly replay after app restart.
+Stage input/assets on the host; provide originating machine/task context with `--origin-file`. Paths and localhost resolve there. The local CLI does not route remotely.
+```
+
+For example, create two UTF-8 files on the originating machine:
+
+```json
+// request.json (omit this comment from the actual JSON file)
+{"question":"Which environment should get the fix?","choices":["Staging","Production"]}
+```
+
+```json
+// origin.json (replace these claims with the actual originating context)
+{"id":"my-agent-task","machine":"ORIGIN-MACHINE","agent":"Codex","workspace":"my-project"}
+```
+
+The following commands work from PowerShell or a POSIX shell for these ASCII
+JSON examples. Choose a fresh staging folder for each operation. For images and
+other binary files, pass raw bytes to `workspace write`, rather than a text
+pipeline.
+
+```sh
+cat request.json | runpane workspace CHOSEN-HOST write 'C:\Temp\dictate-example-UNIQUE\request.json' --json
+cat origin.json | runpane workspace CHOSEN-HOST write 'C:\Temp\dictate-example-UNIQUE\origin.json' --json
+runpane workspace CHOSEN-HOST exec --cwd 'C:\Temp\dictate-example-UNIQUE' --json -- 'powershell.exe -NoProfile -NonInteractive -Command "& (Join-Path $env:APPDATA dictate\agents\dictate.cmd) ask --from-json request.json --origin-file origin.json --json; exit $LASTEXITCODE"'
+```
+
+Check the RunPane envelope's `ok`, `exitCode`, `timedOut` and `stderr`, then parse
+its `stdout` as Dictate JSON. A later, separate remote command retrieves the answer:
+
+```sh
+runpane workspace CHOSEN-HOST exec --json -- 'powershell.exe -NoProfile -NonInteractive -Command "& (Join-Path $env:APPDATA dictate\agents\dictate.cmd) request get REQUEST_ID --json; exit $LASTEXITCODE"'
+```
+
+`dictate request create --from-json FILE` accepts `{"kind":"ask","args":{...}}`;
+aliases accept the argument object directly. `--from-json -` reads stdin.
+The five lifecycle verbs are `create`, `get`, `list`, `wait` and `cancel`.
+`schema [request|KIND] --json` describes shared MCP inputs, complete typed
+outcomes, limits and exit codes; it and `--help`/`--version` work with the app
+stopped. Creation never waits, including `peek` with either `wait` value. Only
+`request wait` observes: 45 seconds by default, at most 600; `--timeout 0` polls.
+Disconnecting an observer does not withdraw the card. `request cancel` explicitly
+withdraws it and returns whichever terminal outcome won the race.
+
+Requests last for this app instance, with a 24-hour maximum pending lifetime and
+24-hour terminal result retention. Held and snoozed time pauses the answer
+budget. `get`/`wait` retain complete rich results; repeated reads do not consume
+them. A successful exit means the command worked, so inspect `terminal`, `state`
+and `result` for the person's answer. Exit codes: 0 success, 2 invalid input,
+3 app/channel failure, 4 lost state/conflict/capacity. Ambiguous create transport
+errors say `acceptance:"unknown"`; retry only with the saved instance and key.
+Use `approve` for safeguarded approval; `notify`'s action hint cannot grant it.
+
 ## Build from source
 
 `pnpm install && pnpm start` with Node 24 and pnpm 11. Everything else is in [docs/development](docs/development/README.md).

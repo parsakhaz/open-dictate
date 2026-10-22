@@ -11,6 +11,7 @@ import type { Card } from '../../core/cards';
 import type { PeekCardData, PeekConfirm, PeekSheetAction, PeekSheetPayload } from '../../core/peekdata';
 import { SHEET_SIZES } from '../../core/sheetkinds';
 import { checkTarget, type PeekTarget, parsePeekArgs, shortUrl, urlAllowed } from '../../core/tools/peek';
+import { RequestCrops } from '../requestcrops';
 import type { Feature, FeatureHost } from './host';
 import { type Blocked, dockWindow, HELPER, HELPER_WORLD, NavGuard, PeekFolders, type Pick, type Pointed, peekSession, registerPeekScheme, thumbWindow } from './peekview';
 
@@ -35,6 +36,7 @@ interface Item {
   /** What the views load: the web URL, or the dictate-peek:// URL of the file. */
   url: string;
   wait: boolean;
+  requestOwned?: boolean;
   keepOpen: boolean;
   thumb: BrowserWindow | null;
   thumbAt: number;
@@ -55,6 +57,8 @@ interface Dock {
 }
 
 class PeekFeature {
+  private cliCrops: RequestCrops;
+  private cropSweep: ReturnType<typeof setInterval>;
   private items = new Map<string, Item>();
   private dock: Dock | null = null;
   private folders = new PeekFolders();
@@ -62,7 +66,11 @@ class PeekFeature {
   /** QA: the pointer counts as over the docked page without moving the OS pointer. */
   private qaPointer = false;
 
-  constructor(private host: FeatureHost) {}
+  constructor(private host: FeatureHost) {
+    this.cliCrops = host.agents.requests?.crops ?? new RequestCrops(path.join(host.userData, 'agents', 'cli-captures'));
+    this.cropSweep = setInterval(() => this.cliCrops.sweep(), 60_000);
+    this.cropSweep.unref();
+  }
 
   start(): void {
     const { hub, sheet } = this.host;
@@ -73,7 +81,7 @@ class PeekFeature {
       reply: (card, text, raw) => this.reply(card, text, raw),
       action: (card, name) => this.cardAction(card, name),
     });
-    hub.onEnded((cardId) => this.ended(cardId));
+    hub.onEnded((cardId, how, value) => this.ended(cardId, how, value));
     this.host.replyTarget(() => this.replyTarget());
     sheet.onClosed((kind) => {
       if (kind === 'peek') this.undock();
@@ -89,6 +97,7 @@ class PeekFeature {
   }
 
   stop(): void {
+    clearInterval(this.cropSweep);
     for (const it of this.items.values()) it.thumb?.destroy();
     if (this.dock && !this.dock.win.isDestroyed()) this.dock.win.destroy();
     this.dock = null;
@@ -100,9 +109,11 @@ class PeekFeature {
     const a = parsePeekArgs(args);
     const target = checkTarget(a.target, { cwd: session.cwd, hosts: this.host.settings().peek.hosts });
     if (target.kind === 'file' && !fs.existsSync(target.file)) throw new Error('peek: that file does not exist');
+    if (session.requestOwned && target.kind === 'file' && !this.folders.resolve(this.folders.url(target.root, target.file))) throw new Error('peek: file is unavailable or outside the real working folder');
     const { hub } = this.host;
     if (hub.queue.paused) return { answered: false, reason: 'dnd' };
     const src = await hub.source(session);
+    if (signal.aborted) return { answered: false, reason: 'cancelled' };
     const id = hub.newId();
     const item: Item = {
       cardId: id,
@@ -113,7 +124,8 @@ class PeekFeature {
       ask: a.ask,
       target,
       url: target.kind === 'web' ? target.url : this.folders.url(target.root, target.file),
-      wait: a.wait,
+      wait: a.wait || !!session.requestOwned,
+      requestOwned: session.requestOwned,
       keepOpen: a.keepOpen,
       thumb: null,
       thumbAt: 0,
@@ -147,7 +159,7 @@ class PeekFeature {
       createdAt: Date.now(),
     };
     const end = (reason: string) => ({ answered: false, reason, card_id: id });
-    const answer = a.wait ? hub.wait(id, { session: session.id, kind: 'peek', timeoutMs: a.timeoutS * 1000, signal, ends: { timeout: end('timeout'), cancelled: end('cancelled'), dismissed: end('dismissed') } }) : null;
+    const answer = item.wait ? hub.wait(id, { session: session.id, kind: 'peek', timeoutMs: a.timeoutS * 1000, signal, ends: { timeout: end('timeout'), cancelled: end('cancelled'), dismissed: end('dismissed') } }) : null;
     // The page the person kept open (keep_open) shows this one in place, if it is the same page.
     const kept = this.dock && !this.items.has(this.dock.item.cardId) && this.dock.item.url === item.url ? this.dock : null;
     const raised = hub.raise(card);
@@ -191,6 +203,7 @@ class PeekFeature {
     });
     w.webContents.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
       if (!isMainFrame || code === -3) return;
+      if (item.requestOwned && this.host.hub.fail(item.cardId, 'asset_unavailable')) return;
       const d = this.cardData(item.cardId);
       if (d) {
         d.loading = false;
@@ -211,6 +224,10 @@ class PeekFeature {
   private async cardAction(card: Card, name: string): Promise<{ ok: boolean; message: string } | undefined> {
     const item = this.items.get(card.id);
     if (!item) return { ok: false, message: 'That card is gone' };
+    if (item.requestOwned && item.target.kind === 'file' && !this.folders.resolve(item.url)) {
+      this.host.hub.fail(card.id, 'asset_unavailable');
+      return { ok: false, message: 'The staged page is no longer available' };
+    }
     if (name === 'peek') {
       this.dockItem(item);
       return undefined;
@@ -547,7 +564,7 @@ class PeekFeature {
   /** Gives the agent its answer: the waiting call returns, or (wait: false) the words go to its Pane tab. */
   private async answer(item: Item, r: { text: string; raw: string; url: string; pointed?: Pointed; region?: Pick['region']; crop?: string }): Promise<{ ok: boolean; message: string }> {
     const { hub } = this.host;
-    const result = { answered: true, ...r, card_id: item.cardId };
+    const result = { answered: true, ...r, card_id: item.cardId, ...(item.requestOwned && !r.crop ? { crop_absence: 'No capture was available or it exceeded the owned-cache limit' } : {}) };
     if (item.wait) {
       if (!hub.settle(item.cardId, result)) return { ok: false, message: 'That card is gone' };
       this.host.log('info', `peek: answered ${item.cardId}${r.pointed ? ' (pointed)' : r.region ? ' (region)' : ''}`);
@@ -576,6 +593,12 @@ class PeekFeature {
     try {
       const img = await d.win.webContents.capturePage({ x, y, width, height });
       if (img.isEmpty()) return null;
+      if (d.item.requestOwned) {
+        if (!this.host.hub.requestOwned(d.item.cardId)) return null;
+        const png = img.toPNG();
+        const file = this.cliCrops.save(d.item.cardId, png);
+        return file ? { file, dataUrl: `data:image/png;base64,${png.toString('base64')}` } : null;
+      }
       const dir = capturesDir(this.host.userData);
       fs.mkdirSync(dir, { recursive: true });
       const file = path.join(dir, `peek-${d.item.cardId}-${Date.now()}.png`);
@@ -608,14 +631,15 @@ class PeekFeature {
   }
 
   /** The card is gone (answered, dismissed, expired, the agent went): its windows go, unless it asked to keep the page up. */
-  private ended(cardId: string): void {
+  private ended(cardId: string, how?: string, value?: unknown): void {
+    this.cliCrops.completed(cardId);
     const item = this.items.get(cardId);
     if (!item) return;
     this.items.delete(cardId);
     this.stopThumb(item);
     const d = this.dock;
     if (d?.item !== item) return;
-    if (item.keepOpen && this.host.sheet.kind === 'peek') {
+    if (item.keepOpen && (!item.requestOwned || (how === 'answered' && (value as { answered?: boolean })?.answered === true)) && this.host.sheet.kind === 'peek') {
       d.confirm = null;
       this.pushSheet();
       return;
