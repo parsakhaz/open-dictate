@@ -164,9 +164,11 @@ function onPickerKey(k: { vk: number; shift: boolean }): void {
 }
 
 dictate.on('dictate:picker-key', onPickerKey);
+dictate.on('dictate:picker-local-keys', (on: boolean) => { localKeys = on; });
 const LOCAL_KEYS: Record<string, number> = { Escape: 0x1b, Enter: 0x0d, Tab: 0x09, ArrowUp: 0x26, ArrowDown: 0x28, PageUp: 0x21, PageDown: 0x22, Home: 0x24, End: 0x23, Backspace: 0x08 };
 document.addEventListener('keydown', (e) => {
   if (!localKeys) return;
+  if (['Enter', ' '].includes(e.key) && e.target instanceof Element && e.target.closest('button, input, select, textarea, a[href]')) return;
   if (LOCAL_KEYS[e.key]) { e.preventDefault(); onPickerKey({ vk: LOCAL_KEYS[e.key], shift: e.shiftKey }); }
   else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && !(e.key === ' ' && !q)) {
     e.preventDefault(); q += e.key; selected = 0; render();

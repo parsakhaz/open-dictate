@@ -47,6 +47,17 @@ export class Sheet {
     if (!this.win || this.win.isDestroyed()) {
       this.ready = false;
       this.win = createSheet();
+      const window = this.win;
+      window.on('close', (event) => {
+        event.preventDefault();
+        this.close('closed');
+      });
+      window.on('closed', () => {
+        if (this.win !== window) return;
+        this.win = undefined;
+        this.ready = false;
+        this.close('closed');
+      });
       this.win.webContents.on('render-process-gone', (_e, d) => {
         this.log('error', `sheet renderer gone: ${d.reason}`);
         this.win?.destroy();
@@ -110,7 +121,10 @@ export class Sheet {
   }
 
   destroy(): void {
-    if (this.win && !this.win.isDestroyed()) this.win.destroy();
+    this.close('closed');
+    const window = this.win;
     this.win = undefined;
+    this.ready = false;
+    if (window && !window.isDestroyed()) window.destroy();
   }
 }

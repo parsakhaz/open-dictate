@@ -1,7 +1,7 @@
 // Agent cards above the pill: the top card shows its source, its whole title and message at a glance, and on hover
 // Dictate's own buttons; the list behind "+N". While the person answers it by voice it stays up, marked as such.
-// Every word is shown as plain text. Only the cards take clicks: main watches the pointer, lets the window catch it
-// while it is over a card, and says so here. The card's body eases to its new height whenever what it shows changes.
+// Every word is shown as plain text. Main watches the pointer only for original hover disclosure;
+// native input stays enabled. The card body eases to its new height whenever its content changes.
 // The frame (head, list, easing) is here; each kind's body is its own module (bodies.ts).
 import { type Rect, resizeReach } from '../../core/cardpointer';
 import { plainTitle } from '../../core/cardtext';

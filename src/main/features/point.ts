@@ -1,3 +1,4 @@
+import { protectCapture } from '../contentprotection';
 // L6 · Point and say (Windows): hold the point key over anything and talk. While the key is down the helper reads
 // the element under the pointer (UI Automation, in its own process), the glow outlines it and the edge of the screen
 // glows; holding the left button and dragging switches to a region. On release Dictate crops the screen there (its
@@ -277,15 +278,15 @@ class PointAndSay {
     const phys = screen.dipToScreenRect(null, display.bounds);
     const crop = intersect(rect, phys);
     if (!crop) return null;
-    const own = this.host.windows().filter((w) => !w.isDestroyed() && !w.isContentProtected());
-    for (const w of own) w.setContentProtection(true);
+    const own = this.host.windows().filter((w) => !w.isDestroyed());
+    const releaseProtection = protectCapture(own);
     let sources: Electron.DesktopCapturerSource[];
     try {
       // Protection takes effect with the next desktop composition.
       await sleep(120);
       sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: phys.width, height: phys.height } });
     } finally {
-      for (const w of own) if (!w.isDestroyed()) w.setContentProtection(false);
+      releaseProtection();
     }
     const src = sources.find((s) => s.display_id === String(display.id)) ?? (sources.length === 1 ? sources[0] : undefined);
     if (!src || src.thumbnail.isEmpty()) return null;

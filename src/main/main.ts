@@ -206,7 +206,7 @@ async function qaButtonAt(label: string): Promise<{ x: number; y: number } | nul
 /** QA: a click where the stand-in pointer is, as the window would get it: none at all while it lets clicks through. */
 async function qaPointerClick(): Promise<void> {
   const at = qaPointer;
-  if (!at || passesClicks) {
+  if (!at) {
     log('info', `QA pointer-click ${JSON.stringify({ at, hit: at ? 'passed through' : 'no pointer' })}`);
     return;
   }
@@ -280,27 +280,16 @@ let cardHover = false;
 let cardOpen = false;
 /** QA: hovered without a mouse. */
 let qaCardHover = false;
-let undoToast = false;
 let hoverPoll: ReturnType<typeof setInterval> | undefined;
-
-/** The pill window lets clicks through to the window behind it. */
-let passesClicks = true;
-
-function clickThrough(): void {
-  passesClicks = !(cardHover || undoToast || extraHover);
-  if (!pill.isDestroyed()) pill.setIgnoreMouseEvents(passesClicks, { forward: true });
-}
 
 function pollCardHover(): void {
   const overExtra = extraRects.some(pointerIn);
   if (overExtra !== extraHover) {
     extraHover = overExtra;
-    clickThrough();
   }
   cardPointer = nextCardPointer(cardPointer, cardsShown ? topCardId : null, cardRect, pointerAt(), qaCardHover);
   if (cardPointer.over !== cardHover) {
     cardHover = cardPointer.over;
-    clickThrough();
     agents?.setHovered(cardHover);
   }
   const open = cardPointer.openFor !== null;
@@ -864,19 +853,9 @@ function applyPendingMicSwitch(): void {
   if (e) setTimeout(() => micToast(e), 1200);
 }
 
-let toastTimer: ReturnType<typeof setTimeout> | undefined;
 function showToast(message: string, undo: boolean, ms: number): void {
   pillSend('dictate:pill', { kind: 'toast', message, undo, ms });
   showPill(pill);
-  clearTimeout(toastTimer);
-  if (undo) {
-    undoToast = true;
-    clickThrough();
-    toastTimer = setTimeout(() => {
-      undoToast = false;
-      clickThrough();
-    }, ms);
-  }
 }
 
 /** `deviceId` null = the system default. Devices are picked by id, so two identical mics are never confused. */
@@ -909,7 +888,12 @@ function makePickerWindow(): PickerWindow {
   const w = createPicker();
   pickerWin = w;
   const gone: (() => void)[] = [];
-  if (!platformCapabilities().canSwallowKeys) w.on('blur', () => closePicker());
+  w.on('focus', () => {
+    hook.send({ type: 'capture', on: false });
+    w.webContents.send('dictate:picker-local-keys', true);
+  });
+  w.on('blur', () => closePicker());
+  w.on('close', (event) => { if (!quitting) { event.preventDefault(); closePicker(); } });
   const fireGone = () => {
     if (pickerWin === w) pickerWin = undefined;
     for (const cb of gone.splice(0)) cb();
@@ -1017,12 +1001,12 @@ function onHook(e: FromHook): void {
   }
   if (e.down && e.vk === VK.Escape && escapeKeyless()) return;
   if (picker.isOpen) {
-    if (!platformCapabilities().canSwallowKeys) return;
-    // Alt and Win combos (Alt+Tab, Win+D) are the person leaving: let them through and close.
+    if (!platformCapabilities().canSwallowKeys || pickerWin?.isFocused()) return;
     if (e.down && [0xa4, 0xa5, 0x5b, 0x5c].includes(e.vk)) closePicker();
     else if (e.down && !isModifier(e.vk)) picker.send('dictate:picker-key', { vk: e.vk, shift: e.shift });
     return;
   }
+
   if (e.down) machine.down(e.vk, e.t);
   else machine.up(e.vk, e.t);
 }
@@ -1436,6 +1420,11 @@ function registerIpc(): void {
     agents?.render();
     sttLink.pillReady();
   });
+  ipcMain.on('dictate:pill-content', (event, visible: unknown) => {
+    if (event.sender !== pill.webContents) return;
+    if (visible === true) showPill(pill);
+    else if (visible === false) pill.hide();
+  });
   ipcMain.on('dictate:renderer-error', (_e, page: string, message: string) => log('error', `renderer ${page}: ${String(message).slice(0, 2000)}`));
   ipcMain.on('dictate:pill-hidden', () => {
     if (!rec?.shown && !cardsShown && !extraRects.length) pill.hide();
@@ -1467,8 +1456,6 @@ function registerIpc(): void {
   ipcMain.on('dictate:undo-mic', () => {
     const d = mics.undo();
     log('info', `undo mic switch: back to ${d?.label ?? 'system default'}`);
-    undoToast = false;
-    clickThrough();
     pillSend('dictate:pill', { kind: 'info', message: `Using ${d ? micName(d.label) : 'the default mic'}` });
     pushState();
     rebuildTrayMenu();
@@ -1573,6 +1560,9 @@ async function main(): Promise<void> {
   startCapture();
   void startUpdater().catch((e) => log('error', `updater did not start: ${e instanceof Error ? e.message : String(e)}`));
   pill = createPill();
+  pill.on('close', (event) => {
+    if (!quitting) { event.preventDefault(); agents?.dismissTop(); pill.hide(); }
+  });
   pill.webContents.on('render-process-gone', (_e, d) => {
     log('error', `pill renderer gone: ${d.reason}`);
     if (!quitting) {
@@ -1589,7 +1579,7 @@ async function main(): Promise<void> {
   picker = new PickerController({
     create: makePickerWindow,
     capture: (on) => hook.send({ type: 'capture', on }),
-    foreground: foregroundWindow,
+    foreground: () => pickerWin?.isFocused() ? picker.target : foregroundWindow(),
     caret: caretRect,
     items: pickerItems,
     hotkey: () => hotkeyLabel(),
@@ -1635,6 +1625,7 @@ async function main(): Promise<void> {
         else if (line.startsWith('state ')) {
           pillSend('dictate:pill', JSON.parse(line.slice(6)));
           showPill(pill);
+
         } else if (line.startsWith('partial ')) pillSend('dictate:partial', line.slice(8));
         // Agent cards: hover (expanded) without a mouse, and the top card's buttons ("card choose Prod").
         else if (line.startsWith('cards-hover ')) {

@@ -31,7 +31,7 @@ export interface CardsView {
 /**
  * Something on the pill beyond the top card and its list: the inbox's badge, held capsule, snooze chips, toast and
  * shelf (L2). Its clickable areas go to main as `dictate:extra-rects` (CSS pixels in the pill window), so the
- * click-through pill takes clicks there, and the pill stays up while there are any.
+ * pill preserves hover disclosure there, and stays up while there are any.
  */
 export interface PillExtra {
   /** Once, when the pill page loads: its own elements, above the cards. */

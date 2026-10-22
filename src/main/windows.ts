@@ -1,5 +1,5 @@
-// The four windows. The pill and the picker never take focus, so the app being dictated into keeps it; the sheet
-// takes it only when a surface asks (a round, the wide decision sheet) and gives it back when it closes.
+// Transparent native surfaces accept ordinary input. The pill and Windows picker
+// appear without activation; clicking their controls may focus them. Sheets focus on request.
 import path from 'node:path';
 import { app, BrowserWindow, screen } from 'electron';
 import { appIcon } from './icons';
@@ -8,7 +8,7 @@ const renderer = (file: string) => path.join(app.getAppPath(), 'out', 'renderer'
 const preload = () => path.join(app.getAppPath(), 'out', 'main', 'preload.js');
 
 export const PILL_W = 600;
-/** Tall enough for an expanded agent card above the pill; everything but the cards lets clicks through. */
+/** Original transparent bounds, tall enough for an expanded card above the pill. */
 export const PILL_H = 420;
 
 export function createPill(): BrowserWindow {
@@ -23,15 +23,15 @@ export function createPill(): BrowserWindow {
     minimizable: false,
     maximizable: false,
     skipTaskbar: true,
-    focusable: false,
+    focusable: true,
     hasShadow: false,
     alwaysOnTop: true,
     title: 'dictate',
     webPreferences: { preload: preload(), backgroundThrottling: false, contextIsolation: true, sandbox: false },
   });
   w.setAlwaysOnTop(true, 'screen-saver');
-  // Clicks pass through; pointer moves still reach the page so a card can take them while the pointer is on it.
-  w.setIgnoreMouseEvents(true, { forward: true });
+  // The real transparent surface owns native input continuously. Alpha-zero desktop
+  // margins stay visually empty; input ownership never depends on hover or a relay.
   void w.loadFile(renderer('pill.html'));
   return w;
 }
@@ -113,7 +113,7 @@ export function createPicker(): BrowserWindow {
     minimizable: false,
     maximizable: false,
     skipTaskbar: true,
-    focusable: process.platform !== 'win32',
+    focusable: true,
     hasShadow: false,
     alwaysOnTop: true,
     title: 'dictate history',

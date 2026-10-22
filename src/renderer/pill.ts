@@ -1,6 +1,6 @@
 // The overlay pill: what dictate is doing right now, a live waveform and the live words, and agents' cards above
-// it. It also hosts mic capture (the browser fallback path) and the sound cues. Never takes focus (the window is
-// not focusable).
+// it. It also hosts mic capture (the browser fallback path) and the sound cues.
+// Appears without activation; its real controls can receive native mouse focus.
 // Small and centred, its width following its content; every state keeps the same height and cross-fades.
 import type { GainSpec } from '../core/agc';
 import { dbfs } from '../core/audio';
@@ -8,6 +8,7 @@ import { hintVisible } from '../core/pillhint';
 import { dictate, h } from './bridge';
 import * as capture from './capture';
 import { mountCards } from './cards';
+import { watchPillVisibility } from './pill-visibility';
 import { type Cue, play } from './sounds';
 
 export type PillState =
@@ -55,6 +56,7 @@ const above = h('div.above');
 const status = h('div.status', {}, above, pill);
 root.append(status);
 mountCards(root, status);
+watchPillVisibility(root);
 
 let config: PillConfig = { variant: 'a', showText: true };
 let state: PillState = { kind: 'hidden' };

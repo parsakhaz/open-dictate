@@ -73,6 +73,7 @@ All of these isolate their data folder and close what they start.
 | `node qa/settings-progress.mjs` | The Settings renderer: Getting started resumes at its step, download progress keeps the buttons, drafts survive state updates. | Nothing |
 | `node qa/first-run.mjs` | The real first-run downloads (about 0.7 GB): cut at 30% and resumed, a full disk refused, then the speed check on real servers. `--gemma` also downloads Gemma and times its chain. | Network |
 | `node qa/walkthrough.mjs --app <Dictate executable>` | Drives Getting started in a real (installed) app over DevTools on a fresh profile: quit mid-download and resume, speed check, practice dictation, Finish; `--full-disk-profile` on a small volume checks the disk-space refusal. | Network, a desktop session |
+| `node qa/pill-input.js` | Windows native mouse clicks on cards, snooze/Undo, inbox shelf, choices and status Undo; focus and empty bounds; saves renderer images and native regions. `--preview` keeps a seeded local card open until Ctrl+C. Run `pnpm build` first. | An unlocked Windows desktop; isolated profile, no speech models needed |
 | `node qa/qa.js` | The original Windows desktop driver: Notepad, browser and terminal paste, toggle, cancel, history and mic events. It types on the real keyboard and clipboard: use an isolated session. | An unlocked Windows desktop |
 
 The app also has QA hooks for these scripts:
@@ -96,3 +97,5 @@ node qa/media/build.mjs                                            # frame, opti
 ```
 
 (`electron` is `node_modules/electron/dist/electron.exe` on Windows.) `qa/fixture-timeline.mjs` records the real recognizer's words and the real cleanup for a WAV; the demo replays that file. `build.mjs` needs ffmpeg.
+
+Original UX regression checks: `node qa/ux-baseline-build.cjs`, then run `qa/ux-baseline.cjs` with Electron (hidden offscreen rendering). Compare PNGs under `tmp/verify/ux-restore/visual`. `node qa/ux-restore.js` checks real isolated IPC, toast expiry and native host hiding without OS pointer input.

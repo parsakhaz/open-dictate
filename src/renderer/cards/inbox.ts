@@ -31,6 +31,7 @@ let snoozeKey = 'Off';
 let toast: { id: string; minutes: number; back: string } | null = null;
 let shelfOpen = false;
 let ticker: ReturnType<typeof setInterval> | undefined;
+let drawn = '';
 
 /** A ring that drains towards the minute the card comes back, with the time left inside. */
 function ring(s: Shelved, now: number): HTMLElement {
@@ -61,6 +62,9 @@ function ring(s: Shelved, now: number): HTMLElement {
 
 function draw(): void {
   if (!strip) return;
+  const next = JSON.stringify([extra, hasTop, lengths, snoozeKey, toast, shelfOpen]);
+  if (next === drawn) return;
+  drawn = next;
   const now = Date.now();
   const snoozed = extra.snoozed ?? [];
   const parts: HTMLElement[] = [];
@@ -89,7 +93,13 @@ function draw(): void {
   strip.replaceChildren(...parts);
   strip.classList.toggle('shown', parts.length > 0);
   // The shelf's rings count down while it is open.
-  if (shelfOpen && !ticker) ticker = setInterval(draw, 1000);
+  if (shelfOpen && !ticker) ticker = setInterval(() => {
+    for (const item of extra.snoozed ?? []) {
+      const row = [...strip.querySelectorAll<HTMLElement>('.shelfrow')].find((el) => el.dataset.id === item.id);
+      // Only countdown paint changes; action nodes, focus, and in-flight clicks survive.
+      row?.querySelector('.ringbox')?.replaceWith(ring(item, Date.now()));
+    }
+  }, 1000);
   if (!shelfOpen && ticker) {
     clearInterval(ticker);
     ticker = undefined;

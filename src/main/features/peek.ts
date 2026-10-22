@@ -278,8 +278,14 @@ class PeekFeature {
           void this.sendConfirm();
         }
       });
+      win.on('close', (event) => {
+        event.preventDefault();
+        sheet.close('closed');
+      });
       win.on('closed', () => {
-        if (this.dock?.win === win) this.dock = null;
+        if (this.dock?.win !== win) return;
+        sheet.close('closed');
+        this.dock = null;
       });
       // The thumbnail's page has been running: the docked one starts where it is.
       const at = item.thumb && !item.thumb.isDestroyed() ? item.thumb.webContents.getURL() : '';
