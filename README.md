@@ -205,11 +205,13 @@ cat origin.json | runpane workspace CHOSEN-HOST write 'C:\Temp\dictate-example-U
 RunPane may use Bash on the destination even when that machine is Windows.
 Encode the PowerShell script on the origin so destination variables, paths and
 exit status survive both shells. Choose the helper for your **origin** shell:
+On Windows, use Pane's managed `runpane.cmd` below; a PowerShell script wrapper
+can consume the `--` command separator.
 
 ```powershell
 function Invoke-DictateHost([string]$Script) {
   $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes('$ProgressPreference="SilentlyContinue"; ' + $Script))
-  runpane workspace CHOSEN-HOST exec --cwd 'C:\Temp\dictate-example-UNIQUE' --timeout-ms 65000 --json -- "powershell.exe -NoProfile -NonInteractive -EncodedCommand $encoded"
+  & "$env:USERPROFILE\.pane\bin\runpane.cmd" workspace CHOSEN-HOST exec --cwd 'C:\Temp\dictate-example-UNIQUE' --timeout-ms 65000 --json -- "powershell.exe -NoProfile -NonInteractive -EncodedCommand $encoded"
 }
 Invoke-DictateHost '& (Join-Path $env:APPDATA dictate\agents\dictate.cmd) doctor --json; exit $LASTEXITCODE'
 Invoke-DictateHost '& (Join-Path $env:APPDATA dictate\agents\dictate.cmd) ask --from-json request.json --origin-file origin.json --json; exit $LASTEXITCODE'
