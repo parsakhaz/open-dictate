@@ -1,12 +1,13 @@
 // Bundles every process with esbuild into out/. Native modules and electron stay external.
 import { build } from 'esbuild';
 import { prepareNative } from './qa/prepare-native.mjs';
-import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 
 const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
 let buildId = 'source-archive';
 try {
+  if (!existsSync('.git')) throw new Error('No Git metadata at the build root');
   const commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   buildId = commit + (dirty ? '-dirty' : '');
