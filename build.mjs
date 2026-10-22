@@ -2,13 +2,17 @@
 import { build } from 'esbuild';
 import { prepareNative } from './qa/prepare-native.mjs';
 import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 
 const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+const commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8' }).trim();
+const buildId = commit + (dirty ? '-dirty' : '');
 
 prepareNative();
 
 const common = { bundle: true, sourcemap: true, logLevel: 'warning', target: 'node24' };
-const node = { ...common, platform: 'node', format: 'cjs', external: ['electron', 'electron-updater', 'sherpa-onnx-node', 'koffi', 'uiohook-napi'] };
+const node = { ...common, platform: 'node', format: 'cjs', define: { DICTATE_BUILD: JSON.stringify(buildId), DICTATE_VERSION: JSON.stringify(pkg.version) }, external: ['electron', 'electron-updater', 'sherpa-onnx-node', 'koffi', 'uiohook-napi'] };
 
 rmSync('out', { recursive: true, force: true });
 mkdirSync('out/renderer', { recursive: true });
@@ -17,6 +21,7 @@ await Promise.all([
   build({ ...node, entryPoints: { 'engine/stt-worker': 'src/engine/stt-worker.ts', 'native/keyhook': 'src/native/keyhook-worker.ts', 'native/mic': 'src/native/mic-worker.ts' }, outdir: 'out' }),
   // The agents' MCP bridge: one self-contained file, copied out of the bundle at start-up (src/main/agents.ts).
   build({ ...node, entryPoints: { 'bridge/dictate-mcp': 'src/bridge/dictate-mcp.ts' }, outdir: 'out', sourcemap: false, define: { DICTATE_VERSION: JSON.stringify(pkg.version) } }),
+  build({ ...node, entryPoints: { 'bridge/dictate-cli': 'src/bridge/dictate-cli.ts' }, outdir: 'out', sourcemap: false }),
   build({
     ...common,
     platform: 'browser',

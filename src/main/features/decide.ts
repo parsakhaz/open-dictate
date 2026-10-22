@@ -46,6 +46,7 @@ class Decisions {
       reply: async (card, text, raw) => this.sayApprove(card, text, raw),
       action: async (card, name) => this.actApprove(card, name),
     });
+    hub.onEnded((id) => { if (hub.queue.get(id)?.requestOwned || this.live.has(id)) this.ended(id); });
     host.replyTarget(() => this.replyTarget());
     host.sheet.onClosed((kind) => {
       if (kind === 'decide') this.sheetCard = null;
@@ -73,6 +74,7 @@ class Decisions {
     if (hub.queue.paused) return { answered: false, reason: 'dnd' };
     if (this.busy(session.id, 'decide')) return { answered: false, reason: 'busy' };
     const src = await hub.source(session);
+    if (signal.aborted) return { answered: false, reason: 'cancelled' };
     const id = hub.newId();
     const live: Live = { kind: 'decide', session: session.id, data: newDecide(a.questions, a.previews) };
     this.live.set(id, live);
@@ -110,6 +112,7 @@ class Decisions {
     if (hub.queue.paused) return { answered: false, reason: 'dnd' };
     if (this.busy(session.id, 'approve')) return { answered: false, reason: 'busy' };
     const src = await hub.source(session);
+    if (signal.aborted) return { answered: false, reason: 'cancelled' };
     const id = hub.newId();
     this.live.set(id, { kind: 'approve', session: session.id, plan: a });
     const answer = hub.wait<ApproveResult>(id, { session: session.id, kind: 'approve', timeoutMs: a.timeoutS * 1000, signal });

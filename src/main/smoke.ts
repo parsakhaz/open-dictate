@@ -120,6 +120,46 @@ async function probeAgents(): Promise<{ bridgeCopied: boolean; tools: string[]; 
   }
 }
 
+/** The copied CLI runs solely with the packaged runtime, from outside the checkout. */
+async function probeCli() {
+  const dir = path.join(app.getPath('userData'), 'agents');
+  const script = path.join(dir, 'dictate-cli.js');
+  if (!fs.existsSync(script)) throw new Error('The standalone CLI was not copied to its profile');
+  const run = (args: string[], input = '') => new Promise<Record<string, unknown>>((resolve, reject) => {
+    const child = spawn(process.execPath, [script, ...args, '--json'], {
+      cwd: app.getPath('temp'),
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', DICTATE_AGENT_CHANNEL: path.join(dir, 'channel.json'), PANE_SESSION_ID: '', PANE_PANEL_ID: '' },
+      stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+    });
+    let out = '', err = '';
+    const timer = setTimeout(() => { child.kill(); reject(new Error('Packaged CLI timed out')); }, 10_000);
+    child.stdout.on('data', (data) => { out += data; });
+    child.stderr.on('data', (data) => { err += data; });
+    child.on('error', (error) => { clearTimeout(timer); reject(error); });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      try {
+        if (code !== 0 || err.trim()) throw new Error(`Packaged CLI exited ${code}: ${err}`);
+        resolve(JSON.parse(out));
+      } catch (error) { reject(error); }
+    });
+    child.stdin.end(input);
+  });
+  const status = await run(['status']);
+  if (!status.running || status.requests !== 1 || !status.instance_id) throw new Error('Packaged CLI did not negotiate request ownership');
+  const schema = await run(['schema', 'ask']);
+  if (!(schema.inputs as Record<string, unknown>)?.ask) throw new Error('Packaged CLI schema discovery failed');
+  const receipt = await run(['ask', '--from-json', '-'], JSON.stringify({ question: 'TEST packaged CLI cancellation', choices: ['Test'], timeout_s: 10 }));
+  if (typeof receipt.request_id !== 'string' || receipt.terminal !== false) throw new Error('Packaged CLI did not return an immediate request receipt');
+  const observation = await run(['request', 'wait', receipt.request_id, '--timeout', '0']);
+  if (observation.observation !== 'timed_out' || observation.terminal !== false) throw new Error('Packaged CLI observer changed request ownership');
+  const cancelled = await run(['request', 'cancel', receipt.request_id]);
+  if (cancelled.state !== 'cancelled' || cancelled.cancelled_now !== true) throw new Error('Packaged CLI cancellation failed');
+  const result = await run(['request', 'get', receipt.request_id]);
+  if (result.state !== 'cancelled' || (result.result as { reason?: string })?.reason !== 'cancelled') throw new Error('Packaged CLI did not retain the full result');
+  return { copied: true, status: true, schema: true, create: true, detached: true, wait: true, cancel: true, get: true, identity: status.cli, runtime: process.execPath };
+}
+
 export async function runSmoke(reportPath: string): Promise<void> {
   const report: Record<string, unknown> = { ok: false, platform: process.platform, arch: process.arch, packaged: app.isPackaged, version: app.getVersion(), hardwareAccelerationDisabled: true, loginItemsUnchanged: true, singleInstanceLockSkipped: process.env.DICTATE_SMOKE_SKIP_INSTANCE_LOCK === '1' };
   try {
@@ -156,6 +196,7 @@ export async function runSmoke(reportPath: string): Promise<void> {
     report.renderers = renderers;
     report.rendererLoaded = true;
     report.agents = await probeAgents();
+    report.cli = await probeCli();
     report.capabilities = platformCapabilities();
     report.ok = true;
   } catch (err) {

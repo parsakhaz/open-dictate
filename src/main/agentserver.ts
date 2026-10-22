@@ -17,6 +17,7 @@ export interface AgentSession {
 }
 
 export interface AgentHandlers {
+  request?(session: AgentSession, operation: string, args: unknown, signal: AbortSignal): Promise<unknown>;
   /** A tool call; throw to answer with an error. `signal` aborts when the agent cancels or disconnects. */
   call(session: AgentSession, tool: string, args: unknown, signal: AbortSignal): Promise<unknown>;
   closed?(session: AgentSession): void;
@@ -111,16 +112,16 @@ export class AgentServer {
           };
           this.sessions.set(session.id, session);
           this.handlers.log?.('info', `agent session ${session.id}: ${session.client.name}${session.pane ? ' in a Pane tab' : ''}`);
-          write({ t: 'hello', ok: true, session: session.id });
+          write({ t: 'hello', ok: true, session: session.id, ...(this.handlers.request ? { requests: 1 as const } : {}) });
           return;
         }
         const s = session;
         if (m.t === 'cancel') calls.get(m.id)?.abort();
-        else if (m.t === 'call' && typeof m.id === 'number') {
+        else if ((m.t === 'call' || m.t === 'request') && typeof m.id === 'number' && !calls.has(m.id)) {
           const ac = new AbortController();
           calls.set(m.id, ac);
-          this.handlers
-            .call(s, String(m.tool), m.args, ac.signal)
+          const task = m.t === 'call' ? this.handlers.call(s, String(m.tool), m.args, ac.signal) : m.version !== 1 || !this.handlers.request ? Promise.resolve({ schema_version: 1, error: { code: 'unsupported_version', message: 'Request protocol version is unsupported' } }) : this.handlers.request(s, m.operation, m.args, ac.signal);
+          task
             .then(
               (result) => write({ t: 'result', id: m.id, result }),
               (err) => write({ t: 'result', id: m.id, error: err instanceof Error ? err.message : String(err) }),

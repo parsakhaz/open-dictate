@@ -45,6 +45,8 @@ export interface Card {
   /** The Pane tab this card opens and replies to; none outside Pane. */
   target: CardTarget | null;
   createdAt: number;
+  /** App-owned CLI response sink, independent of Pane routing. */
+  requestOwned?: boolean;
   /** When an info card was first on screen; it fades a few seconds later (moved on by the time it was hovered). */
   shownAt?: number;
   faded?: boolean;
@@ -63,6 +65,9 @@ export interface Card {
   quiet?: boolean;
   /** Answered in a round but not yet sent (Undo can still take it back): out of sight. */
   parked?: boolean;
+  /** CLI answer budgets pause after first display while snoozed, quiet or awaiting round Undo. */
+  answerPausedAt?: number;
+  answerPausedMs?: number;
 }
 
 export type AddResult = 'shown' | 'queued' | 'held' | 'dnd' | 'replaced';
@@ -132,6 +137,7 @@ export class CardQueue {
   private busySince: number | null = null;
   /** A round is open: it shows the cards itself, so the pill shows none. */
   private round = false;
+  private roundShown: string | null = null;
   /** The card that was on the pill when the flow guard started holding: it stays. */
   private onScreen: string | null = null;
   /** How cards that left ended, for card_status. */
@@ -248,7 +254,12 @@ export class CardQueue {
   }
 
   /** A round is open (it shows the cards), or closed. */
-  setRound(on: boolean): void {
+  setRound(on: boolean, now?: number): void {
+    if (!on && this.roundShown) {
+      const c = this.get(this.roundShown);
+      if (c?.quiet) this.pauseAnswer(c, now ?? c.createdAt);
+      this.roundShown = null;
+    }
     this.round = on;
     this.onScreen = null;
   }
@@ -297,6 +308,7 @@ export class CardQueue {
   snooze(id: string, until: number, now: number): boolean {
     const c = this.get(id);
     if (!c || c.urgency === 'consent' || c.kind === 'round-summary') return false;
+    this.pauseAnswer(c, now);
     if (c.snoozedUntil === undefined) c.snoozedAt = now;
     c.snoozedUntil = until;
     c.back = false;
@@ -314,14 +326,15 @@ export class CardQueue {
     c.snoozedAt = undefined;
     c.back = back;
     c.quiet = back && this.returnTo === 'inbox';
+    this.resumeAnswer(c, now);
     this.sort();
     return true;
   }
 
   /** A card from the inbox comes forward (a click on the waiting count, Now). */
-  unquiet(id: string): void {
+  unquiet(id: string, now?: number): void {
     const c = this.get(id);
-    if (c) c.quiet = false;
+    if (c) { c.quiet = false; this.resumeAnswer(c, now ?? c.createdAt); }
   }
 
   /** QA: moves the clock forward for snoozes, so a snoozed card comes back `ms` sooner. */
@@ -350,15 +363,25 @@ export class CardQueue {
   }
 
   /** A card answered in a round waits out of sight until it is sent (or Undo brings it back). */
-  park(id: string, on: boolean): void {
+  park(id: string, on: boolean, now?: number): void {
     const c = this.get(id);
-    if (c) c.parked = on;
+    if (c) {
+      if (on) this.pauseAnswer(c, now ?? c.createdAt);
+      c.parked = on;
+      if (!on) this.resumeAnswer(c, now ?? c.createdAt);
+    }
   }
 
   /** The card is in front of the person (the pill, or a round): time from here counts against its wait. */
   markShown(id: string, now: number): void {
     const c = this.get(id);
     if (c && c.firstShownAt === undefined) c.firstShownAt = now;
+    if (c && this.round) {
+      const before = this.roundShown ? this.get(this.roundShown) : undefined;
+      if (before?.quiet && before.id !== id) this.pauseAnswer(before, now);
+      this.roundShown = id;
+      this.resumeAnswer(c, now, true);
+    }
   }
 
   // ---------- card_status ----------
@@ -384,16 +407,32 @@ export class CardQueue {
    * the time it was held for focus before it was first in front of the person and the time it was snoozed, never past 600 s from
    * the call (or the call's own timeout, if longer). The hub asks again when that time comes.
    */
-  deadline(id: string, startedAt: number, timeoutMs: number, now: number): number {
+  deadline(id: string, startedAt: number, timeoutMs: number, now: number, appOwned = false): number {
     const c = this.get(id);
+    if (appOwned && c) {
+      const beforeShown = Math.max(0, (c.firstShownAt ?? now) - startedAt);
+      const paused = (c.answerPausedMs ?? 0) + (c.answerPausedAt === undefined ? 0 : Math.max(0, now - c.answerPausedAt));
+      return Math.min(startedAt + timeoutMs + beforeShown + paused, startedAt + 24 * 3600_000);
+    }
     let extra = 0;
     if (c) {
       extra += this.heldBetween(startedAt, c.firstShownAt ?? now, now);
       extra += (c.snoozedMs ?? 0) + (c.snoozedUntil !== undefined ? Math.max(0, now - (c.snoozedAt ?? now)) : 0);
     }
-    const due = Math.min(startedAt + timeoutMs + extra, startedAt + Math.max(timeoutMs, MAX_WAIT_MS));
+    const due = Math.min(startedAt + timeoutMs + extra, startedAt + (appOwned ? 24 * 3600_000 : Math.max(timeoutMs, MAX_WAIT_MS)));
     if (due <= now && c) this.ended(id, 'expired');
     return due;
+  }
+
+  private pauseAnswer(c: Card, now: number): void {
+    if (c.requestOwned && c.firstShownAt !== undefined && c.answerPausedAt === undefined) c.answerPausedAt = now;
+  }
+
+  private resumeAnswer(c: Card, now: number, visibleInRound = false): void {
+    if (!away(c) && (!c.quiet || visibleInRound) && c.answerPausedAt !== undefined) {
+      c.answerPausedMs = (c.answerPausedMs ?? 0) + Math.max(0, now - c.answerPausedAt);
+      c.answerPausedAt = undefined;
+    }
   }
 
   /** Fades info cards that have been up long enough, brings snoozed cards back, and forgets old faded ones. Returns true when anything changed. */

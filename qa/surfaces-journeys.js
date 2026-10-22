@@ -101,6 +101,8 @@ async function main() {
   try {
     const opened = await untilLog(/agents: channel open/);
     checks.push({ journey: 'setup', what: 'the app opened the agent channel', ok: !!opened });
+    // Optional, explicit environment control for off-screen Windows regression runs; L2 still tests busy on/off itself.
+    if (process.env.DICTATE_QA_BUSY === 'off') cmd('inbox busy off');
     if (MODELS) checks.push({ journey: 'setup', what: 'the speech model loaded', ok: !!(await untilLog(/speech model loaded/, 60_000)) });
     for (const lane of lanes) {
       for (const j of lane.journeys) {
