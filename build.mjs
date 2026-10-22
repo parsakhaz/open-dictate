@@ -5,9 +5,14 @@ import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } f
 import { execFileSync } from 'node:child_process';
 
 const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
-const commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8' }).trim();
-const buildId = commit + (dirty ? '-dirty' : '');
+let buildId = 'source-archive';
+try {
+  const commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  buildId = commit + (dirty ? '-dirty' : '');
+} catch {
+  // Source archives and distribution build sandboxes need neither Git nor its metadata.
+}
 
 prepareNative();
 
