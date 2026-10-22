@@ -376,7 +376,7 @@ export class CardQueue {
   markShown(id: string, now: number): void {
     const c = this.get(id);
     if (c && c.firstShownAt === undefined) c.firstShownAt = now;
-    if (c?.requestOwned && this.round) {
+    if (c && this.round) {
       const before = this.roundShown ? this.get(this.roundShown) : undefined;
       if (before?.quiet && before.id !== id) this.pauseAnswer(before, now);
       this.roundShown = id;

@@ -180,15 +180,15 @@ Creation returns immediately: save request_id, then collect `request get ID` or 
 Stage input/assets on the host; provide originating machine/task context with `--origin-file`. Paths and localhost resolve there. The local CLI does not route remotely.
 ```
 
-For example, create two UTF-8 files on the originating machine:
+For example, save this UTF-8 file as `request.json` on the originating machine:
 
 ```json
-// request.json (omit this comment from the actual JSON file)
 {"question":"Which environment should get the fix?","choices":["Staging","Production"]}
 ```
 
+Save `origin.json` with the actual originating context:
+
 ```json
-// origin.json (replace these claims with the actual originating context)
 {"id":"my-agent-task","machine":"ORIGIN-MACHINE","agent":"Codex","workspace":"my-project"}
 ```
 
@@ -200,15 +200,44 @@ pipeline.
 ```sh
 cat request.json | runpane workspace CHOSEN-HOST write 'C:\Temp\dictate-example-UNIQUE\request.json' --json
 cat origin.json | runpane workspace CHOSEN-HOST write 'C:\Temp\dictate-example-UNIQUE\origin.json' --json
-runpane workspace CHOSEN-HOST exec --cwd 'C:\Temp\dictate-example-UNIQUE' --json -- 'powershell.exe -NoProfile -NonInteractive -Command "& (Join-Path $env:APPDATA dictate\agents\dictate.cmd) ask --from-json request.json --origin-file origin.json --json; exit $LASTEXITCODE"'
+```
+
+RunPane may use Bash on the destination even when that machine is Windows.
+Encode the PowerShell script on the origin so destination variables, paths and
+exit status survive both shells. Choose the helper for your **origin** shell:
+
+```powershell
+function Invoke-DictateHost([string]$Script) {
+  $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes('$ProgressPreference="SilentlyContinue"; ' + $Script))
+  runpane workspace CHOSEN-HOST exec --cwd 'C:\Temp\dictate-example-UNIQUE' --timeout-ms 65000 --json -- "powershell.exe -NoProfile -NonInteractive -EncodedCommand $encoded"
+}
+Invoke-DictateHost '& (Join-Path $env:APPDATA dictate\agents\dictate.cmd) doctor --json; exit $LASTEXITCODE'
+Invoke-DictateHost '& (Join-Path $env:APPDATA dictate\agents\dictate.cmd) ask --from-json request.json --origin-file origin.json --json; exit $LASTEXITCODE'
+```
+
+```sh
+dictate_host() {
+  encoded=$(printf '%s' '$ProgressPreference="SilentlyContinue"; ' "$1" | iconv -f UTF-8 -t UTF-16LE | base64 | tr -d '\r\n')
+  runpane workspace CHOSEN-HOST exec --cwd 'C:\Temp\dictate-example-UNIQUE' --timeout-ms 65000 --json -- "powershell.exe -NoProfile -NonInteractive -EncodedCommand $encoded"
+}
+dictate_host '& (Join-Path $env:APPDATA dictate\agents\dictate.cmd) doctor --json; exit $LASTEXITCODE'
+dictate_host '& (Join-Path $env:APPDATA dictate\agents\dictate.cmd) ask --from-json request.json --origin-file origin.json --json; exit $LASTEXITCODE'
 ```
 
 Check the RunPane envelope's `ok`, `exitCode`, `timedOut` and `stderr`, then parse
-its `stdout` as Dictate JSON. A later, separate remote command retrieves the answer:
+its `stdout` as Dictate JSON. Neither machine needs a system Node runtime for
+these commands. In a later invocation, use the same helper to retrieve the answer:
+
+```powershell
+Invoke-DictateHost '& (Join-Path $env:APPDATA dictate\agents\dictate.cmd) request get REQUEST_ID --json; exit $LASTEXITCODE'
+```
 
 ```sh
-runpane workspace CHOSEN-HOST exec --json -- 'powershell.exe -NoProfile -NonInteractive -Command "& (Join-Path $env:APPDATA dictate\agents\dictate.cmd) request get REQUEST_ID --json; exit $LASTEXITCODE"'
+dictate_host '& (Join-Path $env:APPDATA dictate\agents\dictate.cmd) request get REQUEST_ID --json; exit $LASTEXITCODE'
 ```
+
+For an isolated profile, set `DICTATE_AGENT_CHANNEL` inside the destination
+script before invoking the launcher; the origin's environment is not routing.
 
 `dictate request create --from-json FILE` accepts `{"kind":"ask","args":{...}}`;
 aliases accept the argument object directly. `--from-json -` reads stdin.

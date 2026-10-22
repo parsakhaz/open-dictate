@@ -296,3 +296,24 @@ it('resumes a quiet CLI card budget while displayed in a round and pauses it aga
   q.setRound(false, 1800);
   expect(q.deadline(request.id, 0, 1000, 2500, true)).toBe(2800);
 });
+
+it('pauses the outgoing quiet CLI card when a round moves to MCP, then resumes on returning to it', () => {
+  const q = new CardQueue();
+  const cli = card({ kind: 'ask', createdAt: 0, requestOwned: true });
+  const mcp = card({ kind: 'ask', createdAt: 1 });
+  q.add(cli, 0);
+  q.tick(0);
+  q.snooze(cli.id, 1200, 200);
+  q.returnTo = 'inbox';
+  q.wake(cli.id, 1200);
+  q.add(mcp, 1250);
+  q.setRound(true);
+  q.markShown(cli.id, 1300);
+  q.markShown(mcp.id, 1800);
+  expect(q.deadline(cli.id, 0, 1000, 2500, true)).toBe(2800);
+  q.setRound(false, 2500);
+  expect(q.deadline(cli.id, 0, 1000, 3000, true)).toBe(3300);
+  q.setRound(true);
+  q.markShown(cli.id, 3100);
+  expect(q.deadline(cli.id, 0, 1000, 3200, true)).toBe(3400);
+});
