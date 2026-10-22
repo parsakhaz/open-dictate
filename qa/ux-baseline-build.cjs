@@ -2,7 +2,7 @@ const fs=require('node:fs'),path=require('node:path');
 const {build}=require('esbuild');
 const {execFileSync}=require('node:child_process');
 const root=path.resolve(__dirname,'..'), base=path.join(root,'tmp/verify/ux-restore/baseline');
-(async()=>{if(!fs.existsSync(path.join(base,'src/renderer/pill.ts')))){for(const f of execFileSync('git',['ls-tree','-r','--name-only','73c9398','src/renderer','src/core'],{cwd:root,encoding:'utf8'}).trim().split('\n')){const target=path.join(base,f);fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,execFileSync('git',['show','73c9398:'+f],{cwd:root}));}}for(const [name,src] of [['baseline',path.join(base,'src/renderer')],['restored',path.join(root,'src/renderer')]]){
+(async()=>{if(!fs.existsSync(path.join(base,'src/renderer/pill.ts'))){for(const f of execFileSync('git',['ls-tree','-r','--name-only','73c9398','src/renderer','src/core'],{cwd:root,encoding:'utf8'}).trim().split('\n')){const target=path.join(base,f);fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,execFileSync('git',['show','73c9398:'+f],{cwd:root}));}}for(const [name,src] of [['baseline',path.join(base,'src/renderer')],['restored',path.join(root,'src/renderer')]]){
 const out=path.join(root,'tmp/verify/ux-restore/visual',name);fs.mkdirSync(out,{recursive:true});
 await build({entryPoints:{pill:path.join(src,'pill.ts'),picker:path.join(src,'picker.ts'),sheet:path.join(src,'sheet/index.ts')},outdir:out,bundle:true,platform:'browser',format:'esm',target:'chrome140'});
 for(const f of ['pill.css','theme.css','picker.css'])fs.copyFileSync(path.join(src,f),path.join(out,f));
