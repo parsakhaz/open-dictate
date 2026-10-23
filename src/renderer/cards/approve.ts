@@ -39,9 +39,9 @@ export const approve: CardBody = {
           // The card folds once the words are back, and opens again if the preview is cancelled.
           el.dataset.change = String(s.preview && !isApproval(s.words));
           if (!s.preview) {
-            el.replaceChildren(h('div.creply', {}, h('span.rdot'), 'Listening · say what to change, or "approve"'), ...(s.words ? [h('div.dquote', {}, `“${s.words}”`)] : []));
+            el.replaceChildren(h('div.creply', {}, h('span.rdot'), 'Listening · say a change or “approve”'), ...(s.words ? [h('div.dquote', {}, `“${s.words}”`)] : []));
           } else if (isApproval(s.words)) {
-            el.replaceChildren(h('div.creply', {}, h('span.rdot'), risk === 'high' ? 'High risk · only a click approves' : `Approving in 2 s · Esc to cancel`));
+            el.replaceChildren(h('div.creply', {}, h('span.rdot'), risk === 'high' ? 'High risk · only a click approves' : 'Approving in 2 s · Esc cancels'));
           } else {
             el.replaceChildren(h('div.aask', {}, 'You asked for a change:'), h('div.dquote', {}, `“${s.words}”`), countdown(s.to));
           }

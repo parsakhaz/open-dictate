@@ -55,7 +55,6 @@ export const peek: CardBody = {
     if (d.ask && d.ask !== c.message) side.append(h('div.pask', {}, d.ask));
     side.append(h('div.purl', {}, h('span.pdot', { 'data-local': String(d.local) }), d.url));
     if (d.failed) side.append(h('div.pfail', {}, d.failed));
-    else if (d.docked) side.append(h('div.pnote', {}, 'Open above. Hold your key over the page to point and talk.'));
     parts.push(h('div.pbody', {}, thumb(c, d), side));
     if (ctx.replying) parts.push(h('div.creply', {}, h('span.rdot'), 'Replying by voice…'));
     else if (ctx.expanded) parts.push(buttons(c, d, ctx));

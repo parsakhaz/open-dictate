@@ -120,9 +120,6 @@ button.capsule:hover {
   font-weight: 600;
   color: var(--text);
 }
-.shelfhead .hint {
-  margin-left: auto;
-}
 .shelfrow {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto auto;

@@ -34,7 +34,7 @@ export const snooze: Section = ({ st, set }) => {
     h('h2', {}, 'Inbox and snooze'),
     card('Decision round', 'Clears the waiting cards one by one, right above the pill, by keys or by holding your dictation key to say “approve”, “next” or your answer.', keyRecorder(inbox.roundKey, (b) => void set({ inbox: { ...inbox, roundKey: b } }), () => void set({ inbox: { ...inbox, roundKey: null } }))),
     card('Snooze shortcut', 'Snoozes the card on top while one is up. Press again to snooze longer.', keyRecorder(s.key, (b) => void set({ snooze: { ...s, key: b } }), () => void set({ snooze: { ...s, key: null } }))),
-    card('Snooze lengths', 'One to three, 1–120 minutes. Each press steps to the next; the first is the one-press default. Type a number and press Enter to add one.', null, lengths),
+    card('Snooze lengths', 'One to three, 1–120 minutes. Each press of the shortcut steps to the next. Type a number and press Enter to add one.', null, lengths),
     card(
       'Snooze returns',
       'Where a card goes when its time is up.',

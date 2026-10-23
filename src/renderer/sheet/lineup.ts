@@ -184,7 +184,6 @@ function openBox(i: number): void {
 
 function draw(): void {
   if (!p || !root) return;
-  const n = p.candidates.length;
   const el = h(
     'div.lu',
     { 'data-mode': mode, 'data-index': String(index), 'data-picks': JSON.stringify(picks) },
@@ -193,7 +192,6 @@ function draw(): void {
       {},
       h('span.ttl', {}, p.title),
       h('span.lu-src', {}, p.source),
-      h('span.lu-tag', {}, `Lineup · ${n}`),
       h('button.x', { 'aria-label': 'Close', title: 'Back to the card (Esc)', onclick: () => dictate.send('dictate:sheet-esc') }, '✕'),
     ),
     p.message && mode === 'grid' ? h('div.lu-msg', {}, p.message) : null,

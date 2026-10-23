@@ -376,13 +376,13 @@ function welcomeStep(): Node[] {
   const plan: [string, string][] = [
     ['Download the models', `About ${size(st.sizes.essentials)}, once, from their official sources.`],
     ['A quick speed check', 'dictate times a cleanup on this computer and picks what runs fast here.'],
-    ['Your mic and your key', 'Then a practice dictation, right here in this window.'],
+    ['Your mic and your key', 'Then a practice dictation in this window.'],
   ];
   return stepFrame(
     null,
     null,
     [
-      h('div.hero', {}, h('div.heroicon', {}, '●'), h('h1', {}, 'Welcome to dictate'), h('p.lead', {}, 'Hold a key, speak, and clean text appears wherever you type. Speech recognition and cleanup run on this computer: no account, no cloud, and it works offline once it is set up.')),
+      h('div.hero', {}, h('div.heroicon', {}, '●'), h('h1', {}, 'Welcome to dictate'), h('p.lead', {}, 'Hold a key, speak, and clean text appears wherever you type. Everything runs on this computer, with no account, and works offline once set up.')),
       h('div.steps', {}, ...plan.map(([t, d], i) => h('div.step', {}, h('div.stepnum', {}, String(i + 1)), h('div', {}, h('div.cardtitle', {}, t), h('div.carddesc', {}, d))))),
     ],
     primaryButton('Get started', () => go('licences')),
@@ -393,7 +393,7 @@ function licencesStep(): Node[] {
   const ready = st.essentialsReady;
   return stepFrame(
     'Models and licences',
-    'dictate downloads these from their official sources. Each keeps its own licence. There is nothing to accept; this is what you are getting.',
+    'dictate downloads these from their official sources, each under its own licence. There is nothing to accept.',
     [
       h(
         'div.licences',
@@ -455,7 +455,7 @@ function downloadBlock(): Node {
 function downloadStep(): Node[] {
   return stepFrame(
     'Download',
-    'Keep going while it downloads: the next steps work without it, and the practice dictation waits until it is done.',
+    'The next steps work while it downloads. Only the practice dictation waits for it.',
     [h('div', { 'data-wizdownload': '' }, downloadBlock())],
     primaryButton(busySetup() && st.setup.kind === 'essentials' ? 'Continue while it downloads' : 'Next', () => go('hardware')),
     !st.essentialsReady && !busySetup(),
@@ -671,7 +671,7 @@ function general(): Node[] {
       `In Logitech Options+ or G HUB, map the button to F13 (or any of F13–F24), then add that key here. Hold the button to talk, or tap it once to start hands-free and again to finish. ${st.platform.canSwallowKeys ? 'The app you type into never sees the key.' : 'Your desktop also receives this key, so use an unused key.'}`,
     ),
     card('History picker', 'Opens your dictation history at the cursor.', bindingControl('picker', true), presets('picker')),
-    card('Toggle combo', 'Optional: a separate shortcut that starts and stops hands-free dictation.', bindingControl('toggle', true)),
+    card('Toggle combo', 'A separate shortcut that starts and stops hands-free dictation.', bindingControl('toggle', true)),
     h('h2', {}, 'Output'),
     card(
       'When a dictation is done',
@@ -685,7 +685,7 @@ function general(): Node[] {
     ),
     card(
       'Say “press enter” to send',
-      'End a dictation with the words “press enter” and dictate presses Enter after the text, to send a chat message hands-free. Only as the very last words.',
+      'End a dictation with “press enter” and dictate presses Enter after the text. Only as the very last words.',
       toggle(s.pressEnter, (v) => set({ pressEnter: v })),
     ),
     card('Show what you say', 'The live words in the pill while you speak. Off leaves just the waveform.', toggle(s.pillText, (v) => set({ pillText: v }))),
@@ -916,19 +916,19 @@ function agentsPage(): (Node | null)[] {
   };
   return [
     h('h1', {}, 'Agents'),
-    h('p.lead', {}, 'Coding agents reach you through the pill. A card names the tab or folder it came from (Dictate looks that up; agents can’t set it) and what the agent needs. Click it to open the tab, or hold your dictation key over it to answer.'),
-    card('Let coding agents use Dictate', 'Adds Dictate’s tools to Claude Code, Codex and Cursor each time Dictate starts, and a short note on when to use them to Claude Code’s and Codex’s own instructions. Off removes them again; a “dictate” entry you wrote yourself and the rest of those files are never touched.', toggle(s.agentsEnabled, (v) => set({ agentsEnabled: v }), 'Let coding agents use Dictate')),
+    h('p.lead', {}, 'Coding agents reach you through cards on the pill. Click a card to open its tab, or hold your dictation key over it to answer.'),
+    card('Let coding agents use Dictate', 'Adds Dictate’s tools to Claude Code, Codex and Cursor at each start, and a short note to Claude Code’s and Codex’s instructions. Off removes them. Nothing else in those files changes, including a “dictate” entry you wrote yourself.', toggle(s.agentsEnabled, (v) => set({ agentsEnabled: v }), 'Let coding agents use Dictate')),
     ...(a?.registration ?? []).map((r) => card(AGENT_NAMES[r.agent], h('span', {}, regLine(r), ...noteLine(r.agent)))),
     a && !a.registrationAllowed ? h('p.muted.small', {}, 'This is a development build: it doesn’t change your agents’ settings.') : null,
     card('Show Pane’s agent alerts on the pill', paneLine, toggle(s.agentPaneAlerts, (v) => set({ agentPaneAlerts: v }), 'Show Pane’s agent alerts on the pill')),
     card('Pause agent alerts', 'Cards wait, and the tray shows how many. Questions from agents return “do not disturb”.', toggle(s.agentAlertsPaused, (v) => set({ agentAlertsPaused: v }), 'Pause agent alerts')),
-    card('Chime when an agent needs you', 'One soft chime for cards that need you. Finished tabs stay silent.', toggle(s.agentChime, (v) => set({ agentChime: v }), 'Chime')),
+    card('Chime when an agent needs you', 'Finished tabs stay silent.', toggle(s.agentChime, (v) => set({ agentChime: v }), 'Chime')),
     ...SECTIONS.flatMap((section) => section({ st, set, refresh })),
     h('h2', {}, 'Other agents'),
     h('p.muted.small', {}, 'Copy the setup and paste it into that agent’s settings file.'),
     ...(a?.snippets ?? []).map((sn) => card(sn.agent, h('span', {}, h('code', {}, sn.file), sn.note ? ` · ${sn.note}` : ''), h('button.button', { onclick: copy(sn.text) }, 'Copy setup'))),
     h('h2', {}, 'Dictation history'),
-    card('Let agents read my dictation history', 'Off by default. When on, an agent can ask, and you allow or deny each request on the pill. Secrets are redacted, and every read is listed below.', toggle(s.agentHistory, (v) => set({ agentHistory: v }), 'Let agents read my dictation history')),
+    card('Let agents read my dictation history', 'An agent asks first, and you allow or deny each request on the pill. Secrets are redacted, and every read is listed below.', toggle(s.agentHistory, (v) => set({ agentHistory: v }), 'Let agents read my dictation history')),
     ...(a?.grants ?? []).map((g) =>
       card(
         `Allowed for this session: ${g.source}`,
@@ -964,7 +964,7 @@ function historyPage(): Node[] {
   const s = st.settings;
   return [
     h('h1', {}, 'History'),
-    h('p.lead', {}, 'Your dictations are kept on this laptop only. Open them anywhere with ', keycap(st.labels.picker), '.'),
+    h('p.lead', {}, 'Your dictations stay on this computer. Open them anywhere with ', keycap(st.labels.picker), '.'),
     card('Keep the last', 'Pinned dictations are always kept.', select(String(s.historyLimit), [['50', '50 dictations'], ['200', '200 dictations'], ['1000', '1,000 dictations'], ['5000', '5,000 dictations']], (v) => set({ historyLimit: Number(v) }))),
     card('Clear history', `${st.history.count} saved. Pinned ones stay.`, h('button.button', { onclick: () => void refresh(dictate.invoke<State>('dictate:clear-history')) }, 'Clear')),
     card('Speed', st.history.median !== null ? `Median release-to-text over the last ${st.history.samples} dictations: ${st.history.median} ms.` : 'Dictate something to see how fast it is.'),

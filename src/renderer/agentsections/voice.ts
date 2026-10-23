@@ -22,7 +22,7 @@ export const voice: Section = ({ st, set, refresh }) => {
   const v = st.settings.voice;
   const state = st.surfaces?.voice as VoiceState | undefined;
   const sessionDesc = !state?.installed
-    ? 'Needs Pane. Once Pane is installed, the agent key talks to a Pane Session named Voice.'
+    ? 'Needs Pane. Then the agent key talks to a Pane Session named Voice.'
     : state.session
       ? `Your words go to the Pane Session “${state.session.name}”. Its orchestrator works out which tab should do it, and answers on the pill.${lastLine(state.last)}`
       : 'Dictate creates a Pane Session named Voice the first time you use the agent key. Its orchestrator works out which tab should do it, and answers on the pill.';
@@ -30,7 +30,7 @@ export const voice: Section = ({ st, set, refresh }) => {
     h('h2', {}, 'Talk to agents'),
     card(
       'Agent key',
-      'Hold it and say what you want done, in plain words; release to send. Your words show for 2 s first (Esc cancels), then go to the Voice orchestrator instead of being typed.',
+      'Hold it, say what you want done, and let go. Your words show for 2 s (Esc cancels), then go to the Voice orchestrator.',
       keyRecorder(v.key, (key) => set({ voice: { ...v, key } }), () => set({ voice: { ...v, key: null } })),
     ),
     card(

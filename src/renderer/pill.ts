@@ -121,9 +121,9 @@ function render(): void {
 
   let line = '';
   if (notice && live) line = notice;
-  else if (recording(s.kind) && silent) line = 'Can’t hear you — check the mic';
+  else if (recording(s.kind) && silent) line = 'Can’t hear you · check the mic';
   else if (s.kind === 'reply-preview') line = `${s.warn ? 'Starts like a command · ' : ''}Sending to ${s.to} in 2 s · Esc cancels`;
-  else if (s.kind === 'listening' && hintAllowed && hintVisible(0, performance.now() - sessionStart)) line = `${s.finish} · Esc to cancel`;
+  else if (s.kind === 'listening' && hintAllowed && hintVisible(0, performance.now() - sessionStart)) line = `${s.finish} · Esc cancels`;
   // Variant B carries the live words above a waveform-only pill.
   if (config.variant === 'b' && live && config.showText && !line) {
     above.textContent = words();

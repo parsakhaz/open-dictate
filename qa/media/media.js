@@ -105,7 +105,7 @@ async function stills(lv) {
   await emit('dictate:pill', { kind: 'done', message: 'Pasted' });
   await sleep(500);
   await save(w, 'pill-pasted', await pillRect(js));
-  await emit('dictate:pill', { kind: 'copied', message: 'Copied — press Ctrl+V' });
+  await emit('dictate:pill', { kind: 'copied', message: 'Copied · press Ctrl+V' });
   await sleep(500);
   await save(w, 'pill-copied', await pillRect(js));
   await emit('dictate:pill', { kind: 'error', message: 'Microphone unplugged — it’s in History' });

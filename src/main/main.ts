@@ -568,10 +568,10 @@ async function stopRecording(): Promise<void> {
     rebuildTrayMenu();
     return idleTray();
   }
-  if (d?.pasted && d.confirmed === false) pillSend('dictate:pill', { kind: 'copied', message: 'Pasted — also on the clipboard' });
+  if (d?.pasted && d.confirmed === false) pillSend('dictate:pill', { kind: 'copied', message: 'Pasted · also on the clipboard' });
   else if (d?.pasted) pillSend('dictate:pill', { kind: 'done', message: `${settings.output === 'both' ? 'Pasted and copied' : 'Pasted'}${d.entered ? ' · Enter' : ''}` });
-  else if (d?.copied) pillSend('dictate:pill', { kind: 'copied', message: settings.output === 'clipboard' ? 'Copied' : `Copied — press ${pasteKeys}` });
-  else pillSend('dictate:pill', { kind: 'error', message: `Could not paste — it’s in History (${bindingLabel(settings.picker)})` });
+  else if (d?.copied) pillSend('dictate:pill', { kind: 'copied', message: settings.output === 'clipboard' ? 'Copied' : `Copied · press ${pasteKeys}` });
+  else pillSend('dictate:pill', { kind: 'error', message: `Couldn’t paste · it’s in History (${bindingLabel(settings.picker)})` });
   pushState();
   rebuildTrayMenu();
   idleTray();
@@ -715,7 +715,7 @@ function captureError(id: number, message: string): void {
 function micLost(id: number, label: string): void {
   // Capture has already moved to the default mic; the device list will say whether something better is left.
   log('warn', `capture ${id}: mic "${label}" ended; continuing on the default mic`);
-  if (rec?.id === id && rec.shown) pillSend('dictate:notice', `${micName(label || 'Microphone')} stopped — using the default mic`);
+  if (rec?.id === id && rec.shown) pillSend('dictate:notice', `${micName(label || 'Microphone')} stopped · using the default mic`);
   pillSend('dictate:enumerate');
 }
 
@@ -723,7 +723,7 @@ function captureFailed(id: number, message: string): void {
   log('error', `capture ${id}: no mic could be reopened (${message}); finishing with what was heard`);
   if (rec?.id !== id) return;
   machine.reset();
-  if (rec.shown) pillSend('dictate:notice', 'Microphone lost — keeping what you said');
+  if (rec.shown) pillSend('dictate:notice', 'Microphone lost · kept what you said');
   void stopRecording();
 }
 
@@ -830,7 +830,7 @@ function onDevices(d: { list: MicDevice[]; defaultLabel: string }): void {
 
 function micToast(e: MicEvent): void {
   if (e.kind === 'disconnected') {
-    const msg = `${micName(e.from)} disconnected — using ${e.to ? micName(e.to) : 'the default mic'}`;
+    const msg = `${micName(e.from)} disconnected · using ${e.to ? micName(e.to) : 'the default mic'}`;
     log('info', msg);
     // Mid-recording the pill keeps its controls and shows the change as a notice under the text.
     if (rec?.shown || finishing.size) pillSend('dictate:notice', msg);
@@ -942,7 +942,7 @@ async function choose(req: PickRequest): Promise<void> {
   const target = picker.target;
   const focused = req.copyOnly || await focusForPaste(target, { current: foregroundWindow, exists: isWindow, activate: setForeground });
   const d = await pickFromHistory(history, { ...req, copyOnly: req.copyOnly || !focused }, sink);
-  if (d && !req.copyOnly && !d.pasted) showToast(d.copied ? `Copied — press ${pasteKeys}` : 'Could not paste or copy', false, 3500);
+  if (d && !req.copyOnly && !d.pasted) showToast(d.copied ? `Copied · press ${pasteKeys}` : 'Couldn’t paste or copy', false, 3500);
 }
 
 // ---------- keyboard ----------

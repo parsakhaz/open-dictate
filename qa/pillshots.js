@@ -71,7 +71,7 @@ async function run(variant) {
     cmd('shot listening-overflow');
     await sleep(200);
     // Outcomes that the fixture does not produce.
-    cmd('state {"kind":"copied","message":"Pasted — also on the clipboard"}');
+    cmd('state {"kind":"copied","message":"Pasted · also on the clipboard"}');
     await sleep(800);
     cmd('state {"kind":"error","message":"Microphone error: the device was unplugged"}');
     await sleep(800);

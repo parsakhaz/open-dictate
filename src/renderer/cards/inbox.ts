@@ -73,7 +73,7 @@ function draw(): void {
       h(
         'div.shelf',
         {},
-        h('div.shelfhead', {}, h('span.ttl', {}, 'Snoozed'), h('span', {}, `· ${snoozed.length} card${snoozed.length === 1 ? '' : 's'}`), h('span.hint', {}, snoozeKey === 'Off' ? '' : `${snoozeKey} snoozes the top card`)),
+        h('div.shelfhead', {}, h('span.ttl', {}, 'Snoozed'), h('span', {}, `· ${snoozed.length} card${snoozed.length === 1 ? '' : 's'}`)),
         ...snoozed.map((s) =>
           h('div.shelfrow', { 'data-id': s.id }, ring(s, now), h('div.shelftext', {}, h('div.src', {}, s.source), h('div.title', {}, s.title)), h('button.cbtn.now', { onclick: () => invoke('now', s.id) }, 'Now'), h('button.x', { title: 'Drop', onclick: () => invoke('drop', s.id) }, '✕')),
         ),

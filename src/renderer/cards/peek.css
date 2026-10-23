@@ -87,7 +87,6 @@
   background: var(--accent);
   box-shadow: 0 0 0 2px rgba(96, 205, 255, 0.18);
 }
-.pnote,
 .pfail {
   font-size: 11px;
   line-height: 15px;
