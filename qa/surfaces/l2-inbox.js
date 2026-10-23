@@ -1,7 +1,8 @@
 // L2 · Inbox, flow guard, round and snooze: J5 flow guard, J6 decision round, J7 snooze, J8 snoozed ask.
 // J9 (snooze settings across a restart) is covered by the settings tests; this harness runs one launch.
 // Typing is simulated with `inbox keydown` (a key-down's time, as the hook reports it); time for snoozes moves with
-// `inbox clock <s>`; round keys and spoken commands go through `inbox key` and `inbox say` (no speech model needed).
+// `inbox clock <s>`; round keys and spoken commands go through `inbox key` and `inbox say` (no speech model needed); with the speech model
+// the round is also answered by holding the dictation key while the fake mic plays.
 
 const INBOX = /QA inbox (\{.*\})\r?\n/;
 const PILL = /QA inbox pill (\{.*\})\r?\n/;
@@ -153,9 +154,9 @@ module.exports = {
     },
     {
       id: 'J6',
-      name: 'a decision round above the pill: keys, open listening, the summary, Undo, and Esc',
+      name: 'a decision round above the pill: it waits for the held key, keys and spoken commands, the summary, Undo, and Esc',
       async run(ctx) {
-        const { session, cmd, qa, cards, sheet, shot, sheetShot, sleep, check, MODELS } = ctx;
+        const { session, cmd, qa, cards, sheet, shot, sheetShot, sleep, check, log, untilLog, MODELS } = ctx;
         await clear(ctx);
         const agents = [0, 1, 2].map((i) => session({ client: 'codex-mcp-client', title: `Agent ${i}` }));
         const questions = [
@@ -173,25 +174,42 @@ module.exports = {
         const held = await qa('inbox dump', INBOX);
         check('three cards wait while the person types', held?.extra.waiting === 3 && !held.top, held);
         await shot('l2-j6-three-waiting');
+        // The fake mic plays speech the whole time: a round that listened on its own would hear it.
+        const opened = log().length;
         cmd('inbox shortcut round');
         await sleep(1000);
         const s = await sheet();
         check('the round opens in the sheet, focusable, right above the pill', s?.open && s.kind === 'round' && s.focusable && s.page.kind === 'round', s);
         check('it is 480 px wide (plus its shadow margin) and centred over the pill', s && s.bounds.width === 480 + 24 && Math.abs(s.bounds.x + s.bounds.width / 2 - (s.pill.x + s.pill.width / 2)) <= 1, s?.bounds);
         check('it shows chips and "1 of 3"', s && /1 of 3/.test(s.page.text) && /Where should the coupon field go/.test(s.page.text), s?.page);
+        check('it says to hold the dictation key to answer', s && /Hold your dictation key and say your answer/.test(s.page.text), s?.page);
+        await sleep(3000);
         let d = await qa('inbox dump', INBOX);
-        // Without the speech model the mic can't open (the pill says the model is loading); the round still listens for keys.
-        check('open listening is on while the round is open', d?.listening === true && (d.recording === true || !MODELS), d);
+        check('for 4 s after it opens, with speech playing, nothing records and the first card waits', d && !d.listening && d.round?.position.n === 1 && d.round.results.length === 0 && !/capture \d+ on /.test(log().slice(opened)), d);
         check('the pill shows no card during the round', d && !d.top, d);
         await sheetShot('l2-j6-round');
-        cmd('inbox key 2');
-        await sleep(500);
+        if (MODELS) {
+          const mark = log().length;
+          cmd('down');
+          await sleep(600);
+          d = await qa('inbox dump', INBOX);
+          check('holding the dictation key records for the round', d?.listening === true && /capture \d+ on /.test(log().slice(mark)), d);
+          await sheetShot('l2-j6-round-holding');
+          await sleep(3000);
+          cmd('up');
+          await untilLog(/dictation \d+: (final|nothing heard)/, 30_000, mark);
+        } else cmd('inbox say Under the summary, next to the total');
+        d = await waitFor(() => qa('inbox dump', INBOX), (x) => x?.round?.position.n === 2, sleep, 25);
+        check('the held key answers the first card, and the round moves to "2 of 3"', d?.round?.position.n === 2 && d.round.results[0] === 'answered', d);
+        const waited = log().length;
+        await sleep(3000);
         d = await qa('inbox dump', INBOX);
-        check('2 answers the first card, and the round moves to "2 of 3"', d?.round?.position.n === 2 && d.round.results[0] === 'answered', d);
+        check('the round then waits on the second card without recording', d && !d.listening && d.round?.position.n === 2 && d.round.results.length === 1 && !/capture \d+ on /.test(log().slice(waited)), d);
+        await sheetShot('l2-j6-round-2-waiting');
         cmd('inbox say approve');
         await sleep(600);
         const first = await Promise.race([asks[0], sleep(3000).then(() => null)]);
-        check('the first answer is sent once the person moves on', first?.result?.answered === true && first.result.choice === 'Behind a link', first);
+        check('the first answer is sent once the person moves on', first?.result?.answered === true && typeof first.result.text === 'string' && first.result.text.length > 0, first);
         d = await qa('inbox dump', INBOX);
         check('saying "approve" approves the second card', d?.round?.results[1] === 'approved' && d.round.position.n === 3, d);
         await sheetShot('l2-j6-round-3');
@@ -202,23 +220,21 @@ module.exports = {
         const closed = await sheet();
         check('after the last card the round closes', closed && !closed.open && !closed.visible, closed);
         d = await qa('inbox dump', INBOX);
-        check('open listening stopped with the round', d && !d.listening && !d.recording, d);
         check('focus goes back to the window that had it', d && d.foreground === d.before, d);
         const summary = await cards();
         check('the summary shows the counts', summary?.top?.kind === 'round-summary' && /1 approved, 1 answered, 1 snoozed until \d\d:\d\d/.test(summary.top.title), summary);
         await shot('l2-j6-summary');
         cmd('inbox undo');
-        // Cards wait a second after a recording ends (open listening's included), then the card is back.
+        // Cards wait a second after a recording ends, then the card is back.
         const undone = await waitFor(cards, (c) => c?.top?.title === 'Review the welcome copy?', sleep, 15);
         check('Undo restores the last card', undone?.top?.title === 'Review the welcome copy?', undone);
         cmd('inbox shortcut round');
         await sleep(800);
-        // Esc with the mic open goes through the key hook; without the model there is no recording, so the page's Esc.
-        cmd(MODELS ? 'escape' : 'inbox key Escape');
+        cmd('inbox key Escape');
         await sleep(800);
         const esc = await sheet();
         d = await qa('inbox dump', INBOX);
-        check('Esc ends the round and open listening', esc && !esc.open && d && !d.round && !d.listening, { esc, d });
+        check('Esc ends the round', esc && !esc.open && d && !d.round, { esc, d });
         cmd('card dismiss');
         await sleep(300);
       },

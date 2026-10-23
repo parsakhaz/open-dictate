@@ -73,6 +73,12 @@ export class Surfaces {
     return null;
   }
 
+  /** The route the dictation key records for right now, if a feature takes it. */
+  dictationRoute(): string | undefined {
+    for (const [name, r] of this.routes) if (r.takesDictation?.()) return name;
+    return undefined;
+  }
+
   route(name: string | undefined): Route | undefined {
     return name ? this.routes.get(name) : undefined;
   }

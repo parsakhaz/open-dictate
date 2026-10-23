@@ -151,7 +151,7 @@ interface Session {
   abort: AbortController;
   /** This dictation answers an agent's card instead of pasting (the key went down over the card, or Reply). */
   reply?: { cardId: string; to: string };
-  /** A surface's route takes the words instead (the agent key, the point key, open listening). */
+  /** A surface's route takes the words instead (the agent key, the point key, the dictation key in a round). */
   route?: string;
 }
 
@@ -449,8 +449,8 @@ function onHotkey(a: HotkeyAction): void {
   }
 }
 
-/** Key down (or a surface's open listening): capture starts at once; the pill waits until it is a hold or a double-tap. */
-function startRecording(route?: string): void {
+/** Key down (or host.recording): capture starts at once; the pill waits until it is a hold or a double-tap. */
+function startRecording(route = surfaces?.dictationRoute()): void {
   if (rec) return;
   if (!sttReady) {
     // Show why nothing happens, but only for a real press (mode), not a tap.
@@ -526,7 +526,7 @@ async function stopRecording(): Promise<void> {
     : undefined;
   const practice = practicing && !!settingsWin && !settingsWin.isDestroyed() && settingsWin.isFocused();
   const reply = !practice ? s.reply : undefined;
-  // A route key's words (or open listening's) go to its feature, never into the app in front.
+  // A route's words go to its feature, never into the app in front.
   const routed = !practice && !!s.route;
   const route = routed ? surfaces?.route(s.route) : undefined;
   let replied: { ok: boolean; message: string } | undefined;
@@ -614,7 +614,6 @@ function startStt(): void {
         log('info', `stt partial ${m.id}: recognizer activity`);
       }
       s.partial = m.text;
-      surfaces?.route(s.route)?.partial?.(s.id, m.text);
       if (s.segmenter && s.cleaner) {
         const committed = s.segmenter.update(m.text, performance.now());
         s.cleaner.revised(s.segmenter.takeRevised());
@@ -1012,7 +1011,7 @@ function onHook(e: FromHook): void {
 }
 
 /**
- * Esc while a recording runs that no key started (a surface's open listening): the machine is idle and would ignore
+ * Esc while a recording runs that no key started (host.recording): the machine is idle and would ignore
  * it, and the hook swallows Esc while recording, so it cancels here. True when it did.
  */
 function escapeKeyless(): boolean {
@@ -1800,7 +1799,7 @@ function startSurfaces(a: Agents): void {
         machine.reset();
         void stopRecording();
       },
-      // The feature ended it (a round done), so the pill just hides: only the person's Esc says "Cancelled".
+      // The feature ended it, so the pill just hides: only the person's Esc says "Cancelled".
       cancel: () => {
         machine.reset();
         onHotkey({ type: 'cancel', reason: 'shortcut' });

@@ -128,8 +128,8 @@ export const voice: Feature = {
       orch.forget();
       host.stateChanged();
     });
-    // QA: "voice down" / "voice up" start and end a recording on the agent key's route (through host.recording, as
-    // open listening does; the key hook itself isn't driven); "voice send <words>" delivers as the route would after
+    // QA: "voice down" / "voice up" start and end a recording on the agent key's route (through host.recording;
+    // the key hook itself isn't driven); "voice send <words>" delivers as the route would after
     // its preview; "voice status" logs the state.
     host.qa((line) => {
       const [verb, ...rest] = line.split(' ');

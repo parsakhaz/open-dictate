@@ -14,7 +14,7 @@ import { type Cue, play } from './sounds';
 export type PillState =
   | { kind: 'hidden' }
   /** `starting`: the mic is still opening; the waveform is grey and flat until its first audio. */
-  /** `route`: a surface's key is recording (the agent key, the point key, open listening), and `routeLabel` says where it goes. */
+  /** `route`: a surface's key is recording (the agent key, the point key, the dictation key in a round), and `routeLabel` says where it goes. */
   | { kind: 'listening'; mode: 'push-to-talk' | 'toggle'; finish: string; starting?: boolean; replyTo?: string; route?: string; routeLabel?: string }
   | { kind: 'warming'; finish?: string }
   | { kind: 'transcribing' }
