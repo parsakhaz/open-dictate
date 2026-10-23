@@ -123,7 +123,7 @@ module.exports = {
         await sleep(400);
         await shot('l1-j1-all-answered');
         const l2 = await qa('card-layout', /QA card-layout (.+)\n/);
-        check('the card reads "3 of 3 answered" and "All answered"', l2 && /3 of 3 answered/.test(l2.text) && /All answered/.test(l2.text), l2);
+        check('the card reads "3 of 3 answered"', l2 && /3 of 3 answered/.test(l2.text), l2);
         await click(ctx, 'Send answers');
         const r = (await within(call, sleep, 3000))?.result;
         check('Send returns every answer, by click, with its card_id', r?.answered === true && r.via === 'click' && typeof r.card_id === 'string' && JSON.stringify(r.answers) === JSON.stringify([
@@ -197,10 +197,10 @@ module.exports = {
         let s = null;
         for (let i = 0; i < 20; i++) {
           s = await sheet();
-          if (s?.open && s.kind === 'decide' && s.page?.kind === 'decide' && /Previewing/.test(s.page.text)) break;
+          if (s?.open && s.kind === 'decide' && s.page?.kind === 'decide' && /\b[1-4] · \S/.test(s.page.text)) break;
           await sleep(200);
         }
-        check('the 760 px decide sheet opens in place of the card, showing the first preview', s?.open && s.kind === 'decide' && s.visible && Math.abs(s.bounds.width - 784) <= 2 && /Previewing\s*1 · Backoff ×3/.test(s.page.text) && /attempts: 3/.test(s.page.text), s);
+        check('the 760 px decide sheet opens in place of the card, showing the first preview', s?.open && s.kind === 'decide' && s.visible && Math.abs(s.bounds.width - 784) <= 2 && /\b1 · Backoff ×3/.test(s.page.text) && /attempts: 3/.test(s.page.text), s);
         check('it has a tab per question', s && /Policy/.test(s.page.text) && /Target/.test(s.page.text) && /not answered/.test(s.page.text), s?.page);
         await sleep(300);
         await sheetShot('l1-j3-sheet');
@@ -208,12 +208,12 @@ module.exports = {
         await sleep(400);
         s = await sheet();
         let d = await ctx.qa('decide dump', /QA decide (.+)\n/);
-        check('hovering option 2 changes the preview, not the answer', /Previewing\s*2 · Once \+ email/.test(s?.page.text) && /attempts: 1/.test(s?.page.text) && d?.cards[0]?.data.answers[0].picked.length === 0, { text: s?.page.text, answers: d?.cards[0]?.data.answers });
+        check('hovering option 2 changes the preview, not the answer', /\b2 · Once \+ email/.test(s?.page.text) && /attempts: 1/.test(s?.page.text) && d?.cards[0]?.data.answers[0].picked.length === 0, { text: s?.page.text, answers: d?.cards[0]?.data.answers });
         await sheetShot('l1-j3-hover');
         cmd('decide key Down');
         await sleep(300);
         s = await sheet();
-        check('↓ moves the preview on to option 3 (text)', /Previewing\s*3 · Don't retry/.test(s?.page.text), s?.page.text);
+        check('↓ moves the preview on to option 3 (text)', /\b3 · Don't retry/.test(s?.page.text), s?.page.text);
         cmd('decide key 1');
         await sleep(500);
         d = await ctx.qa('decide dump', /QA decide (.+)\n/);
@@ -234,7 +234,7 @@ module.exports = {
         check('Esc closes the sheet and the card is back on the pill with Expand', s && !s.open && /Expand/.test(card?.text ?? ''), { s, card });
         await click(ctx, 'Expand');
         s = await sheetWith(ctx, PREVIEWS.title);
-        check('Expand reopens the comparison and leaves expanded mode off', /Previewing/.test(s?.page?.text ?? '') && (await savedExpanded(ctx, false))?.expanded !== true, s?.page);
+        check('Expand reopens the comparison and leaves expanded mode off', /\b[1-4] · \S/.test(s?.page?.text ?? '') && (await savedExpanded(ctx, false))?.expanded !== true, s?.page);
         cmd('decide key Enter');
         const r = (await within(call, sleep, 3000))?.result;
         check('Enter sends, by keys', r?.answered === true && r.via === 'keys' && JSON.stringify(r.answers.map((x) => x.picked)) === JSON.stringify([['Backoff ×3'], ['Production']]), r);

@@ -10,7 +10,7 @@ export const point: Section = ({ st, set }) => {
   const p = st.settings.point;
   const state = st.surfaces?.point as { supported?: boolean; helper?: string } | undefined;
   const heading = h('h2', {}, 'Point and say');
-  const intro = h('p.muted.small', {}, 'Point at anything, hold the key and say what you want. Dictate sends a crop of it, the text it can read there and your words to the Voice orchestrator. Nothing is captured until you hold the key, the screen edge glows while it is down, and you always see what will go before it goes.');
+  const intro = h('p.muted.small', {}, 'Hold the point key over anything and say what you want. Dictate sends a crop, the text it reads there and your words to the Voice orchestrator. Nothing is captured until you hold the key, the screen edge glows while you do, and you see what goes before it is sent.');
   if (!state?.supported) return [heading, card('Windows only for now', 'Point and say reads the screen through Windows UI Automation. It is off on this system.')];
   const save = (patch: Partial<typeof p>) => void set({ point: { ...p, ...patch } });
 

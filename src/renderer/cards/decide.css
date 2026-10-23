@@ -215,12 +215,6 @@
   padding-top: 9px;
   border-top: 1px solid var(--divider);
 }
-.dleft {
-  margin-left: auto;
-  font-size: 11px;
-  line-height: 16px;
-  color: var(--text-3);
-}
 
 /* ---------- the person's words: as they come, then the 2 s countdown ---------- */
 

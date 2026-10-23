@@ -46,7 +46,7 @@ function thumbnail(b64: string): HTMLCanvasElement {
 function readText(text: string): HTMLElement {
   const el = h('div.ptext');
   if (!text) {
-    el.append(h('span.pnone', {}, 'No text could be read here; the crop goes on its own.'));
+    el.append(h('span.pnone', {}, 'No text read here. Only the crop goes.'));
     return el;
   }
   for (const part of text.split(/(\S*••••••)/)) if (part) el.append(part.includes(MASK) ? h('span.psecret', {}, part) : part);

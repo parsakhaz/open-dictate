@@ -85,7 +85,7 @@ function previewPane(): HTMLElement {
   return h(
     'div.dright',
     {},
-    h('div.dpvh', {}, 'Previewing', h('b', {}, `${s.n} · ${s.label}`), added || removed ? h('span.dtag.dstat', {}, `+${added} −${removed}`) : null),
+    h('div.dpvh', {}, h('b', {}, `${s.n} · ${s.label}`), added || removed ? h('span.dtag.dstat', {}, `+${added} −${removed}`) : null),
     h(
       `div.dpre${code ? '.code' : ''}`,
       {},
@@ -175,7 +175,7 @@ function drawStacked(d: Payload): void {
       {},
       note
         ? h('span.dhint', {}, note)
-        : h('span.dhint', {}, h('kbd', {}, `1–${d.questions[cur].options.length}`), ' pick · ', h('kbd', {}, '↑'), h('kbd', {}, '↓'), ' question · ', h('kbd', {}, 'Enter'), ' send · or hold your key and say it'),
+        : h('span.dhint', {}, h('kbd', {}, `1–${d.questions[cur].options.length}`), ' pick · ', h('kbd', {}, '↑'), h('kbd', {}, '↓'), ' question · ', h('kbd', {}, 'Enter'), ' send · or hold your key to say it'),
       h(`button.cbtn${complete(d) ? '.primary' : ''}`, { onclick: () => void send('click') }, left ? `Send answers · ${left} left` : 'Send answers'),
     ),
   );
@@ -229,7 +229,7 @@ function draw(): void {
   const left = d.questions.length - answeredCount(d);
   root.replaceChildren(
     head(d),
-    h('div.dtitle', {}, h('span.ttl', {}, d.title), h('span.msg', {}, d.message || 'Hover an option to see what it changes.')),
+    h('div.dtitle', {}, h('span.ttl', {}, d.title), d.message ? h('span.msg', {}, d.message) : null),
     h('div.dtabs', {}, ...tabs),
     h(
       `div.dbody${anyPreview ? '' : '.narrow'}`,
@@ -245,7 +245,7 @@ function draw(): void {
         ? h('span.dhint', {}, note)
         : h('span.dhint', {}, h('kbd', {}, '↑'), h('kbd', {}, '↓'), ' compare · ', h('kbd', {}, `1–${q.options.length}`), ' pick · ', h('kbd', {}, '←'), h('kbd', {}, '→'), ' question'),
       h('button.cbtn', { onclick: () => go(cur + 1) }, 'Skip'),
-      h(`button.cbtn${complete(d) ? '.primary' : ''}`, { onclick: () => void send('click') }, left ? `Submit answers · ${left} left` : 'Submit answers'),
+      h(`button.cbtn${complete(d) ? '.primary' : ''}`, { onclick: () => void send('click') }, left ? `Send answers · ${left} left` : 'Send answers'),
     ),
   );
 }

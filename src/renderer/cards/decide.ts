@@ -48,12 +48,12 @@ export function saidSlot(cardId: string, draw: (el: HTMLElement, s: typeof said)
   return el;
 }
 
-/** "Sending to billing-retry in 2 s · Esc to cancel", and a bar that runs down with main's preview timer. */
+/** "Sending to billing-retry in 2 s · Esc cancels", and a bar that runs down with main's preview timer. */
 export function countdown(to: string): HTMLElement {
   return h(
     'div.dcount',
     {},
-    h('div.creply', {}, h('span.rdot'), `Sending to ${to || 'the agent'} in 2 s`, h('span.desc', {}, ' · '), h('kbd', {}, 'Esc'), h('span.desc', {}, ' to cancel')),
+    h('div.creply', {}, h('span.rdot'), `Sending to ${to || 'the agent'} in 2 s`, h('span.desc', {}, ' · '), h('kbd', {}, 'Esc'), h('span.desc', {}, ' cancels')),
     h('div.dbar', {}, h('i')),
   );
 }
@@ -115,28 +115,26 @@ export const decide: CardBody = {
     );
     const parts: HTMLElement[] = [
       h('div.dtop', {}, h('div.title', {}, plainTitle(c.title)), n > 1 ? h(`span.dtag${got ? '.acc' : ''}`, {}, `${got} of ${n} answered`) : null, expand),
-      message(c.message || (n > 1 ? 'Pick one per question, or hold your key and say them all at once.' : 'Pick one, or hold your key and say it.')),
+      message(c.message || (n > 1 ? 'Pick one each, or hold your key and say them all.' : 'Pick one, or hold your key and say it.')),
       ...d.questions.map((_, i) => question(c, ctx, d, i, flashing)),
     ];
     if (ctx.replying) {
       parts.push(
         saidSlot(c.id, (el, s) => {
           el.replaceChildren(
-            s.preview ? countdown(s.to) : h('div.creply', {}, h('span.rdot'), n > 1 ? 'Listening · say them all at once' : 'Listening'),
+            s.preview ? countdown(s.to) : h('div.creply', {}, h('span.rdot'), 'Listening'),
             ...(s.words ? [h('div.dquote', {}, `“${s.words}”`)] : []),
           );
         }),
       );
       return parts;
     }
-    const left = n - got;
     parts.push(
       h(
         'div.dfoot',
         {},
         ctx.button('Send answers', { id: c.id, action: 'kind', name: 'send' }, complete(d) ? '.primary' : got ? '' : '.ghost'),
         ctx.button(ctx.armed ? 'Hold your key to answer' : 'Hold to answer', { id: c.id, action: 'arm-reply' }, '.armed'),
-        h('span.dleft', {}, left ? `${left} left` : 'All answered'),
       ),
     );
     return parts;

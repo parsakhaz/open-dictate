@@ -51,11 +51,11 @@ export const peek: Section = ({ st, set }) => {
   );
   return [
     h('h2', {}, 'Peek'),
-    h('p.muted.small', {}, 'Agents can show you a page on the pill and hear what you say about it. Pages on this computer (localhost) and HTML files inside the agent’s own folder always work. Any other site loads over https only, and only from hosts you add here; agents can’t add any.'),
+    h('p.muted.small', {}, 'Agents can show you a page and hear what you say about it. Local pages and HTML files in the agent’s own folder always work. Other sites load over https, only from hosts you add here.'),
     card('Sites a peek may show', h('span', {}, 'A host covers its subdomains: rungrain.com allows app.rungrain.com.'), null, h('div.peekedit', { style: { display: 'grid', gap: '10px', marginTop: '10px' } }, list, h('div.peekadd', { style: ROW }, input, h('button.button', { onclick: add }, 'Add')), note)),
     card(
       'Forget peek sign-ins',
-      'Peek keeps its own cookies (separate from your browser) so a sign-in lasts. This clears them.',
+      'Clears the sign-ins peek keeps, separate from your browser.',
       h('button.button', {
         onclick: async (e: Event) => {
           const b = e.currentTarget as HTMLButtonElement;

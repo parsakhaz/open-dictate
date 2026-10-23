@@ -33,7 +33,7 @@ function header(p: PeekSheetPayload): HTMLElement {
   );
   const hint = p.talking
     ? h('div.hint.talking', {}, h('span.rdot'), `Talking about ${p.talking}…`)
-    : h('div.hint', {}, 'Hold your dictation key over the page to point and talk. Drag while holding to mark a region.');
+    : h('div.hint', {}, 'Hold your dictation key over the page and talk. Drag to mark a region.');
   return h('div.phead', {}, row, h('div.title', {}, p.title), p.ask && p.ask !== p.title ? h('div.ask', {}, p.ask) : null, hint);
 }
 

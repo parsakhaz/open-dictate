@@ -13,12 +13,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.lu-tag {
-  padding: 1px 7px;
-  border-radius: 5px;
-  background: rgba(96, 205, 255, 0.12);
-  color: var(--accent);
-}
 .lu .shead .x {
   border: 0;
   background: transparent;
