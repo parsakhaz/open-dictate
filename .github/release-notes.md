@@ -1,5 +1,9 @@
 Fully local dictation: hold a key, speak, and clean text appears where you type. Nothing leaves your computer.
 
+## What's new in 0.2.4
+
+The decision round no longer listens on its own. Hold your dictation key to answer the card in front of you; the round then waits on the next card until you hold the key again ([#42](https://github.com/parsakhaz/open-dictate/pull/42)). Dictate's own text is shorter across cards, sheets, Settings and onboarding ([#43](https://github.com/parsakhaz/open-dictate/pull/43)).
+
 ## What's new in 0.2.3
 
 Decision cards can expand into a large view that shows every question at once, so a card with several questions no longer scrolls. Expand is remembered: later decision cards open expanded, including after a restart, until you press Shrink ([#41](https://github.com/parsakhaz/open-dictate/pull/41)). Agents can also use a new local `dictate` CLI to create a card, exit, and collect the answer later with `dictate request get` or `wait` ([#39](https://github.com/parsakhaz/open-dictate/pull/39)).
