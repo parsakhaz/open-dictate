@@ -1,5 +1,9 @@
 Fully local dictation: hold a key, speak, and clean text appears where you type. Nothing leaves your computer.
 
+## What's new in 0.2.3
+
+Decision cards can expand into a large view that shows every question at once, so a card with several questions no longer scrolls. Expand is remembered: later decision cards open expanded, including after a restart, until you press Shrink ([#41](https://github.com/parsakhaz/open-dictate/pull/41)). Agents can also use a new local `dictate` CLI to create a card, exit, and collect the answer later with `dictate request get` or `wait` ([#39](https://github.com/parsakhaz/open-dictate/pull/39)).
+
 ## What's new in 0.2.2
 
 Agent card and microphone Undo controls now receive reliable native mouse input while preserving Dictate's original compact floating appearance, hover disclosure and timing. Snooze, dismissal and automatic hiding work without a surrounding dialog or added window chrome ([#37](https://github.com/parsakhaz/open-dictate/pull/37)). This release also retains the Electron 44.9.2 security update from 0.2.1.
