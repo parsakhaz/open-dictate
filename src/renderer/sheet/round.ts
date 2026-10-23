@@ -1,6 +1,6 @@
 // The decision round, right above the pill: the progress bar and "2 of 5", the queue chips (click one to jump to it),
-// one decision with its choices as numbered tiles, the open-listening line, and the key legend. Keys: 1–4 choose,
-// Enter approve (or open), S snooze, → skip, Esc ends the round. Everything is plain text in elements.
+// one decision with its choices as numbered tiles, the line on holding the dictation key, and the key legend. Keys:
+// 1–4 choose, Enter approve (or open), S snooze, → skip, Esc ends the round. Everything is plain text in elements.
 import { messageLines, plainTitle } from '../../core/cardtext';
 import { dictate, h } from '../bridge';
 import type { SheetPage } from './types';
@@ -57,7 +57,9 @@ export const round: SheetPage = {
         `div.rlisten${p.listening ? '.on' : ''}`,
         {},
         h('span.mic', {}, '●'),
-        p.listening ? h('span', {}, 'Say ', h('b', {}, '“approve”'), ', ', h('b', {}, '“next”'), ', ', h('b', {}, `“snooze ${p.lengths[p.lengths.length - 1] ?? 10}”`), ' or your answer') : h('span', {}, 'Hold your dictation key to answer'),
+        p.listening
+          ? h('span', {}, 'Say ', h('b', {}, '“approve”'), ', ', h('b', {}, '“next”'), ', ', h('b', {}, `“snooze ${p.lengths[p.lengths.length - 1] ?? 10}”`), ' or your answer')
+          : h('span', {}, 'Hold your dictation key to answer, or say ', h('b', {}, '“approve”'), ' or ', h('b', {}, '“next”')),
         p.heard ? h('span.heard', {}, `Heard “${p.heard}”`) : null,
       ),
       h(

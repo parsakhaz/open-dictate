@@ -1,5 +1,5 @@
 /* The decision round (L2): right above the pill, 480 px, nothing dimmed. Header with progress, queue chips, one
-   decision with numbered tiles, the open-listening line and the key legend. */
+   decision with numbered tiles, the line on holding the dictation key and the key legend. */
 
 body[data-kind='round'] .sheet {
   box-shadow: 0 0 0 1.5px var(--accent), 0 6px 12px rgba(0, 0, 0, 0.4);

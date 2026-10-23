@@ -14,19 +14,17 @@ import type { Sheet } from '../sheet';
 export type FeatureName = 'decide' | 'inbox' | 'voice' | 'lineup' | 'peek' | 'point';
 
 /**
- * Where a finished recording goes when its key (the agent key, the point key) or its caller (open listening) named
+ * Where a finished recording goes when its key (the agent key, the point key, the dictation key it takes) named
  * this route, instead of being pasted. Registered under the route's name; the agent and point keys are bound only
  * once their route is registered.
  */
 export interface Route {
   /** What the pill says while recording, e.g. "To Voice orchestrator". */
   label: string;
-  /** How this recording ends, for the pill's first-use hint ("Release to finish" otherwise; open listening says its own). */
+  /** How this recording ends, for the pill's first-use hint ("Release to finish" otherwise). */
   finish?: string;
-  /** The key went down, or open listening started (point and say looks under the pointer here). */
+  /** The recording started (point and say looks under the pointer here). */
   began?(id: number): void;
-  /** The live transcript so far, as it changes (open listening ends an utterance on its own). */
-  partial?(id: number, text: string): void;
   /** Cancelled before anything was said or sent: a tap, Esc, another key. */
   cancelled?(id: number): void;
   /**
@@ -34,6 +32,8 @@ export interface Route {
    * the usual 2 s look); what it returns is what the pill says afterwards.
    */
   deliver(text: string, raw: string, id: number): Promise<{ ok: boolean; message: string }>;
+  /** While true, the dictation key records for this route instead of pasting (the round's, while it is open). */
+  takesDictation?(): boolean;
 }
 
 /** The card a dictation answers, and how the pill names it ("Replying to <to>…"). */
@@ -78,7 +78,7 @@ export interface FeatureHost {
    */
   replyTarget(fn: () => ReplyTarget | null): void;
   route(name: string, route: Route): void;
-  /** Records for a route without a key: open listening while a round is open. cancel() is quiet (the pill just hides); the person's Esc says "Cancelled". */
+  /** Records for a route without its key (QA's voice down/up, point and say's own cancel). cancel() is quiet (the pill just hides); the person's Esc says "Cancelled". */
   recording: { start(route: string): void; stop(): void; cancel(): void; active(): boolean };
   shortcut(name: ShortcutName, s: Shortcut): void;
   /** A shortcut's claim may have changed: bindings go to the key hook again. */

@@ -1,7 +1,7 @@
 // L2 · Inbox, flow guard, decision round and snooze. Cards wait while the person is busy (the queue's rules in
 // src/core/cards.ts; the typing and busy signals come from here), a card can be snoozed from the pill, the shortcut
-// or a round, and the round works through the waiting cards in the sheet right above the pill, by keys or by open
-// listening. card_status reports where a card is, also an answer given after the agent's call returned.
+// or a round, and the round works through the waiting cards in the sheet right above the pill, by keys or by holding
+// the dictation key. card_status reports where a card is, also an answer given after the agent's call returned.
 
 import type { CardEnd } from '../../core/agenthub';
 import { ToolInputError } from '../../core/agenttools';
@@ -15,10 +15,6 @@ import type { Feature, FeatureHost } from './host';
 const TOAST_MS = 5000;
 /** The round's summary stays this long, then the last action is sent and the summary goes. */
 const SUMMARY_MS = 8000;
-/** Open listening ends an utterance when the words stop changing for this long. */
-const UTTERANCE_PAUSE_MS = 1200;
-/** Open listening stops after this long with nothing said. */
-const LISTEN_IDLE_MS = 30_000;
 /** A question told it was snoozed still takes a late answer for this long. */
 const LATE_ANSWER_MS = 8 * 60 * 60_000;
 /** How often the shortcuts' claims are checked against what is on screen. */
@@ -48,7 +44,8 @@ class Inbox {
   private summary: { id: string; timer: ReturnType<typeof setTimeout> } | null = null;
   /** The window that had focus before the round took it. */
   private before = 0;
-  private listen = { on: false, id: -1, startedAt: 0, text: '', changedAt: 0, selfStop: false };
+  /** The dictation key is held for the round's current card. */
+  private listening = false;
   private heard = '';
   /** The round's cards' titles and tabs, for its summary after a card has left the queue. */
   private titles = new Map<string, { title: string; tab: string }>();
@@ -121,38 +118,17 @@ class Inbox {
     host.sheet.onClosed((kind, why) => {
       if (kind === 'round' && this.round) this.endRound(why === 'esc' ? 'esc' : 'closed');
     });
-    host.replyTarget(() => {
-      const id = this.round?.current();
-      const c = id ? this.q.get(id) : undefined;
-      return c ? { cardId: c.id, to: tabOf(c) } : null;
-    });
+    // While the round is open, the held dictation key is one utterance for its current card.
     host.route('round', {
-      label: 'Listening for your call',
-      finish: 'Esc ends the round',
-      began: (id) => {
-        this.listen.id = id;
-      },
-      partial: (_id, text) => {
-        if (text !== this.listen.text) {
-          this.listen.text = text;
-          this.listen.changedAt = this.now();
-        }
-      },
-      cancelled: () => {
-        const self = this.listen.selfStop;
-        this.listen.on = false;
-        this.listen.selfStop = false;
-        // Esc while listening ends the round.
-        if (!self && this.round) this.endRound('esc');
-      },
+      label: 'Your call on this card',
+      takesDictation: () => !!this.round,
+      began: () => this.setListening(true),
+      cancelled: () => this.setListening(false),
       deliver: async (text, raw) => {
-        const r = await this.utterance(text, raw);
-        this.listen.on = false;
-        if (this.round && !this.round.done()) setTimeout(() => this.startListening(), 600);
-        return r;
+        this.setListening(false);
+        return this.utterance(text, raw);
       },
     });
-    this.timers.push(setInterval(() => this.listenTick(), 200));
 
     host.qa((line) => this.qa(line));
     host.ipc.on('qa-dump', (v) => host.log('info', `QA inbox pill ${JSON.stringify(v)}`));
@@ -210,7 +186,7 @@ class Inbox {
       this.summary = null;
       this.commitPending();
     }
-    // A card in the round answered some other way (the dictation key with open listening off): the round moves on.
+    // A card in the round answered some other way (its agent, a click on the pill): the round moves on.
     if (this.round && this.round.current() === id) {
       const seen = this.titles.get(id) ?? { title: '', tab: '' };
       const text = answerOf(value)?.text;
@@ -314,7 +290,6 @@ class Inbox {
     this.heard = '';
     this.host.log('info', `inbox: round started over ${cards.length} card${cards.length === 1 ? '' : 's'}`);
     this.showRound(true);
-    this.startListening();
     this.render();
   }
 
@@ -335,7 +310,7 @@ class Inbox {
       }),
       card: { id: c.id, kind: c.kind, source: c.source, age: Math.max(0, Math.round((this.now() - c.createdAt) / 60_000)), title: c.title, message: c.message, choices: c.choices.slice(0, 4), canOpen: !!c.target },
       lengths: this.host.settings().snooze.minutes,
-      listening: this.listen.on,
+      listening: this.listening,
       heard: this.heard,
     };
     if (open) this.host.sheet.open('round', payload, { focus: true });
@@ -414,12 +389,11 @@ class Inbox {
     void p.commit().catch((err) => this.host.log('warn', `inbox: a round answer failed (${(err as Error).message})`));
   }
 
-  /** The round ends: the sheet goes and focus goes back, listening stops, and the summary shows what it did. */
+  /** The round ends: the sheet goes and focus goes back, and the summary shows what it did. */
   private endRound(why: 'done' | 'esc' | 'closed' | 'key'): void {
     const r = this.round;
     if (!r) return;
     this.round = null;
-    this.stopListening();
     this.q.setRound(false, this.now());
     if (this.host.sheet.kind === 'round') this.host.sheet.close();
     if (this.before) setForeground(this.before);
@@ -499,35 +473,9 @@ class Inbox {
     return undefined;
   }
 
-  // ---------- open listening ----------
-
-  private startListening(): void {
-    if (!this.round || this.listen.on || this.host.recording.active()) return;
-    this.listen = { on: true, id: -1, startedAt: this.now(), text: '', changedAt: this.now(), selfStop: false };
-    this.host.recording.start('round');
+  private setListening(on: boolean): void {
+    this.listening = on;
     this.showRound();
-  }
-
-  private stopListening(): void {
-    if (!this.listen.on) return;
-    this.listen.selfStop = true;
-    this.listen.on = false;
-    if (this.host.recording.active()) this.host.recording.cancel();
-  }
-
-  private listenTick(): void {
-    const l = this.listen;
-    if (!l.on || !this.round) return;
-    const now = this.now();
-    if (l.text.trim() && now - l.changedAt >= UTTERANCE_PAUSE_MS) {
-      // The words stopped: this utterance is done (deliver reopens the mic afterwards).
-      l.text = '';
-      this.host.recording.stop();
-    } else if (!l.text.trim() && now - l.startedAt >= LISTEN_IDLE_MS) {
-      this.host.log('info', 'inbox: open listening stopped after 30 s with nothing said');
-      this.stopListening();
-      this.showRound();
-    }
   }
 
   /** One utterance in a round: a command, or the answer to the current card. */
@@ -587,8 +535,7 @@ class Inbox {
         extra: v.extra,
         focus: this.q.focus(now),
         round: r ? { current: r.current(), position: r.position(), results: r.results.map((x) => x.action) } : null,
-        listening: this.listen.on,
-        recording: this.host.recording.active(),
+        listening: this.listening,
         sheet: { open: this.host.sheet.isOpen, kind: this.host.sheet.kind },
         toast: this.toast ? { id: this.toast.id, minutes: this.toast.minutes } : null,
         claims: { snooze: this.snoozeClaimed(), round: this.roundClaimed() },

@@ -47,7 +47,7 @@ Its own buttons send `{ action: 'kind', name, value }`, which reach `hub.cardKin
 `reply` also takes the person's words when they hold the key over the card. The card element has `data-kind`.
 
 **Which card a dictation answers.** At each dictation key's key-down, `host.replyTarget(() => …)` is asked first
-(the round's current card, the card whose sheet or peek is under the pointer), then the usual rule (the pointer over
+(the card whose sheet or peek is under the pointer), then the usual rule (the pointer over
 the top card, or Reply). The words, after the usual 2 s preview, reach the card's kind handler `reply`.
 
 **The pill's extras.** Beyond the top card and its list, the pill hosts `PillExtra` modules (`src/renderer/cards/
@@ -60,10 +60,12 @@ again when that time comes, so moving it out (held time not counting) needs no c
 
 **A key.** The agent key (`settings.voice.key`, Ctrl+Win) and the point key (`settings.point.key`, unset) are route
 keys: hold to talk, release to send, a tap does nothing. They are bound only once a feature registers the route:
-`host.route('agent', { label, began, partial, cancelled, deliver })`. `deliver(text, raw)` gets the cleaned words
-instead of a paste; it previews (`host.preview(to, text)`) or reviews them itself and returns what the pill says. The
-pill shows `label` while recording and has `data-route` for styling. Open listening records without a key:
-`host.recording.start('round')`; Esc cancels it (the route's `cancelled` fires), as it does a key's recording.
+`host.route('agent', { label, began, cancelled, deliver })`. `deliver(text, raw)` gets the cleaned words instead of a
+paste; it previews (`host.preview(to, text)`) or reviews them itself and returns what the pill says. The pill shows
+`label` while recording and has `data-route` for styling. A route with `takesDictation()` takes the dictation key
+while it answers true: the round's route does while a round is open, so the held key answers the round's card.
+`host.recording.start(route)` records for a route without its key (QA's `voice down`); Esc cancels it (the route's
+`cancelled` fires), as it does a key's recording.
 
 The snooze (`settings.snooze.key`, Ctrl+Alt+Z) and round (`settings.inbox.roundKey`, Ctrl+Alt+Space) shortcuts are
 bound only while their feature claims them: `host.shortcut('snooze', { claimed: () => cardUp, pressed })`, and
