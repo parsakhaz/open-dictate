@@ -59,7 +59,7 @@ export const round: SheetPage = {
         h('span.mic', {}, '●'),
         p.listening
           ? h('span', {}, 'Say ', h('b', {}, '“approve”'), ', ', h('b', {}, '“next”'), ', ', h('b', {}, `“snooze ${p.lengths[p.lengths.length - 1] ?? 10}”`), ' or your answer')
-          : h('span', {}, 'Hold your dictation key to answer, or say ', h('b', {}, '“approve”'), ' or ', h('b', {}, '“next”')),
+          : h('span', {}, 'Hold your dictation key and say your answer, ', h('b', {}, '“approve”'), ' or ', h('b', {}, '“next”')),
         p.heard ? h('span.heard', {}, `Heard “${p.heard}”`) : null,
       ),
       h(

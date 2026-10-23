@@ -182,7 +182,7 @@ module.exports = {
         check('the round opens in the sheet, focusable, right above the pill', s?.open && s.kind === 'round' && s.focusable && s.page.kind === 'round', s);
         check('it is 480 px wide (plus its shadow margin) and centred over the pill', s && s.bounds.width === 480 + 24 && Math.abs(s.bounds.x + s.bounds.width / 2 - (s.pill.x + s.pill.width / 2)) <= 1, s?.bounds);
         check('it shows chips and "1 of 3"', s && /1 of 3/.test(s.page.text) && /Where should the coupon field go/.test(s.page.text), s?.page);
-        check('it says to hold the dictation key to answer', s && /Hold your dictation key to answer/.test(s.page.text), s?.page);
+        check('it says to hold the dictation key to answer', s && /Hold your dictation key and say your answer/.test(s.page.text), s?.page);
         await sleep(3000);
         let d = await qa('inbox dump', INBOX);
         check('for 4 s after it opens, with speech playing, nothing records and the first card waits', d && !d.listening && d.round?.position.n === 1 && d.round.results.length === 0 && !/capture \d+ on /.test(log().slice(opened)), d);
