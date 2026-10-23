@@ -1,13 +1,28 @@
-// L1 · Decision sheets and approval cards: J1 decide by click, J2 decide by voice, J3 previews open the wide sheet, J4 approve.
+// L1 · Decision sheets and approval cards: J1 decide by click, J2 decide by voice, J3 previews open the wide sheet, J4 approve,
+// J5 expand, remembered for the next card, and shrink.
 // The lane adds its journeys here (and `settings` for its keys); see qa/surfaces-journeys.js for ctx.
 // Voice here is `decide say <words>`: the same path a dictation over the card takes after transcription (the 2 s
 // preview, then the card's reply), since the test speech model only ever hears its one fixture.
+
+const fs = require('node:fs');
+const path = require('node:path');
 
 const QUESTIONS = [
   { id: 'env', header: 'Target', question: 'Where should the fix go first?', options: [{ label: 'Staging', description: "Replays last week's 212 failed charges against the fix first." }, { label: 'Production', description: 'Ships to everyone at once.' }] },
   { header: 'Policy', question: 'How should failed charges retry?', options: [{ label: 'Backoff ×3', description: 'Retries at 1 s, 10 s and 60 s, then gives up quietly.' }, { label: 'Once + email', description: 'Retries once after 30 s, then emails the customer a pay link.' }, { label: "Don't retry", description: 'Marks the charge failed and leaves it to support.' }] },
   { header: 'Notify', question: 'Who gets an apology email?', options: [{ label: 'Charged twice' }, { label: 'Charge failed' }, { label: 'Nobody' }], multi: true },
 ];
+/** The most a decision card holds: four questions of four options. */
+const FOUR = {
+  title: 'Four calls before the release',
+  questions: [
+    { header: 'Target', question: 'Where should the fix go first?', options: [{ label: 'Staging', description: "Replays last week's 212 failed charges against the fix first." }, { label: 'Production', description: 'Ships to everyone at once.' }, { label: 'Canary', description: 'Five percent of accounts for a day, then everyone.' }, { label: 'Nowhere yet', description: 'Hold it until the incident review on Friday.' }] },
+    { header: 'Policy', question: 'How should failed charges retry?', options: [{ label: 'Backoff ×3', description: 'Retries at 1 s, 10 s and 60 s, then gives up quietly.' }, { label: 'Once + email', description: 'Retries once after 30 s, then emails the customer a pay link.' }, { label: "Don't retry", description: 'Marks the charge failed and leaves it to support.' }, { label: 'Hourly', description: 'Retries every hour for a day.' }] },
+    { header: 'Notify', question: 'Who gets an apology email?', options: [{ label: 'Charged twice' }, { label: 'Charge failed' }, { label: 'Refunded' }, { label: 'Nobody' }], multi: true },
+    { header: 'When', question: 'When should it ship, given the freeze starts Thursday and support is short-staffed on Friday?', options: [{ label: 'Today' }, { label: 'Tomorrow morning' }, { label: 'After the freeze' }, { label: 'Ask me again' }] },
+  ],
+  timeout_s: 120,
+};
 const DECIDE = { title: 'Three calls before I ship the retry fix', message: 'Pick one per question, or hold your key and say them all at once.', questions: QUESTIONS, timeout_s: 120 };
 
 const DIFF = (attempts, delays) => `  import { withRetry } from './retry';\n- const policy = { attempts: 1 };\n+ const policy = {\n+   attempts: ${attempts},\n+   delays: [${delays}],\n+ };\n  export async function chargeInvoice(id) {`;
@@ -43,6 +58,30 @@ const click = ({ qa }, label) => qa(`decide click ${label}`, /QA decide-click (.
 
 /** A result, or null if the call is still waiting after `ms`. */
 const within = (p, sleep, ms) => Promise.race([p, sleep(ms).then(() => null)]);
+
+/** The decide section of the saved settings file, once it says `expanded`. */
+async function savedExpanded({ DATA, sleep }, expanded) {
+  let saved;
+  for (let i = 0; i < 30; i++) {
+    try {
+      saved = JSON.parse(fs.readFileSync(path.join(DATA, 'settings.json'), 'utf8')).decide;
+    } catch {}
+    if (saved?.expanded === expanded) break;
+    await sleep(100);
+  }
+  return saved;
+}
+
+/** The sheet once it shows the card titled `title`, or what it shows after a few seconds. */
+async function sheetWith({ sheet, sleep }, title) {
+  let s = null;
+  for (let i = 0; i < 25; i++) {
+    s = await sheet();
+    if (s?.open && s.kind === 'decide' && s.visible && s.page?.text.includes(title)) break;
+    await sleep(200);
+  }
+  return s;
+}
 
 /** The pill's cards are drawn: a first capture of a fresh window can come back empty. */
 async function settle({ sleep, shot }) {
@@ -161,7 +200,7 @@ module.exports = {
           if (s?.open && s.kind === 'decide' && s.page?.kind === 'decide' && /Previewing/.test(s.page.text)) break;
           await sleep(200);
         }
-        check('the 760 px decide sheet opens beside the card, showing the first preview', s?.open && s.kind === 'decide' && s.visible && Math.abs(s.bounds.width - 784) <= 2 && /Previewing\s*1 · Backoff ×3/.test(s.page.text) && /attempts: 3/.test(s.page.text), s);
+        check('the 760 px decide sheet opens in place of the card, showing the first preview', s?.open && s.kind === 'decide' && s.visible && Math.abs(s.bounds.width - 784) <= 2 && /Previewing\s*1 · Backoff ×3/.test(s.page.text) && /attempts: 3/.test(s.page.text), s);
         check('it has a tab per question', s && /Policy/.test(s.page.text) && /Target/.test(s.page.text) && /not answered/.test(s.page.text), s?.page);
         await sleep(300);
         await sheetShot('l1-j3-sheet');
@@ -188,6 +227,14 @@ module.exports = {
         cmd('decide key 2');
         await sleep(400);
         await sheetShot('l1-j3-answered');
+        cmd('decide key Escape');
+        await sleep(400);
+        s = await sheet();
+        const card = await ctx.qa('card-layout', /QA card-layout (.+)\n/);
+        check('Esc closes the sheet and the card is back on the pill with Expand', s && !s.open && /Expand/.test(card?.text ?? ''), { s, card });
+        await click(ctx, 'Expand');
+        s = await sheetWith(ctx, PREVIEWS.title);
+        check('Expand reopens the comparison and leaves expanded mode off', /Previewing/.test(s?.page?.text ?? '') && (await savedExpanded(ctx, false))?.expanded !== true, s?.page);
         cmd('decide key Enter');
         const r = (await within(call, sleep, 3000))?.result;
         check('Enter sends, by keys', r?.answered === true && r.via === 'keys' && JSON.stringify(r.answers.map((x) => x.picked)) === JSON.stringify([['Backoff ×3'], ['Production']]), r);
@@ -237,6 +284,74 @@ module.exports = {
         await click(ctx, 'Approve');
         r = (await within(call, sleep, 3000))?.result;
         check('a click still approves it', r?.approved === true, r);
+      },
+    },
+    {
+      id: 'J5',
+      name: 'expand: every question in the sheet in place of the card, remembered for the next card; shrink goes back for good',
+      async run(ctx) {
+        const { session, sleep, qa, shot, sheetShot, sheet, check, log, untilLog } = ctx;
+        const agent = session({ client: 'claude-code', title: 'Claude Code' });
+        const layout = () => qa('card-layout', /QA card-layout (.+)\n/);
+        const call = agent.call('decide', DECIDE);
+        await onTop(ctx, DECIDE.title);
+        await settle(ctx);
+        const l = await layout();
+        check('the compact card has an Expand control', l && /Expand/.test(l.text), l);
+        await shot('l1-j5-compact');
+
+        await click(ctx, 'Expand');
+        let s = await sheetWith(ctx, DECIDE.title);
+        const labels = QUESTIONS.flatMap((q) => q.options.map((o) => o.label));
+        check('Expand opens the sheet with every question, option and description', s?.open && s.visible && QUESTIONS.every((q) => s.page.text.includes(q.question)) && labels.every((x) => s.page.text.includes(x)) && s.page.text.includes("Replays last week's 212 failed charges") && /0 of 3 answered/.test(s.page.text), s);
+        await sleep(400);
+        let d = await dump(ctx);
+        check('nothing in the expanded sheet scrolls', d?.sheetScrolls === false, d);
+        check('the pill draws no card while the sheet shows it', (await layout()) === null);
+        check('expanding is saved in settings', (await savedExpanded(ctx, true))?.expanded === true);
+        await sheetShot('l1-j5-expanded');
+
+        await qa('decide sheet-click Staging', /QA decide-sheet-click (.+)\n/);
+        ctx.cmd('decide key 2');
+        await sleep(500);
+        d = await dump(ctx);
+        const a = d?.cards[0]?.data.answers;
+        check('a click and a number key answer in the sheet, the key the next open question', a?.[0].picked[0] === 'Staging' && a[0].via === 'click' && a[1].picked[0] === 'Once + email' && a[1].via === 'keys', a);
+        const mark = log().length;
+        ctx.cmd('decide say charged twice');
+        await untilLog(/QA decide-said (.+)\n/, 6000, mark);
+        const r = (await within(call, sleep, 3000))?.result;
+        check('voice answers the last question and the answers go', r?.answered === true && r.via === 'voice' && JSON.stringify(r.answers.map((x) => x.picked)) === JSON.stringify([['Staging'], ['Once + email'], ['Charged twice']]), r);
+
+        const next = agent.call('decide', FOUR);
+        s = await sheetWith(ctx, FOUR.title);
+        check('the next decision card opens expanded by itself', s?.open && s.visible && s.page.text.includes(FOUR.title), s);
+        check('and the pill again draws no card', (await layout()) === null);
+        await sleep(400);
+        d = await dump(ctx);
+        check('four questions of four options fit without scrolling', d?.sheetScrolls === false, d?.sheetScrolls);
+        await sheetShot('l1-j5-next-expanded');
+
+        await qa('decide sheet-click Shrink', /QA decide-sheet-click (.+)\n/);
+        await sleep(500);
+        s = await sheet();
+        const back = await layout();
+        check('Shrink closes the sheet and the compact card is back', s && !s.open && back && back.text.includes(FOUR.title), { s, back });
+        check('shrinking is saved in settings', (await savedExpanded(ctx, false))?.expanded === false);
+        await shot('l1-j5-shrunk');
+        await click(ctx, 'Production');
+        await click(ctx, 'Send answers');
+        check('the shrunk card still answers', (await within(next, sleep, 3000))?.result?.answered === true);
+
+        const third = agent.call('decide', { ...DECIDE, title: 'A third card' });
+        await onTop(ctx, 'A third card');
+        await sleep(800);
+        s = await sheet();
+        check('after Shrink the next card stays compact', s && !s.open && (await layout())?.text.includes('A third card'), s);
+        await click(ctx, 'Staging');
+        await click(ctx, 'Send answers');
+        await within(third, sleep, 3000);
+        ctx.cmd('cards-hover off');
       },
     },
   ],

@@ -1,4 +1,5 @@
-// The grown decision card: every question stacked with its choice chips, "2 of 3 answered", Send (L1). A chip
+// The grown decision card: every question stacked with its choice chips, "2 of 3 answered", Send, and Expand, which
+// opens the card in the sheet from now on (L1). A chip
 // filled by voice flashes and its question says "by voice". While the person answers by voice, their words show in
 // the card as they come, then through the usual 2 s preview. Every word is a text node; never HTML.
 import { plainTitle } from '../../core/cardtext';
@@ -101,8 +102,19 @@ export const decide: CardBody = {
     const n = d.questions.length;
     const got = answeredCount(d);
     const flashing = new Set(d.flash && Date.now() - d.flash.at < FLASH_MS ? d.flash.qs : []);
+    const expand = h(
+      'button.dexpand',
+      {
+        title: 'Open every question larger, now and for later cards',
+        onclick: (e: Event) => {
+          e.stopPropagation();
+          ctx.act({ id: c.id, action: 'kind', name: 'expand' });
+        },
+      },
+      'Expand',
+    );
     const parts: HTMLElement[] = [
-      h('div.dtop', {}, h('div.title', {}, plainTitle(c.title)), n > 1 ? h(`span.dtag${got ? '.acc' : ''}`, {}, `${got} of ${n} answered`) : null),
+      h('div.dtop', {}, h('div.title', {}, plainTitle(c.title)), n > 1 ? h(`span.dtag${got ? '.acc' : ''}`, {}, `${got} of ${n} answered`) : null, expand),
       message(c.message || (n > 1 ? 'Pick one per question, or hold your key and say them all at once.' : 'Pick one, or hold your key and say it.')),
       ...d.questions.map((_, i) => question(c, ctx, d, i, flashing)),
     ];
@@ -124,7 +136,6 @@ export const decide: CardBody = {
         {},
         ctx.button('Send answers', { id: c.id, action: 'kind', name: 'send' }, complete(d) ? '.primary' : got ? '' : '.ghost'),
         ctx.button(ctx.armed ? 'Hold your key to answer' : 'Hold to answer', { id: c.id, action: 'arm-reply' }, '.armed'),
-        d.previews ? ctx.button('Compare previews', { id: c.id, action: 'kind', name: 'sheet' }, '.ghost') : null,
         h('span.dleft', {}, left ? `${left} left` : 'All answered'),
       ),
     );

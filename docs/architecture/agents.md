@@ -69,14 +69,16 @@ The **source line** is always Dictate's own words. In Pane it is "<Pane name> ·
 
 ## The sheet window
 
-The pill window is click-through and never takes focus, so the bigger surfaces share one more window: [src/main/sheet.ts](../../src/main/sheet.ts), a frameless window right above the pill with the cards' material. It shows one surface at a time, with a page per kind under [src/renderer/sheet/](../../src/renderer/sheet/): the wide decision sheet, the lineup grid, the docked peek and the round. It opens without focus when it only shows something, and takes focus when keys must reach it (a round, a lineup, a region to confirm). Esc closes it and leaves its card on the pill.
+The pill window is click-through and never takes focus, so the bigger surfaces share one more window: [src/main/sheet.ts](../../src/main/sheet.ts), a frameless window right above the pill with the cards' material. It shows one surface at a time, with a page per kind under [src/renderer/sheet/](../../src/renderer/sheet/): the decision sheet, the lineup grid, the docked peek and the round. It opens without focus when it only shows something, and takes focus when keys must reach it (a round, a lineup, a region to confirm). Esc closes it and leaves its card on the pill.
 
 ## Decide and approve
 
 [src/core/tools/decide.ts](../../src/core/tools/decide.ts), [src/core/tools/approve.ts](../../src/core/tools/approve.ts) and [src/main/features/decide.ts](../../src/main/features/decide.ts).
 
 - **`decide`** asks one to four questions, each with two to four options, in one grown card. The person clicks chips, or holds the key over the card and says it in one sentence ("staging, and once then email"). [src/core/decidematch.ts](../../src/core/decidematch.ts) maps the sentence onto the questions in order by labels, ordinals, numbers and yes or no. It is deterministic, no model, and `raw` always comes back. Words that match nothing go to the first open question's "Other". A sentence that answers everything sends after the usual 2 s preview; a partial one waits for Send, and blank questions come back with `picked: []`. On a timeout or dismissal the result carries `partial`.
-- **Previews.** When an option has a text or code preview, the 760 px wide sheet opens with question tabs, the options on the left and the hovered option's preview on the right. Hovering changes only the preview; a click, a number or voice changes the answer.
+- **Expanded.** Expand on the card opens it in the sheet, 760 px wide and as tall as its questions: every question with its options as numbered tiles and their descriptions. A click, a number key (for the highlighted question, ↑ ↓ to move) or voice over the sheet answers, and Enter sends. Expand is remembered in `settings.decide.expanded`: later decision cards open expanded, without focus, also after a restart. Shrink goes back to the compact card and turns it off; Esc or ✕ shrinks only that card. A card with previews always opens its comparison, and there Expand and Shrink affect only that card.
+- **Previews.** When an option has a text or code preview, the sheet opens with question tabs, the options on the left and the hovered option's preview on the right. Hovering changes only the preview; a click, a number or voice changes the answer.
+- **One surface.** The sheet shows a decision card only while it is the pill's top card, and the pill draws no card meanwhile. When another card takes the top, the sheet closes and that card shows on the pill.
 - **`approve`** shows a plan in up to six lines with Approve. A spoken change shows for 2 s and returns `{approved:false, changes, raw}`. With `risk: "high"`, only a click approves.
 
 ## Lineup

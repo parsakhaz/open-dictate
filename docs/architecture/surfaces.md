@@ -12,7 +12,7 @@ every card kind, sheet page and settings section falls back to today's behaviour
 
 | Lane | Tool modules (`src/core/tools/`) | Feature (`src/main/features/`) | Card body and CSS (`src/renderer/cards/`) | Sheet page (`src/renderer/sheet/`) | Settings section | QA (`qa/surfaces/`) |
 | --- | --- | --- | --- | --- | --- | --- |
-| L1 decide | `decide.ts`, `approve.ts` | `decide.ts` | `decide.ts`, `approve.ts`, `decide.css` | `decide.ts`, `decide.css` | none | `l1-decide.js` |
+| L1 decide | `decide.ts`, `approve.ts` | `decide.ts` | `decide.ts`, `approve.ts`, `decide.css` | `decide.ts`, `decide.css` | `core/sections/decide.ts` (no page section) | `l1-decide.js` |
 | L2 inbox | `card_status.ts` | `inbox.ts` | `round.ts`, `inbox.ts` (pill extras), `round.css` | `round.ts`, `round.css` | `agentsections/snooze.ts`; `core/sections/inbox.ts`, `snooze.ts` | `l2-inbox.js` |
 | L3 voice | none | `voice.ts` | `voice.ts`, `voice.css` | none | `agentsections/voice.ts`; `core/sections/voice.ts` | `l3-voice.js` |
 | L4 lineup | `lineup.ts` | `lineup.ts` | `lineup.ts`, `lineup.css` | `lineup.ts`, `lineup.css` | none | `l4-lineup.js` |
@@ -73,9 +73,11 @@ bound only while their feature claims them: `host.shortcut('snooze', { claimed: 
 **The sheet.** One focusable, frameless window right above the pill: `host.sheet.open(kind, payload, { focus })`,
 `update(payload)`, `close()`, `onClosed((kind, why) => …)`, and `window()` for peek's view. The page is
 `src/renderer/sheet/<kind>.ts` (`show(root, payload)`, `hide()`, `key(e)`); Esc closes it unless the page uses Esc.
-Sizes are in `src/core/sheetkinds.ts`.
+Sizes are in `src/core/sheetkinds.ts`. A sheet that shows the pill's top card takes the card's place:
+`host.agents.coverTop((top) => …)` is asked with the top card on every redraw, and while it answers true the pill
+draws no card. Decide uses it: its sheet follows the top card and never shows beside it.
 
-**Settings.** Each feature's fields are a section object (`settings.snooze`, `voice`, `peek`, `point`, `inbox`)
+**Settings.** Each feature's fields are a section object (`settings.snooze`, `voice`, `peek`, `point`, `inbox`, `decide`)
 defined and checked in `src/core/sections/<section>.ts`; an old profile gets the defaults. Save with
 `set({ snooze: { ...st.settings.snooze, minutes } })`. The section on the Agents page is
 `src/renderer/agentsections/<section>.ts`, with `keyRecorder`, `card`, `toggle` and friends from `settingsui.ts`. A
