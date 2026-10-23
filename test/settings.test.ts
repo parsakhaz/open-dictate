@@ -192,6 +192,7 @@ describe("the surfaces' settings sections", () => {
     expect(s.snooze).toEqual({ key: { keys: ['ctrl', 'alt', 0x5a] }, minutes: [3, 5, 10], returnTo: 'top' });
     expect(s.inbox.roundKey).toEqual({ keys: ['ctrl', 'alt', 0x20] });
     expect(s.peek.hosts).toEqual(['rungrain.com']);
+    expect(s.decide.expanded).toBe(false);
   });
 
   it('keeps what the person chose and checks each field, falling back field by field', () => {
@@ -202,6 +203,7 @@ describe("the surfaces' settings sections", () => {
         peek: { hosts: ['Docs.Example.com', 'not a host', 'file://x', 'rungrain.com'] },
         point: { key: { keys: ['ctrl', 0x7d] }, review: 'wait', excludedApps: ['Bank.exe', 'C:\\x\\y.exe'], target: 'nowhere' },
         inbox: { roundKey: 'junk' },
+        decide: { expanded: true },
       },
       d,
     );
@@ -210,5 +212,7 @@ describe("the surfaces' settings sections", () => {
     expect(s.peek.hosts).toEqual(['docs.example.com', 'rungrain.com']);
     expect(s.point).toEqual({ key: { keys: ['ctrl', 0x7d] }, review: 'wait', excludedApps: ['Bank.exe'], target: 'voice' });
     expect(s.inbox.roundKey).toEqual({ keys: ['ctrl', 'alt', 0x20] });
+    expect(s.decide.expanded).toBe(true);
+    expect(parseSettings({ decide: { expanded: 'yes' } }, d).decide.expanded).toBe(false);
   });
 });

@@ -1,14 +1,17 @@
 // L1 · Decision sheets and approval cards: the decide and approve tools (src/core/tools/decide.ts, approve.ts), their
 // cards on the pill, the person's answers by click, key or one spoken sentence (src/core/decidematch.ts), and the
-// wide sheet when an agent sends previews. Both wait like ask: the card is held while the person dictates, ✕ or the
-// time running out ends the wait, and every result carries card_id.
+// sheet: every question laid out once the person expands a card (remembered until Shrink), or the wide comparison
+// when an agent sends previews. Both wait like ask: the card is held while the person dictates, ✕ or the time running
+// out ends the wait, and every result carries card_id.
 import { screen, shell } from 'electron';
 import type { HubSession } from '../../core/agenthub';
 import type { Card } from '../../core/cards';
 import { type AnswerOut, answeredCount, answersOut, applyVoice, complete, type DecideData, newDecide, pick, type Via } from '../../core/decidecard';
 import { isApproval } from '../../core/decidematch';
+import { SHEET_SIZES } from '../../core/sheetkinds';
 import { type ApproveArgs, parseApprove } from '../../core/tools/approve';
 import { parseDecide } from '../../core/tools/decide';
+import { PILL_STATUS_H, placeSheet, SHEET_MARGIN } from '../windows';
 import type { Feature, FeatureHost, ReplyTarget } from './host';
 
 type DecideResult = { answered: true; via: Via; answers: AnswerOut[]; raw?: string } | { answered: false; reason: string };
@@ -31,8 +34,10 @@ const isVia = (x: unknown): x is Via => x === 'click' || x === 'keys' || x === '
 
 class Decisions {
   private live = new Map<string, Live>();
-  /** The card whose wide sheet is open. */
+  /** The card whose sheet is open. */
   private sheetCard: string | null = null;
+  /** Cards whose sheet the person closed: they stay compact on the pill. */
+  private compact = new Set<string>();
 
   constructor(private host: FeatureHost) {
     const { hub } = host;
@@ -48,8 +53,18 @@ class Decisions {
     });
     hub.onEnded((id) => { if (hub.queue.get(id)?.requestOwned || this.live.has(id)) this.ended(id); });
     host.replyTarget(() => this.replyTarget());
-    host.sheet.onClosed((kind) => {
-      if (kind === 'decide') this.sheetCard = null;
+    host.agents.coverTop((top) => this.followTop(top));
+    host.sheet.onClosed((kind, why) => {
+      if (kind !== 'decide') return;
+      if (why === 'esc' && this.sheetCard) this.compact.add(this.sheetCard);
+      this.sheetCard = null;
+      // Closed by the person or by another surface: the card shows on the pill again. ('closed' comes from this
+      // feature, which redraws itself.)
+      if (why !== 'closed') this.host.agents.render();
+    });
+    host.ipc.handle('shrink', () => this.shrink());
+    host.ipc.handle('fit', (height) => {
+      if (typeof height === 'number' && Number.isFinite(height) && this.sheetCard) this.fit(height);
     });
     host.ipc.handle('pick', (id, q, label, via) => {
       if (typeof id !== 'string' || !isIndex(q) || typeof label !== 'string') return false;
@@ -79,7 +94,7 @@ class Decisions {
     const live: Live = { kind: 'decide', session: session.id, data: newDecide(a.questions, a.previews) };
     this.live.set(id, live);
     const answer = hub.wait<DecideResult>(id, { session: session.id, kind: 'decide', timeoutMs: a.timeoutS * 1000, signal });
-    const { status } = hub.raise({
+    hub.raise({
       id,
       key: `decide:${id}`,
       origin: 'agent',
@@ -95,8 +110,6 @@ class Decisions {
       createdAt: Date.now(),
       data: live.data,
     });
-    // Previews open the wide sheet beside the card when it shows; it never takes focus unasked.
-    if (a.previews && status === 'shown') this.openSheet(id, false);
     const r = await answer;
     const data = live.data!;
     this.ended(id);
@@ -144,6 +157,7 @@ class Decisions {
 
   private ended(id: string): void {
     this.live.delete(id);
+    this.compact.delete(id);
     if (this.sheetCard === id) this.host.sheet.close('closed');
   }
 
@@ -186,8 +200,13 @@ class Decisions {
       return undefined;
     }
     if (name === 'send') return this.send(card.id, 'click');
-    if (name === 'sheet') {
+    if (name === 'expand') {
+      // Remembered: later decision cards open expanded too, until Shrink. A card with previews always opens its
+      // comparison, so there Expand only reopens it.
+      if (!this.live.get(card.id)?.data?.previews) this.host.update({ decide: { expanded: true } });
+      this.compact.delete(card.id);
       this.openSheet(card.id, true);
+      this.host.agents.render();
       return undefined;
     }
     return undefined;
@@ -262,7 +281,37 @@ class Decisions {
     return null;
   }
 
-  // ---------- the wide sheet ----------
+  // ---------- the sheet ----------
+
+  /**
+   * On every redraw of the pill: the sheet follows the top card. It opens, without focus, for a decision card with
+   * previews or once the person has chosen expanded (unless they closed it for this card), and closes when another
+   * card takes the top. True while it shows the top card, so the pill draws none.
+   */
+  private followTop(top: Card | null): boolean {
+    const mine = top && this.live.get(top.id)?.data ? top.id : null;
+    if (this.sheetCard && this.sheetCard !== mine) this.host.sheet.close('closed');
+    const wants = mine && !this.compact.has(mine) && (this.host.settings().decide.expanded || this.live.get(mine)?.data?.previews);
+    if (wants && !this.host.sheet.isOpen) this.openSheet(mine, false);
+    return !!mine && this.sheetCard === mine;
+  }
+
+  /** Shrink: back to the compact card, and decision cards stay compact from now on (on a card with previews, only it). */
+  private shrink(): void {
+    if (!this.sheetCard) return;
+    if (!this.live.get(this.sheetCard)?.data?.previews) this.host.update({ decide: { expanded: false } });
+    this.compact.add(this.sheetCard);
+    this.host.sheet.close('closed');
+    this.host.agents.render();
+  }
+
+  /** The expanded page's own height, so every question shows without scrolling; at most what fits above the pill. */
+  private fit(height: number): void {
+    const w = this.host.sheet.window();
+    const room = screen.getDisplayMatching(w.getBounds()).workArea.height - PILL_STATUS_H - 2 * SHEET_MARGIN;
+    const h = Math.round(Math.min(Math.max(height, 200), room));
+    if (Math.abs(w.getBounds().height - 2 * SHEET_MARGIN - h) > 2) placeSheet(w, { width: SHEET_SIZES.decide.width, height: h });
+  }
 
   private openSheet(id: string, focus: boolean): void {
     if (!this.live.get(id)?.data) return;
@@ -289,7 +338,8 @@ class Decisions {
 
   /**
    * `decide dump` logs the cards this lane is waiting on. `decide say <words>` answers the top one of them as a
-   * dictation over it would: the 2 s preview, then its kind's reply. `decide key <key>` presses a key in the sheet.
+   * dictation over it would: the 2 s preview, then its kind's reply. `decide key <key>` presses a key in the sheet,
+   * `decide sheet-click <label>` clicks an option or button there.
    */
   private async qa(line: string): Promise<void> {
     const { log, hub, agents } = this.host;
@@ -297,7 +347,9 @@ class Decisions {
     const arg = rest.join(' ');
     if (verb === 'dump') {
       const cards = [...this.live.entries()].map(([id, l]) => ({ id, kind: l.kind, data: l.data, plan: l.plan, otherFor: l.otherFor }));
-      log('info', `QA decide ${JSON.stringify({ cards, sheetCard: this.sheetCard })}`);
+      const w = this.host.sheet.window();
+      const sheetScrolls = this.sheetCard ? await w.webContents.executeJavaScript(`[...document.querySelectorAll('.dlist, .dleftcol')].some((x) => x.scrollHeight > x.clientHeight + 1)`) : null;
+      log('info', `QA decide ${JSON.stringify({ cards, sheetCard: this.sheetCard, sheetScrolls })}`);
     } else if (verb === 'say') {
       const top = hub.queue.view(Date.now()).top;
       if (!top || !this.live.has(top.id)) return log('info', 'QA decide-said {"ok":false,"message":"no card of this lane on top"}');
@@ -326,6 +378,21 @@ class Decisions {
         pill.webContents.sendInputEvent({ type: 'mouseUp', x: at.x, y: at.y, button: 'left', clickCount: 1 });
       }
       log('info', `QA decide-click ${JSON.stringify({ label: arg, at: at ?? null })}`);
+    } else if (verb === 'sheet-click') {
+      // A click in the sheet on an option tile or a button, by its label.
+      const wc = this.host.sheet.window().webContents;
+      const at = (await wc.executeJavaScript(`(() => {
+        const label = ${JSON.stringify(arg)};
+        const el = [...document.querySelectorAll('.dtile, button')].find((x) => (x.querySelector('.dlab > div') ?? x).textContent === label);
+        const r = el?.getBoundingClientRect();
+        return r ? { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) } : null;
+      })()`)) as { x: number; y: number } | null;
+      if (at) {
+        wc.sendInputEvent({ type: 'mouseMove', x: at.x, y: at.y });
+        wc.sendInputEvent({ type: 'mouseDown', x: at.x, y: at.y, button: 'left', clickCount: 1 });
+        wc.sendInputEvent({ type: 'mouseUp', x: at.x, y: at.y, button: 'left', clickCount: 1 });
+      }
+      log('info', `QA decide-sheet-click ${JSON.stringify({ label: arg, at })}`);
     } else if (verb === 'key') {
       const wc = this.host.sheet.window().webContents;
       wc.sendInputEvent({ type: 'keyDown', keyCode: arg });

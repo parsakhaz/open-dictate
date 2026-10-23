@@ -1,5 +1,6 @@
 // Shared types and defaults. Pure; browser-safe.
 import type { MicPref } from './mics';
+import type { DecideSettings } from './sections/decide';
 import type { InboxSettings } from './sections/inbox';
 import type { PeekSettings } from './sections/peek';
 import type { PointSettings } from './sections/point';
@@ -137,6 +138,7 @@ export interface Settings {
   voice: VoiceSettings;
   peek: PeekSettings;
   point: PointSettings;
+  decide: DecideSettings;
 }
 
 export interface StepResult {

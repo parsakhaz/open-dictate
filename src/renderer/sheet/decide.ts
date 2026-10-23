@@ -1,7 +1,9 @@
-// The wide decision sheet: question tabs, options on the left, the hovered option's preview on the right (L1).
-// Hovering (or ↑ ↓) only changes the preview; a click, a number key, Space or voice changes the answer. ← → and Tab
-// move between questions, Enter sends. Main holds the answers: each pick goes to it, and it sends the sheet back.
-// Every word, preview included, is a text node; never HTML.
+// The decision card in the sheet (L1), in one of two layouts. Expanded: every question stacked with its options as
+// tiles, sized to fit them all; a click, a number key or voice answers, ↑ ↓ (or ← → and Tab) move between questions.
+// With previews: question tabs, options on the left, the hovered option's preview on the right; hovering (or ↑ ↓)
+// only changes the preview, a click, a number key, Space or voice changes the answer, ← → and Tab move between
+// questions. Enter sends in both; Shrink goes back to the compact card for good. Main holds the answers: each pick
+// goes to it, and it sends the sheet back. Every word, preview included, is a text node; never HTML.
 import type { DecideData } from '../../core/decidecard';
 import { answeredCount, complete, isAnswered } from '../../core/decidecard';
 import type { Preview } from '../../core/tools/decide';
@@ -18,6 +20,11 @@ let p: Payload | null = null;
 let cur = 0;
 let hover: number | null = null;
 let note = '';
+/** The expanded layout's height last asked of main. */
+let fitted = 0;
+
+/** How long tiles a sentence filled stay lit, as on the card. */
+const FLASH_MS = 700;
 
 const invoke = <T>(name: string, ...args: unknown[]) => dictate.invoke<T>(`dictate:decide:${name}`, ...args);
 
@@ -45,9 +52,9 @@ async function send(via: 'click' | 'keys'): Promise<void> {
   }
 }
 
-/** "Other… (hold to say)": the next sentence over this card answers the open question in their own words. */
-async function armOther(id: string): Promise<void> {
-  if (await invoke<boolean>('other', id, cur)) note = 'Hold your key and say it';
+/** "Other… (hold to say)": the next sentence over this card answers question `q` in their own words. */
+async function armOther(id: string, q: number): Promise<void> {
+  if (await invoke<boolean>('other', id, q)) note = 'Hold your key and say it';
   draw();
 }
 
@@ -90,10 +97,104 @@ function previewPane(): HTMLElement {
   );
 }
 
+function head(d: Payload): HTMLElement {
+  return h(
+    'div.shead',
+    {},
+    h('span.src', {}, d.source),
+    d.client ? h('span', {}, d.client) : null,
+    h('button.dshrink', { title: 'Back to the small card, for this and later cards', onclick: () => void invoke('shrink') }, 'Shrink'),
+    h('button.x', { title: 'Close (Esc)', onclick: () => dictate.send('dictate:sheet-esc') }, '✕'),
+  );
+}
+
+/** Expanded: every question at once, its options as tiles with their descriptions. */
+function drawStacked(d: Payload): void {
+  const n = d.questions.length;
+  const left = n - answeredCount(d);
+  const flashing = new Set(d.flash && Date.now() - d.flash.at < FLASH_MS ? d.flash.qs : []);
+  const questions = d.questions.map((q, i) => {
+    const a = d.answers[i];
+    const done = isAnswered(a);
+    const tiles = q.options.map((o, k) => {
+      const on = a.picked.includes(o.label);
+      return h(
+        `div.dtile${on ? '.sel' : ''}${on && flashing.has(i) ? '.flash' : ''}`,
+        {
+          onclick: (e: Event) => {
+            e.stopPropagation();
+            cur = i;
+            void choose(i, o.label, 'click');
+          },
+        },
+        h('kbd', {}, String(k + 1)),
+        h('div.dlab', {}, h('div', {}, o.label), o.description ? h('div.ddesc', {}, o.description) : null),
+      );
+    });
+    const other = q.other
+      ? h(
+          'div.dtile.dothertile',
+          {
+            onclick: (e: Event) => {
+              e.stopPropagation();
+              cur = i;
+              void armOther(d.cardId, i);
+            },
+          },
+          h('div.dlab', {}, h('div', {}, 'Other…'), h('div.ddesc', {}, 'Hold your key and say it')),
+        )
+      : null;
+    return h(
+      `div.dsq${i === cur ? '.on' : ''}`,
+      { 'data-multi': String(q.multi), onclick: () => cur !== i && go(i) },
+      h(
+        'div.dsqh',
+        {},
+        h(`span.dhead${done ? '.done' : i === cur ? '.acc' : ''}`, {}, q.header),
+        h('span.dsqt', {}, q.question),
+        done && a.via === 'voice' ? h('span.dheard', {}, 'by voice') : null,
+        done ? h('span.dok', { title: 'Answered' }, '✓') : q.multi ? h('span.dtag', {}, 'pick any') : null,
+      ),
+      h('div.dtiles', {}, ...tiles, other),
+      a.other ? h('div.dother', {}, `Your words: “${a.other}”`) : null,
+    );
+  });
+  const list = h('div.dlist', {}, ...questions);
+  root!.replaceChildren(
+    head(d),
+    h(
+      'div.dtitle.stack',
+      {},
+      h('span.ttl', {}, d.title),
+      n > 1 ? h(`span.dtag${n - left ? '.acc' : ''}`, {}, `${n - left} of ${n} answered`) : null,
+      d.message ? h('span.msg', {}, d.message) : null,
+    ),
+    list,
+    h(
+      'div.sfoot',
+      {},
+      note
+        ? h('span.dhint', {}, note)
+        : h('span.dhint', {}, h('kbd', {}, `1–${d.questions[cur].options.length}`), ' pick · ', h('kbd', {}, '↑'), h('kbd', {}, '↓'), ' question · ', h('kbd', {}, 'Enter'), ' send · or hold your key and say it'),
+      h(`button.cbtn${complete(d) ? '.primary' : ''}`, { onclick: () => void send('click') }, left ? `Send answers · ${left} left` : 'Send answers'),
+    ),
+  );
+  // Main sizes the sheet to everything here, so nothing scrolls unless the screen is too short.
+  const natural = Math.ceil(root!.offsetHeight - list.clientHeight + list.scrollHeight);
+  if (natural !== fitted) {
+    fitted = natural;
+    void invoke('fit', natural);
+  }
+}
+
 function draw(): void {
   if (!root || !p) return;
   const d = p;
   cur = Math.min(cur, d.questions.length - 1);
+  if (!d.previews) {
+    drawStacked(d);
+    return;
+  }
   const q = d.questions[cur];
   const a = d.answers[cur];
   const anyPreview = q.options.some((o) => o.preview);
@@ -127,7 +228,7 @@ function draw(): void {
   });
   const left = d.questions.length - answeredCount(d);
   root.replaceChildren(
-    h('div.shead', {}, h('span.src', {}, d.source), d.client ? h('span', {}, d.client) : null, h('button.x', { title: 'Close (Esc)', onclick: () => dictate.send('dictate:sheet-esc') }, '✕')),
+    head(d),
     h('div.dtitle', {}, h('span.ttl', {}, d.title), h('span.msg', {}, d.message || 'Hover an option to see what it changes.')),
     h('div.dtabs', {}, ...tabs),
     h(
@@ -139,7 +240,7 @@ function draw(): void {
     h(
       'div.sfoot',
       {},
-      q.other ? h('button.cbtn.armed', { onclick: () => void armOther(d.cardId) }, 'Other… (hold to say)') : null,
+      q.other ? h('button.cbtn.armed', { onclick: () => void armOther(d.cardId, cur) }, 'Other… (hold to say)') : null,
       note
         ? h('span.dhint', {}, note)
         : h('span.dhint', {}, h('kbd', {}, '↑'), h('kbd', {}, '↓'), ' compare · ', h('kbd', {}, `1–${q.options.length}`), ' pick · ', h('kbd', {}, '←'), h('kbd', {}, '→'), ' question'),
@@ -156,6 +257,7 @@ export const decide: SheetPage = {
       cur = Math.max(0, payload.answers.findIndex((x) => !isAnswered(x)));
       hover = null;
       note = '';
+      fitted = 0;
     }
     root = el;
     p = payload;
@@ -164,10 +266,15 @@ export const decide: SheetPage = {
   hide() {
     root = null;
     p = null;
+    fitted = 0;
   },
   key(e) {
     if (!p) return false;
     const q = p.questions[cur];
+    if (!p.previews && ['ArrowDown', 'ArrowUp'].includes(e.key)) {
+      go(cur + (e.key === 'ArrowUp' ? -1 : 1));
+      return true;
+    }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       const n = q.options.length;
       hover = hover === null ? (e.key === 'ArrowDown' ? 0 : n - 1) : (hover + (e.key === 'ArrowDown' ? 1 : n - 1)) % n;

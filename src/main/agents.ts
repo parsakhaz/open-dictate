@@ -150,6 +150,7 @@ export class Agents {
   instructionsState: InstructionsFile[] = [];
   /** A card the person chose to answer by voice (the Reply button, or the key held over it). */
   armed: string | null = null;
+  private sheetShows: ((top: Card | null) => boolean)[] = [];
   private saveLog: ReturnType<typeof debouncedWriter>;
   private dueTimer: ReturnType<typeof setTimeout> | undefined;
   private registering: Promise<unknown> = Promise.resolve();
@@ -250,11 +251,19 @@ export class Agents {
     this.requests?.render();
     const v = this.hub.queue.view(now);
     if (this.armed && !this.hub.queue.get(this.armed)) this.armed = null;
-    this.host.showCards({ top: v.top ? dto(v.top) : null, more: v.more, list: v.all.map(dto), replying: !!v.top && v.top.id === this.hub.queue.replyingTo, ...(v.extra ? { extra: v.extra } : {}) });
+    // A sheet showing the top card takes the pill's place: one surface, never the card and its sheet together.
+    const covered = this.sheetShows.map((fn) => fn(v.top)).includes(true);
+    const top = v.top && !covered ? v.top : null;
+    this.host.showCards({ top: top ? dto(top) : null, more: top ? v.more : 0, list: v.all.map(dto), replying: !!top && top.id === this.hub.queue.replyingTo, ...(v.extra ? { extra: v.extra } : {}) });
     clearTimeout(this.dueTimer);
     const due = this.hub.queue.nextDue(now);
     if (due !== null) this.dueTimer = setTimeout(() => this.render(), Math.max(50, due - now));
     this.host.trayChanged();
+  }
+
+  /** Asked with the pill's top card on every redraw: true when a sheet shows that card, so the pill draws none. */
+  coverTop(fn: (top: Card | null) => boolean): void {
+    this.sheetShows.push(fn);
   }
 
   /**

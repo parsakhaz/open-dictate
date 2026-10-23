@@ -5,6 +5,7 @@ import { DEFAULT_TIMING, VK } from './hotkeys';
 import { parseMicPrefs } from './mics';
 import { isStep } from './onboarding';
 import { binding, bool, num, str } from './sections/fields';
+import { DEFAULT_DECIDE, parseDecideSettings } from './sections/decide';
 import { DEFAULT_INBOX, parseInbox } from './sections/inbox';
 import { DEFAULT_PEEK, parsePeek } from './sections/peek';
 import { DEFAULT_POINT, parsePoint } from './sections/point';
@@ -74,6 +75,7 @@ export function defaultSettings(vocabulary: VocabTerm[] = []): Settings {
     voice: DEFAULT_VOICE,
     peek: DEFAULT_PEEK,
     point: DEFAULT_POINT,
+    decide: DEFAULT_DECIDE,
   };
 }
 
@@ -173,6 +175,7 @@ export function parseSettings(data: unknown, defaults: Settings): Settings {
     voice: parseVoice(d.voice, defaults.voice),
     peek: parsePeek(d.peek, defaults.peek),
     point: parsePoint(d.point, defaults.point),
+    decide: parseDecideSettings(d.decide, defaults.decide),
   };
 }
 

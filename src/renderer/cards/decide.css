@@ -43,6 +43,21 @@
 .dtop .dtag {
   margin-top: 1px;
 }
+.dexpand {
+  flex: none;
+  font: inherit;
+  font-size: 10.5px;
+  line-height: 15px;
+  padding: 0 7px;
+  border-radius: 4px;
+  border: 1px solid var(--stroke-strong);
+  background: transparent;
+  color: var(--text-2);
+}
+.dexpand:hover {
+  background: var(--card-hover);
+  color: var(--text);
+}
 
 /* ---------- one question: its header chip, the question, its chips, the chosen option's description ---------- */
 
