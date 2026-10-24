@@ -79,7 +79,6 @@ function setup(host: FeatureHost): void {
 
   hub.handle('lineup', async (session, raw, signal) => {
     const args = parseLineup(raw);
-    if (hub.queue.paused) return { answered: false, reason: 'dnd' };
     const roots = imageRoots(session.cwd);
     const cardData: LineupCardData = { pick: args.pick, candidates: [] };
     const candidates: LineupPayload['candidates'] = [];

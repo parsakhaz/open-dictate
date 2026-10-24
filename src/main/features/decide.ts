@@ -86,7 +86,6 @@ class Decisions {
   private async decide(session: HubSession, args: unknown, signal: AbortSignal) {
     const a = parseDecide(args);
     const { hub } = this.host;
-    if (hub.queue.paused) return { answered: false, reason: 'dnd' };
     if (this.busy(session.id, 'decide')) return { answered: false, reason: 'busy' };
     const src = await hub.source(session);
     if (signal.aborted) return { answered: false, reason: 'cancelled' };
@@ -123,7 +122,6 @@ class Decisions {
   private async approve(session: HubSession, args: unknown, signal: AbortSignal) {
     const a = parseApprove(args);
     const { hub } = this.host;
-    if (hub.queue.paused) return { answered: false, reason: 'dnd' };
     if (this.busy(session.id, 'approve')) return { answered: false, reason: 'busy' };
     const src = await hub.source(session);
     if (signal.aborted) return { answered: false, reason: 'cancelled' };

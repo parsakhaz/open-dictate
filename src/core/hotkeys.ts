@@ -6,8 +6,8 @@ export type RecordMode = 'push-to-talk' | 'toggle';
 
 /** Held keys that record for a feature instead of pasting: the agent key (L3) and the point key (L6). */
 export type RouteKey = 'agent' | 'point';
-/** One-shot shortcuts whose feature decides what they do: snooze the card (L2), start a round (L2). */
-export type ShortcutName = 'snooze' | 'round';
+/** One-shot shortcuts whose feature decides what they do: snooze the card, start a round, pause cards (L2). */
+export type ShortcutName = 'snooze' | 'round' | 'pause';
 
 export type HotkeyAction =
   /**

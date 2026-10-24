@@ -1,8 +1,9 @@
-// The inbox on the pill (L2): the "3 waiting" badge and "Held while you talk" capsule, snooze chips on every expanded
+// The inbox on the pill (L2): the "3 waiting" badge, the "Held while you talk" and "Paused" capsules, snooze chips on every expanded
 // card, the snooze toast with Undo, the snoozed shelf with countdown rings, and the "Back from snooze" tag. Main
 // sends the queue's summary with the cards (view.extra), the toast and the lengths on its own channels. Everything
 // is plain text in elements.
 import { bindingLabel } from '../../core/hotkeys';
+import { clockTime } from '../../core/round';
 import type { Binding } from '../../core/types';
 import { dictate, h } from '../bridge';
 import type { CardDto, CardsView, PillExtra } from './types';
@@ -17,6 +18,8 @@ interface Shelved {
 interface Extra {
   waiting?: number;
   reason?: string | null;
+  /** When a timed pause ends. */
+  pausedUntil?: number;
   snoozed?: Shelved[];
   back?: string[];
 }
@@ -85,7 +88,10 @@ function draw(): void {
   }
   const caps: HTMLElement[] = [];
   const waiting = extra.waiting ?? 0;
-  if (waiting && extra.reason === 'talking') caps.push(h('div.capsule.held', {}, h('span.pause', {}, '❚❚'), 'Held while you talk', h('span.dim', {}, `· ${waiting}`)));
+  if (extra.reason === 'paused') {
+    const until = extra.pausedUntil ? `Paused until ${clockTime(extra.pausedUntil)}` : 'Paused';
+    caps.push(h('button.capsule.paused', { title: 'Resume cards', onclick: () => invoke('resume') }, h('span.pause', {}, '❚❚'), until, waiting ? h('span.dim', {}, `· ${waiting} waiting`) : null, h('span.resume', {}, 'Resume')));
+  } else if (waiting && extra.reason === 'talking') caps.push(h('div.capsule.held', {}, h('span.pause', {}, '❚❚'), 'Held while you talk', h('span.dim', {}, `· ${waiting}`)));
   else if (waiting && !hasTop && extra.reason !== 'round' && extra.reason !== 'paused') caps.push(h('button.capsule.waiting', { title: 'Start a decision round', onclick: () => invoke('round') }, h('span.wdot'), `${waiting} waiting`));
   if (snoozed.length && extra.reason !== 'round') caps.push(h('button.capsule.snoozed', { title: shelfOpen ? 'Close' : 'Show snoozed cards', onclick: () => { shelfOpen = !shelfOpen; draw(); } }, h('span.clock', {}, '◷'), `${snoozed.length} snoozed`));
   if (caps.length) parts.push(h('div.caps', {}, ...caps));

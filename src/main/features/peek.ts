@@ -111,7 +111,6 @@ class PeekFeature {
     if (target.kind === 'file' && !fs.existsSync(target.file)) throw new Error('peek: that file does not exist');
     if (session.requestOwned && target.kind === 'file' && !this.folders.resolve(this.folders.url(target.root, target.file))) throw new Error('peek: file is unavailable or outside the real working folder');
     const { hub } = this.host;
-    if (hub.queue.paused) return { answered: false, reason: 'dnd' };
     const src = await hub.source(session);
     if (signal.aborted) return { answered: false, reason: 'cancelled' };
     const id = hub.newId();

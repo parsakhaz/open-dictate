@@ -130,8 +130,10 @@ export interface Settings {
   vocabularyPending: PendingTerm[];
   /** Claude Code, Codex and Cursor get Dictate's tools on launch ("Let coding agents use Dictate"). */
   agentsEnabled: boolean;
-  /** "Pause agent alerts": cards are held and counted in the tray. */
+  /** "Pause cards": new cards wait silently in the pill's waiting count, and agents keep waiting. */
   agentAlertsPaused: boolean;
+  /** When a timed pause ends (ms since 1970); 0 while paused until the person resumes. */
+  agentAlertsResumeAt: number;
   /** One soft chime when a card that needs the person appears. */
   agentChime: boolean;
   /** "Show Pane's agent alerts on the pill": Dictate follows Pane's blocked and finished tabs. Off by default, so Pane keeps its own notifications. */

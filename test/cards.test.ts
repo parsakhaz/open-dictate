@@ -76,15 +76,29 @@ describe('CardQueue', () => {
     expect(q.view(5000 + AFTER_DICTATION_MS).top).not.toBeNull();
   });
 
-  it('pausing alerts holds everything and reports dnd; unpausing shows what still needs the person', () => {
+  it('pausing holds every new card in the waiting count; resuming shows all of them', () => {
     const q = new CardQueue();
-    q.setPaused(true);
-    expect(q.add(card({ title: 'needs' }), 0)).toBe('dnd');
+    q.setPaused(true, 0, 30 * 60_000);
     expect(q.add(card({ title: 'fyi', urgency: 'info' }), 0)).toBe('dnd');
+    expect(q.add(card({ title: 'needs' }), 0)).toBe('dnd');
     expect(q.view(0).top).toBeNull();
-    expect(q.waiting).toBe(2);
-    q.setPaused(false);
-    expect(q.view(0).all.map((c) => c.title)).toEqual(['needs']);
+    expect(q.view(0).extra).toMatchObject({ waiting: 2, reason: 'paused', pausedUntil: 30 * 60_000 });
+    q.setPaused(false, 60_000);
+    const v = q.view(60_000);
+    expect(v.top?.title).toBe('needs');
+    expect(v.all.map((c) => c.title)).toEqual(['needs', 'fyi']);
+    expect(v.extra?.pausedUntil).toBeUndefined();
+  });
+
+  it("doesn't count paused time against a waiting question", () => {
+    const q = new CardQueue();
+    q.setPaused(true, 0);
+    const ask = card({ kind: 'ask', createdAt: 0 });
+    q.add(ask, 0);
+    expect(q.deadline(ask.id, 0, 60_000, 50_000)).toBe(110_000);
+    q.setPaused(false, 100_000);
+    q.tick(100_000);
+    expect(q.deadline(ask.id, 0, 60_000, 100_000)).toBe(160_000);
   });
 
   it('fades an info card a few seconds after it appears, and later forgets it', () => {
@@ -155,8 +169,8 @@ describe('CardQueue', () => {
     q.tick(10 * 60_000);
     expect(q.view(10 * 60_000).top?.id).toBe(vocab.id);
     expect(q.nextDue(10 * 60_000)).toBeNull();
-    q.setPaused(true);
-    q.setPaused(false);
+    q.setPaused(true, 10 * 60_000);
+    q.setPaused(false, 10 * 60_000);
     expect(q.view(10 * 60_000).top?.id).toBe(vocab.id);
   });
 
