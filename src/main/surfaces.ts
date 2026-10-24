@@ -28,7 +28,7 @@ export interface SurfacesDeps {
 
 /** Which setting holds each route key and shortcut. */
 const ROUTE_KEYS: Record<RouteKey, (s: Settings) => Binding | null> = { agent: (s) => s.voice.key, point: (s) => s.point.key };
-const SHORTCUT_KEYS: Record<ShortcutName, (s: Settings) => Binding | null> = { snooze: (s) => s.snooze.key, round: (s) => s.inbox.roundKey };
+const SHORTCUT_KEYS: Record<ShortcutName, (s: Settings) => Binding | null> = { snooze: (s) => s.snooze.key, round: (s) => s.inbox.roundKey, pause: (s) => s.inbox.pauseKey };
 
 export class Surfaces {
   private routes = new Map<string, Route>();

@@ -934,7 +934,7 @@ function agentsPage(): (Node | null)[] {
     ...(a?.registration ?? []).map((r) => card(AGENT_NAMES[r.agent], h('span', {}, regLine(r), ...noteLine(r.agent)))),
     a && !a.registrationAllowed ? h('p.muted.small', {}, 'This is a development build: it doesn’t change your agents’ settings.') : null,
     card('Show Pane’s agent alerts on the pill', paneLine, toggle(s.agentPaneAlerts, (v) => set({ agentPaneAlerts: v }), 'Show Pane’s agent alerts on the pill')),
-    card('Pause agent alerts', 'Cards wait, and the tray shows how many. Questions from agents return “do not disturb”.', toggle(s.agentAlertsPaused, (v) => set({ agentAlertsPaused: v }), 'Pause agent alerts')),
+    card('Pause cards', 'New cards wait in the count on the pill, without popping up or chiming. Agents keep waiting for your answer.', toggle(s.agentAlertsPaused, (v) => set({ agentAlertsPaused: v, agentAlertsResumeAt: 0 }), 'Pause cards')),
     card('Chime when an agent needs you', 'Finished tabs stay silent.', toggle(s.agentChime, (v) => set({ agentChime: v }), 'Chime')),
     ...SECTIONS.flatMap((section) => section({ st, set, refresh })),
     h('h2', {}, 'Other agents'),

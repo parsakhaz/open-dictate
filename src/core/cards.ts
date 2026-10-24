@@ -136,7 +136,7 @@ export class CardQueue {
   /** The last key-down (the flow guard's typing signal) and Windows' busy state. */
   private typedAt = Number.NEGATIVE_INFINITY;
   private busy = false;
-  /** Spans of time new cards were held for focus (dictating, typing, busy), merged, and the spans still open. */
+  /** Spans of time new cards were held (dictating, typing, busy, paused), merged, and the spans still open. */
   private holds: [number, number][] = [];
   private dictatingSince: number | null = null;
   private busySince: number | null = null;
@@ -148,6 +148,9 @@ export class CardQueue {
   /** How cards that left ended, for card_status. */
   private ends = new Map<string, CardStatus>();
   paused = false;
+  /** When a timed pause ends; undefined for "until I resume". Shown on the pill. */
+  private pausedUntil: number | undefined;
+  private pausedSince: number | null = null;
   /** Where a card goes when its snooze ends: back on top, or quietly into the inbox. */
   returnTo: 'top' | 'inbox' = 'top';
 
@@ -301,10 +304,15 @@ export class CardQueue {
     }
   }
 
-  /** Unpausing shows the cards that still need the person; info that arrived meanwhile is dropped. */
-  setPaused(on: boolean): void {
-    if (this.paused && !on) this.cards = this.cards.filter((c) => !fades(c));
+  /** Pausing holds every new card, like dictating does; resuming shows all that queued. `until`: when a timed pause ends. */
+  setPaused(on: boolean, now: number, until?: number): void {
+    if (on && this.pausedSince === null) this.pausedSince = now;
+    if (!on && this.pausedSince !== null) {
+      this.hold(this.pausedSince, now);
+      this.pausedSince = null;
+    }
     this.paused = on;
+    this.pausedUntil = on ? until : undefined;
   }
 
   isHeld(now: number): boolean {
@@ -485,7 +493,7 @@ export class CardQueue {
     const top = replying ? this.get(replying)! : this.topAt(now);
     const visible = this.visible();
     const waiting = top ? 0 : visible.length + this.inbox().length;
-    const extra = { waiting, reason: this.heldFor(now), snoozed: this.snoozed(), back: all.filter((c) => c.back).map((c) => c.id) };
+    const extra = { waiting, reason: this.heldFor(now), ...(this.pausedUntil !== undefined ? { pausedUntil: this.pausedUntil } : {}), snoozed: this.snoozed(), back: all.filter((c) => c.back).map((c) => c.id) };
     return { top, more: top ? all.length - 1 : 0, all, extra };
   }
 
@@ -514,6 +522,7 @@ export class CardQueue {
     const open: [number, number][] = [];
     if (this.dictatingSince !== null) open.push([this.dictatingSince, now]);
     if (this.busySince !== null) open.push([this.busySince, now]);
+    if (this.pausedSince !== null) open.push([this.pausedSince, now]);
     return merge([...this.holds, ...open]).reduce((sum, [s, e]) => sum + Math.max(0, Math.min(e, b) - Math.max(s, a)), 0);
   }
 

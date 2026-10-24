@@ -29,20 +29,20 @@ const write = (text: string | undefined, enabled = true) => {
 };
 
 describe('the block', () => {
-  it('is three or four lines between the markers and names the tools and the plain-words rule', () => {
+  it('stays short and names the tools, the asking rules and the plain-words rule', () => {
     const lines = renderBlock();
     expect(lines[0]).toBe(BLOCK_BEGIN);
     expect(lines.at(-1)).toBe(BLOCK_END);
     const body = lines.slice(1, -1);
-    expect(body.length).toBeGreaterThanOrEqual(3);
-    expect(body.length).toBeLessThanOrEqual(4);
     const text = body.join('\n');
+    expect(text.length).toBeLessThan(1200);
     expect(text).toContain('`notify`');
     expect(text).toContain('`needs_you`');
     expect(text).toContain('`ask`');
     expect(text).toContain('`info`');
     for (const tool of ['decide', 'approve', 'lineup', 'peek', 'card_status']) expect(text).toContain(`\`${tool}\``);
     expect(text).toContain('The person is juggling many tasks and has lost the thread.');
+    expect(text).toContain("Ask only what you can't find out yourself");
   });
 });
 

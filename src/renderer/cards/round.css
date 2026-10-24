@@ -54,6 +54,10 @@ button.capsule:hover {
   letter-spacing: -1px;
   color: var(--text-3);
 }
+.capsule .resume {
+  margin-left: 4px;
+  color: var(--accent);
+}
 .capsule.snoozed {
   color: var(--accent);
   border-color: rgba(96, 205, 255, 0.35);

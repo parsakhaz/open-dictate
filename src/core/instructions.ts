@@ -1,6 +1,7 @@
 // A few lines of guidance Dictate keeps in the agents' user-level instruction files (~/.claude/CLAUDE.md,
 // ~/.codex/AGENTS.md), between its own markers. Only those lines are ever written or removed: every other byte,
 // the line endings and any byte order mark stay as they were. Pure: no fs, no Electron.
+import { ASKING_RULES } from './agenttools';
 import type { Edit } from './registration';
 
 export const BLOCK_BEGIN = '<!-- dictate:begin (managed by Dictate; edits are replaced) -->';
@@ -11,8 +12,10 @@ const BEGIN_PREFIX = '<!-- dictate:begin';
 /** The full examples live in the dictate MCP's tool descriptions; this only points agents at them. */
 const LINES = [
   '## Dictate',
-  "Dictate is this person's local dictation app. When you truly need them, use the dictate MCP's `notify` (urgency `needs_you`) or `ask`; send `info` only in the plain style below. If the dictate tools aren't available, ignore this.",
-  'To ask up to four related questions at once, use `decide`; to get a plan approved, `approve`; to have them pick among options you made (mockups, images, short texts), `lineup`; to show a local page or report they can point at and talk about, `peek`. A card may wait while they are busy or be snoozed: `held` or `snoozed` is not an answer, so carry on and check its `card_id` later with `card_status`. The person can answer a `notify` by voice too: `card_status` then says `answered`, with their words.',
+  "Dictate is this person's local dictation app. When you truly need them, use the dictate MCP's `notify` (urgency `needs_you`) or `ask`. If the dictate tools aren't available, ignore this.",
+  ...ASKING_RULES.map((rule) => `- ${rule}`),
+  '- Use `approve` for a plan, `lineup` to have them pick among options you made (mockups, images, short texts), and `peek` to show a local page they can point at and talk about.',
+  '- A card may wait while they are busy, paused or snoozed. `held` or `snoozed` is not an answer: carry on and check its `card_id` later with `card_status`. A `notify` can be answered by voice: `card_status` then says `answered`, with their words.',
   "The person is juggling many tasks and has lost the thread. In plain words, say what this work is for (the outcome, not the file), what just happened, and what you need from them. If you need a decision, give the options and what each one means. Don't repeat where you are: Dictate adds that.",
 ];
 

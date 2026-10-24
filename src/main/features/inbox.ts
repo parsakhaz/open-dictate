@@ -19,6 +19,8 @@ const TOAST_MS = 5000;
 const SUMMARY_MS = 8000;
 /** A question told it was snoozed still takes a late answer for this long. */
 const LATE_ANSWER_MS = 8 * 60 * 60_000;
+/** What each quick press of the pause shortcut pauses for, in minutes; null: until resumed. */
+const PAUSE_STEPS = [30, 60, null] as const;
 /** How often the shortcuts' claims are checked against what is on screen. */
 const CLAIM_POLL_MS = 250;
 
@@ -55,6 +57,8 @@ class Inbox {
   /** The round's cards' titles and tabs, for its summary after a card has left the queue. */
   private titles = new Map<string, { title: string; tab: string }>();
   private config = '';
+  /** The pause shortcut's last press and the step it chose: a press within TOAST_MS steps on. */
+  private paused: { at: number; step: number } | null = null;
 
   constructor(private host: FeatureHost) {}
 
@@ -104,12 +108,14 @@ class Inbox {
     host.ipc.handle('now', (id) => typeof id === 'string' && this.bringBack(id));
     host.ipc.handle('drop', (id) => typeof id === 'string' && hub.dismiss(id));
     host.ipc.handle('round', () => this.startRound('click'));
+    host.ipc.handle('resume', () => host.agents.setPaused(false));
     // The pill asks when it loads; changes are pushed after that.
     host.ipc.handle('config', () => JSON.parse(this.configJson()));
 
     // ---------- the shortcuts ----------
     host.shortcut('snooze', { claimed: () => this.snoozeClaimed(), pressed: () => this.snoozePressed() });
     host.shortcut('round', { claimed: () => this.roundClaimed(), pressed: () => (this.round ? this.endRound('key') : this.startRound('shortcut')) });
+    host.shortcut('pause', { claimed: () => true, pressed: () => this.pausePressed() });
     this.timers.push(setInterval(() => this.poll(), CLAIM_POLL_MS));
 
     // ---------- the round ----------
@@ -275,6 +281,25 @@ class Inbox {
     if (!this.q.wake(id, this.now(), true)) this.q.unquiet(id, this.now());
     this.q.unquiet(id, this.now());
     this.render();
+  }
+
+  // ---------- pause ----------
+
+  /** 30 min; pressed again soon after, 1 h, then until resumed; pressed while paused otherwise, resumes. */
+  private pausePressed(): void {
+    const now = this.now();
+    const p = this.paused;
+    const step = !this.q.paused ? 0 : p && now - p.at < TOAST_MS ? p.step + 1 : PAUSE_STEPS.length;
+    if (step >= PAUSE_STEPS.length) {
+      this.paused = null;
+      this.host.agents.setPaused(false);
+      this.host.log('info', 'inbox: cards resumed by the shortcut');
+      return;
+    }
+    const minutes = PAUSE_STEPS[step];
+    this.paused = { at: now, step };
+    this.host.agents.setPaused(true, minutes);
+    this.host.log('info', `inbox: cards paused ${minutes ? `for ${minutes} min` : 'until resumed'} by the shortcut`);
   }
 
   // ---------- the round ----------
@@ -609,7 +634,8 @@ class Inbox {
     } else if (cmd === 'shortcut') {
       if (arg === 'snooze' && this.snoozeClaimed()) this.snoozePressed();
       else if (arg === 'round' && this.roundClaimed()) (this.round ? this.endRound('key') : this.startRound('shortcut'));
-      this.host.log('info', `QA inbox shortcut ${arg} claimed=${arg === 'snooze' ? this.snoozeClaimed() : this.roundClaimed()}`);
+      else if (arg === 'pause') this.pausePressed();
+      this.host.log('info', `QA inbox shortcut ${arg} claimed=${arg === 'snooze' ? this.snoozeClaimed() : arg === 'round' ? this.roundClaimed() : true}`);
     } else if (cmd === 'key') this.roundKey(arg);
     else if (cmd === 'say') void this.utterance(arg, arg).then((r) => this.host.log('info', `QA inbox said ${JSON.stringify(r)}`));
     else if (cmd === 'undo') void this.summaryAction('undo');

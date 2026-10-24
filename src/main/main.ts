@@ -15,6 +15,7 @@ import { DEFAULT_SEGMENTER, LiveCleanup, Segmenter } from '../core/live';
 import { deviceLabelFor, type MicDevice, type MicEvent, MicSelector, micKey, micName } from '../core/mics';
 import { appliesMeasuredChain, keepsLlamaServer, upgradedOnboarded } from '../core/onboarding';
 import { finishHint } from '../core/pillhint';
+import { clockTime } from '../core/round';
 import { applyEnv, GEMMA_GGUF, parseSettings, resolveModelsDir, STT_MODEL } from '../core/settings';
 import type { Binding, Settings } from '../core/types';
 import { parseVocabularyFile } from '../core/vocabulary';
@@ -1092,7 +1093,9 @@ function rebuildTrayMenu(): void {
       { label: 'Cleanup', submenu: [chain('gemma-emberon', 'Gemma → Emberon (best)'), chain('gemma', 'Gemma only'), chain('emberon', 'Emberon only (fastest)'), chain('off', 'Off (raw transcript)')] },
       { label: 'Output', submenu: [out('paste', 'Paste into the focused app'), out('clipboard', 'Clipboard only'), out('both', 'Paste and keep on clipboard')] },
       { label: 'Sounds', type: 'checkbox', checked: settings.sounds, click: (i) => updateSettings({ sounds: i.checked }) },
-      { label: `Pause agent alerts${settings.agentAlertsPaused && agents?.waiting() ? ` (${agents.waiting()} waiting)` : ''}`, type: 'checkbox', checked: settings.agentAlertsPaused, click: (i) => agents?.setPaused(i.checked) },
+      settings.agentAlertsPaused
+        ? { label: `Resume cards${pausedNote()}`, click: () => agents?.setPaused(false) }
+        : { label: 'Pause cards', submenu: [{ label: 'For 30 minutes', click: () => agents?.setPaused(true, 30) }, { label: 'For 1 hour', click: () => agents?.setPaused(true, 60) }, { label: 'Until I resume', click: () => agents?.setPaused(true) }] },
       { type: 'separator' },
       { label: 'Getting started…', click: () => openSettings('start') },
       { label: 'Settings…', click: () => openSettings() },
@@ -1102,6 +1105,12 @@ function rebuildTrayMenu(): void {
       { label: 'Quit dictate', click: () => app.quit() },
     ]),
   );
+}
+
+/** " (until 15:40 · 3 waiting)" after "Resume cards". */
+function pausedNote(): string {
+  const parts = [settings.agentAlertsResumeAt ? `until ${clockTime(settings.agentAlertsResumeAt)}` : '', agents?.waiting() ? `${agents.waiting()} waiting` : ''].filter(Boolean);
+  return parts.length ? ` (${parts.join(' · ')})` : '';
 }
 
 function clearHistory(): void {
@@ -1300,7 +1309,7 @@ function updateSettings(patch: Partial<Settings>): void {
   if (patch.agentsEnabled !== undefined && patch.agentsEnabled !== before.agentsEnabled) void agents?.applyRegistration().then(() => pushState());
   if (patch.agentPaneAlerts !== undefined && patch.agentPaneAlerts !== before.agentPaneAlerts) agents?.applyPaneWatch();
   if (before.agentHistory && !settings.agentHistory) agents?.hub.historyAccessOff();
-  if (patch.agentAlertsPaused !== undefined && agents && agents.hub.queue.paused !== settings.agentAlertsPaused) agents.setPaused(settings.agentAlertsPaused);
+  if (patch.agentAlertsPaused !== undefined || patch.agentAlertsResumeAt !== undefined) agents?.applyPause();
   if (patch.portableShortcut !== undefined || patch.portableShortcutEnabled !== undefined) applyPortableShortcut();
   if (['cleanup', 'llamaServer', 'modelsDir', 'vocabulary', 'batteryEmberonOnly', 'batteryUnloadMinutes'].some((k) => k in patch)) cleanup.update(settings);
   if ((patch.modelsDir && patch.modelsDir !== before.modelsDir) || (patch.sttThreads && patch.sttThreads !== before.sttThreads)) {
@@ -1812,6 +1821,7 @@ function startAgents(): void {
     trayChanged: () => rebuildTrayMenu(),
     stateChanged: () => pushState(),
   });
+  agents.applyPause();
   void agents.start().catch((e) => log('error', `agents did not start: ${(e as Error).message}`));
   startSurfaces(agents);
 }

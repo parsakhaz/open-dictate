@@ -86,7 +86,7 @@ export interface AgentsHost {
   allowForeground(): void;
   /** Registration writes real agent configs: packaged builds only, unless a test home is given. */
   registration: { allowed: boolean; executable: string; env: Record<string, string | undefined> };
-  /** The tray's "Pause agent alerts" label changed. */
+  /** The tray's "Resume cards" label changed. */
   trayChanged(): void;
   /** Something Settings → Agents shows changed, such as the Pane watch attaching. */
   stateChanged(): void;
@@ -155,6 +155,7 @@ export class Agents {
   private sheetShows: ((top: Card | null) => boolean)[] = [];
   private saveLog: ReturnType<typeof debouncedWriter>;
   private dueTimer: ReturnType<typeof setTimeout> | undefined;
+  private resumeTimer: ReturnType<typeof setTimeout> | undefined;
   private registering: Promise<unknown> = Promise.resolve();
 
   constructor(private host: AgentsHost) {
@@ -192,7 +193,6 @@ export class Agents {
         add: (terms) => host.update({ vocabularyPending: [...host.settings().vocabularyPending, ...terms] }),
       },
     });
-    this.hub.queue.paused = host.settings().agentAlertsPaused;
     this.requests = new AgentRequests(this.hub, { profile: host.userData, executable: host.registration.executable, build: typeof DICTATE_BUILD === 'undefined' ? 'development' : DICTATE_BUILD, version: typeof DICTATE_VERSION === 'undefined' ? 'development' : DICTATE_VERSION });
     const paneDir = process.env.PANE_DIR || path.join(os.homedir(), '.pane');
     this.pane = new PaneLink({
@@ -298,9 +298,21 @@ export class Agents {
     this.render();
   }
 
-  setPaused(on: boolean): void {
-    this.hub.setPaused(on);
-    this.host.update({ agentAlertsPaused: on });
+  /** Pauses cards for `minutes`, or until resumed when null; or resumes. Saved, so a pause outlives a restart. */
+  setPaused(on: boolean, minutes: number | null = null): void {
+    this.host.update({ agentAlertsPaused: on, agentAlertsResumeAt: on && minutes ? Date.now() + minutes * 60_000 : 0 });
+  }
+
+  /** Brings the queue and the resume timer in line with the settings; a timed pause that already ended resumes. */
+  applyPause(): void {
+    const { agentAlertsPaused: on, agentAlertsResumeAt: at } = this.host.settings();
+    clearTimeout(this.resumeTimer);
+    if (on && at && at <= Date.now()) {
+      this.setPaused(false);
+      return;
+    }
+    this.hub.setPaused(on, on && at ? at : undefined);
+    if (on && at) this.resumeTimer = setTimeout(() => this.setPaused(false), Math.min(at - Date.now(), 2 ** 31 - 1));
   }
 
   /** The tray label: how many cards wait while alerts are paused. */

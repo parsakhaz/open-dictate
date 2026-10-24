@@ -1,4 +1,4 @@
-// The inbox and snooze (L2): the round shortcut, the snooze shortcut and lengths, where a card returns (settings.inbox, settings.snooze).
+// The inbox and snooze (L2): the round and pause shortcuts, the snooze shortcut and lengths, where a card returns (settings.inbox, settings.snooze).
 import { h } from '../bridge';
 import { card, keyRecorder, radios } from '../settingsui';
 import type { Section } from './types';
@@ -33,6 +33,7 @@ export const snooze: Section = ({ st, set }) => {
   return [
     h('h2', {}, 'Inbox and snooze'),
     card('Decision round', 'Clears the waiting cards one by one, right above the pill, by keys or by holding your dictation key to say “approve”, “next” or your answer.', keyRecorder(inbox.roundKey, (b) => void set({ inbox: { ...inbox, roundKey: b } }), () => void set({ inbox: { ...inbox, roundKey: null } }))),
+    card('Pause cards shortcut', 'Pauses cards for 30 min. Press again within 5 s for 1 hour, then until you resume. Press later to resume.', keyRecorder(inbox.pauseKey, (b) => void set({ inbox: { ...inbox, pauseKey: b } }), () => void set({ inbox: { ...inbox, pauseKey: null } }))),
     card('Snooze shortcut', 'Snoozes the card on top while one is up. Press again to snooze longer.', keyRecorder(s.key, (b) => void set({ snooze: { ...s, key: b } }), () => void set({ snooze: { ...s, key: null } }))),
     card('Snooze lengths', 'One to three, 1–120 minutes. Each press of the shortcut steps to the next. Type a number and press Enter to add one.', null, lengths),
     card(

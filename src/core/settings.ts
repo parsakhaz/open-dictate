@@ -69,6 +69,7 @@ export function defaultSettings(vocabulary: VocabTerm[] = []): Settings {
     vocabularyPending: [],
     agentsEnabled: true,
     agentAlertsPaused: false,
+    agentAlertsResumeAt: 0,
     agentChime: true,
     agentPaneAlerts: false,
     agentHistory: false,
@@ -172,6 +173,7 @@ export function parseSettings(data: unknown, defaults: Settings): Settings {
     vocabularyPending: Array.isArray(d.vocabularyPending) ? parsePending(d.vocabularyPending) : defaults.vocabularyPending,
     agentsEnabled: bool(d.agentsEnabled, defaults.agentsEnabled),
     agentAlertsPaused: bool(d.agentAlertsPaused, defaults.agentAlertsPaused),
+    agentAlertsResumeAt: num(d.agentAlertsResumeAt, defaults.agentAlertsResumeAt, 0, Number.MAX_SAFE_INTEGER),
     agentChime: bool(d.agentChime, defaults.agentChime),
     // Before 0.1.2 there was no such setting and Dictate always followed Pane; those profiles start off too.
     agentPaneAlerts: bool(d.agentPaneAlerts, defaults.agentPaneAlerts),

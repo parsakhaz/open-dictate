@@ -166,11 +166,17 @@ describe('notify', () => {
     expect(chimes()).toBe(1);
   });
 
-  it('returns dnd while alerts are paused (J11)', async () => {
+  it('while cards are paused, notify reports dnd and ask waits for the answer', async () => {
     const { hub } = setup();
     hub.setPaused(true);
     expect(await hub.call(inTab(), 'notify', { title: 'x' }, sig())).toMatchObject({ status: 'dnd' });
-    expect(await hub.call(inTab('Y'), 'ask', { question: 'q?' }, sig())).toEqual({ answered: false, reason: 'dnd' });
+    const p = hub.call(inTab('Y'), 'ask', { question: 'Staging or prod?', choices: ['Staging', 'Prod'] }, sig());
+    await settle();
+    expect(hub.queue.view(Date.now()).top).toBeNull();
+    hub.setPaused(false);
+    const asked = hub.queue.view(Date.now()).all.find((c) => c.kind === 'ask')!;
+    await hub.choose(asked.id, 'Prod');
+    expect(await p).toMatchObject({ answered: true, choice: 'Prod' });
   });
 });
 

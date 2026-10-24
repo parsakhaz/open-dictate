@@ -18,8 +18,16 @@ export const NOT_RUNNING = "Dictate isn't running. Carry on in text; start Dicta
 export const CARD_RULE =
   'The person is juggling many tasks and has lost the thread. In plain words, say what this work is for (the outcome, not the file), what just happened, and what you need from them. ' +
   'If you need a decision, give the options and what each one means. ' +
-  "Don't repeat where you are: Dictate adds that. Always notify (needs_you) or ask when you truly need them. Info cards are welcome, but only in this plain style. " +
+  "Don't repeat where you are: Dictate adds that. Always notify (needs_you) or ask when you truly need them. Info cards follow this plain style too. " +
   'Write plain text only: no Markdown, headings, lists or code blocks; line breaks are fine.';
+
+/** When to reach the person, and how much: in the server instructions and Dictate's block in the agents' instruction files. */
+export const ASKING_RULES = [
+  "Ask only what you can't find out yourself.",
+  'Put related questions in one `decide` card, up to four, instead of several `ask` calls.',
+  'Use `notify` only for what the person must know now; send `info` cards rarely.',
+  'Keep titles short and choices to a few words.',
+] as const;
 
 type ExampleCard = readonly [title: string, message: string];
 
@@ -51,6 +59,7 @@ const example = (name: string, e: { bad: readonly ExampleCard[]; good: ExampleCa
 /** The MCP server instructions: what Dictate is, the rule, and all four examples. */
 export const SERVER_INSTRUCTIONS = [
   "Dictate is the person's local dictation app. notify and ask reach them on its pill, labelled with where you really are.",
+  ASKING_RULES.join(' '),
   CARD_RULE,
   example('Needs a decision', CARD_EXAMPLES.decision),
   example('Blocked', CARD_EXAMPLES.blocked),

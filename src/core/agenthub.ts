@@ -355,7 +355,6 @@ export class AgentHub {
 
   private async ask(session: HubSession, args: unknown, signal: AbortSignal): Promise<AskResult & { card_id?: string; truncated?: boolean }> {
     const a = parseAsk(args);
-    if (this.queue.paused) return { answered: false, reason: 'dnd' };
     if (this.waitingOn(session.id, 'ask')) return { answered: false, reason: 'busy' };
     const src = await this.source(session);
     if (signal.aborted) return { answered: false, reason: 'cancelled' };
@@ -417,7 +416,6 @@ export class AgentHub {
     }
     let outcome: AccessOutcome;
     if (this.grants.allowed(session.id, this.deps.now())) outcome = 'session-grant';
-    else if (this.queue.paused) outcome = 'dnd';
     else if (this.waitingOn(session.id, 'consent')) outcome = 'busy';
     else {
       const answer = await this.askConsent(session, src, a, signal);
@@ -542,8 +540,8 @@ export class AgentHub {
     return { ok: true, message: `Sent to ${tab}` };
   }
 
-  setPaused(on: boolean): void {
-    this.queue.setPaused(on);
+  setPaused(on: boolean, until?: number): void {
+    this.queue.setPaused(on, this.deps.now(), until);
     this.deps.changed();
   }
 
