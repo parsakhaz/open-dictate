@@ -85,10 +85,10 @@ async function main() {
   check('original hover disclosure restored', await evaluate("!document.querySelector('.snz')"));
   check('no container header or added Close chrome', await evaluate("!document.querySelector('.window-head,.window-close')&&getComputedStyle(document.body).backgroundColor==='rgba(0, 0, 0, 0)'"));
   fs.appendFileSync(CONTROL, 'cards-hover on\n');
-  await until(() => evaluate("!!document.querySelector('.snz .lbl')"));
+  await until(() => evaluate("!!document.querySelector('.snz button')"));
   await sleep(350);
   await snapshot('expanded');
-  check('original Snooze word and all duration chips restored', await evaluate("document.querySelector('.snz .lbl').textContent.includes('Snooze')&&[...document.querySelectorAll('.snz .chip')].map(b=>b.textContent).join(',')==='3m,5m,10m'"));
+  check('one Snooze button, for the first length', await evaluate("[...document.querySelectorAll('.snz button')].map(b=>b.textContent).join(',')==='◷Snooze 3 min'"));
   await click('.snz button[data-min="3"]');
   await until(async () => (await call('card_status', { card_id: card.card_id })).state === 'snoozed');
   await until(() => evaluate("!!document.querySelector('.toast')"));

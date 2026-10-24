@@ -1,9 +1,9 @@
 // Attention cards on the pill: what agents and Pane tabs need from the person. One card per tab (or per agent
-// session outside Pane), ranked most urgent and oldest first, held while the person dictates (except the card being
-// answered by voice and the point review) and while alerts are paused. The inbox's rules live here too: the flow
-// guard holds a new card while the person types or Windows says they're busy, a snoozed card waits for its time, and
-// time a card waited before it was first on screen doesn't count against a waiting call. Pure: time comes in as
-// arguments.
+// session outside Pane), ranked consent, then cards that block an agent, then the rest, oldest first in each group,
+// held while the person dictates (except the card being answered by voice and the point review) and while alerts are
+// paused. The inbox's rules live here too: the flow guard holds a new card while the person types or Windows says
+// they're busy, a snoozed card waits for its time, and time a card waited before it was first on screen doesn't count
+// against a waiting call. Pure: time comes in as arguments.
 import type { ActionHint } from './agenttools';
 import { type Focus, type HeldReason, TYPING_MS, typingAt } from './flowguard';
 
@@ -17,6 +17,8 @@ export type CardUrgency = 'info' | 'needs_you' | 'consent';
  */
 export const CARD_KINDS = ['pane-blocked', 'pane-ready', 'notify', 'ask', 'consent', 'vocab', 'decide', 'approve', 'round-summary', 'voice-draft', 'lineup', 'peek', 'point-review'] as const;
 export type CardKind = (typeof CARD_KINDS)[number];
+/** Cards an agent waits on: they stay until the person acts or the agent cancels, and arrive with a cue. */
+export const BLOCKING_KINDS: ReadonlySet<CardKind> = new Set(['ask', 'decide', 'approve', 'lineup']);
 
 export interface CardTarget {
   paneId: string;
@@ -50,11 +52,10 @@ export interface Card {
   createdAt: number;
   /** App-owned CLI response sink, independent of Pane routing. */
   requestOwned?: boolean;
-  /** When an info card was first on screen; it fades a few seconds later (moved on by the time it was hovered). */
+  /** When an info card was first on screen; it fades into the "earlier" list a few seconds later (moved on by the time it was hovered). */
   shownAt?: number;
-  faded?: boolean;
   /** An agent's note that Pane's "blocked" merged into: what it was before, to go back to when Pane alerts are off. */
-  beforePane?: Pick<Card, 'kind' | 'urgency' | 'shownAt' | 'faded'>;
+  beforePane?: Pick<Card, 'kind' | 'urgency' | 'shownAt'>;
   /** When the card was first in front of the person (the pill's top card, or a round's): time before it doesn't count against a wait. */
   firstShownAt?: number;
   /** Snoozed: away until then (a time like createdAt), since snoozedAt. */
@@ -62,7 +63,9 @@ export interface Card {
   snoozedAt?: number;
   /** Time spent snoozed before now, which also doesn't count against a wait. */
   snoozedMs?: number;
-  /** Came back from a snooze: marked "Back from snooze", and on top. */
+  /** How many times this card was snoozed: each snooze takes the next length. */
+  snoozes?: number;
+  /** Came back from a snooze: marked "Back from snooze". */
   back?: boolean;
   /** Came back from a snooze into the inbox: counted in "waiting", not shown until a round or Now. */
   quiet?: boolean;
@@ -78,8 +81,11 @@ export type AddResult = 'shown' | 'queued' | 'held' | 'dnd' | 'replaced';
 export const INFO_MS = 4500;
 /** After the pointer leaves, an info card stays at least this long. */
 export const HOVER_GRACE_MS = 2000;
-/** Faded info cards are kept for the list this long. */
-export const FADED_KEEP_MS = 10 * 60_000;
+/** Faded info notes stay in the "earlier" list this long, at most RECENT_MAX of them. */
+export const RECENT_MS = 30 * 60_000;
+export const RECENT_MAX = 10;
+/** After a note fades, the "earlier" capsule shows on its own this long. */
+export const RECENT_FRESH_MS = 60_000;
 /** After a dictation ends, cards wait this long before appearing. */
 export const AFTER_DICTATION_MS = 1000;
 /** A waiting call never runs past this from the call, however long its card was held or snoozed (Codex gives a tool 660 s). */
@@ -97,6 +103,21 @@ export interface CardStatus {
   answer?: unknown;
 }
 
+/** A faded info note in the "earlier" list. */
+export interface Recent {
+  id: string;
+  source: string;
+  title: string;
+  message: string;
+  at: number;
+}
+
+/** What card_status keeps across a restart: how cards ended, and the ids restored cards had before. */
+export interface SavedQueue {
+  ends: [string, CardStatus][];
+  aliases: [string, string][];
+}
+
 /** A snoozed card on the shelf. */
 export interface Snoozed {
   id: string;
@@ -106,7 +127,8 @@ export interface Snoozed {
   since: number;
 }
 
-const rank = (c: Card) => (c.kind === 'point-review' ? -2 : c.kind === 'round-summary' ? -1 : c.urgency === 'consent' ? 0 : c.urgency === 'needs_you' ? 1 : 2);
+const rank = (c: Card) => (c.kind === 'point-review' ? -2 : c.kind === 'round-summary' ? -1 : c.urgency === 'consent' ? 0 : BLOCKING_KINDS.has(c.kind) ? 1 : c.urgency === 'needs_you' ? 2 : 3);
+const byRank = (a: Card, b: Card) => rank(a) - rank(b) || a.createdAt - b.createdAt;
 /** Info cards fade; the vocabulary review asks the person to act, so it stays like a card that needs them. The round's summary goes when the inbox takes it. */
 const fades = (c: Card) => c.urgency === 'info' && c.kind !== 'vocab' && c.kind !== 'round-summary';
 const away = (c: Card) => c.snoozedUntil !== undefined || !!c.parked;
@@ -116,7 +138,7 @@ export const takesReply = (c: Card) => !!c.target || c.kind === 'ask' || c.kind 
 export interface CardView {
   /** The card on the pill, if any is due. */
   top: Card | null;
-  /** Every other card waiting, faded info cards included: the "+N". */
+  /** Every other card waiting: the "+N". */
   more: number;
   /** All cards, in order, for the list behind "+N" (snoozed and parked cards aren't in it). */
   all: Card[];
@@ -147,6 +169,10 @@ export class CardQueue {
   private onScreen: string | null = null;
   /** How cards that left ended, for card_status. */
   private ends = new Map<string, CardStatus>();
+  /** A restored card's earlier ids, for card_status: old id → current id. */
+  private aliases = new Map<string, string>();
+  /** Faded info notes, newest first. */
+  private recent: Recent[] = [];
   paused = false;
   /** When a timed pause ends; undefined for "until I resume". Shown on the pill. */
   private pausedUntil: number | undefined;
@@ -165,8 +191,8 @@ export class CardQueue {
       if (card.kind === 'pane-ready' && (old.origin === 'agent' || rank(old) < rank(card))) return this.paused ? 'dnd' : 'queued';
       // Pane saying a tab is blocked keeps the agent's own headline from that tab, and offers Reply.
       if (card.kind === 'pane-blocked' && old.origin === 'agent' && old.kind === 'notify') {
-        const beforePane = { kind: old.kind, urgency: old.urgency, shownAt: old.shownAt, faded: old.faded };
-        next = { ...old, kind: 'pane-blocked', urgency: 'needs_you', target: card.target ?? old.target, faded: false, shownAt: undefined, beforePane };
+        const beforePane = { kind: old.kind, urgency: old.urgency, shownAt: old.shownAt };
+        next = { ...old, kind: 'pane-blocked', urgency: 'needs_you', target: card.target ?? old.target, shownAt: undefined, beforePane };
       }
       this.cards.splice(i, 1);
       // The old card left (unless Pane merged into it and it keeps its id): card_status still knows it.
@@ -205,9 +231,21 @@ export class CardQueue {
     return this.cards.splice(i, 1)[0];
   }
 
+  /** The card leaves into the "earlier" list: a faded note, or a question whose time ran out. */
+  retire(id: string, now: number): Card | undefined {
+    const c = this.remove(id);
+    if (c) this.recent = [{ id: c.id, source: c.source, title: c.title, message: c.message, at: now }, ...this.recent].slice(0, RECENT_MAX);
+    return c;
+  }
+
   removeKey(key: string): Card | undefined {
     const c = this.cards.find((x) => x.key === key);
     return c ? this.remove(c.id) : undefined;
+  }
+
+  /** Every card, snoozed and parked ones included. */
+  list(): Card[] {
+    return [...this.cards];
   }
 
   get(id: string): Card | undefined {
@@ -220,7 +258,7 @@ export class CardQueue {
 
   /** Cards waiting for the person: the tray's count while alerts are paused. */
   get waiting(): number {
-    return this.cards.filter((c) => !c.faded && !away(c)).length;
+    return this.cards.filter((c) => !away(c)).length;
   }
 
   /** `replyTo`: the card this dictation answers, kept on screen until the dictation is over. */
@@ -297,7 +335,7 @@ export class CardQueue {
     if (!on && this.hoveredSince !== null) {
       const paused = now - this.hoveredSince;
       for (const c of this.cards) {
-        if (!fades(c) || c.faded || c.shownAt === undefined) continue;
+        if (!fades(c) || c.shownAt === undefined) continue;
         c.shownAt = Math.max(c.shownAt + paused, now + HOVER_GRACE_MS - INFO_MS);
       }
       this.hoveredSince = null;
@@ -328,6 +366,7 @@ export class CardQueue {
     this.pauseAnswer(c, now);
     if (c.snoozedUntil === undefined) c.snoozedAt = now;
     c.snoozedUntil = until;
+    c.snoozes = (c.snoozes ?? 0) + 1;
     c.back = false;
     c.quiet = false;
     if (this.onScreen === id) this.onScreen = null;
@@ -374,9 +413,9 @@ export class CardQueue {
 
   // ---------- the round ----------
 
-  /** The cards a round works through: those that need the person (not consent, not info), oldest first. */
+  /** The cards a round works through: those that need the person (not consent, not info), blocking first, oldest first. */
   roundCards(): Card[] {
-    return this.cards.filter((c) => c.urgency === 'needs_you' && !away(c) && c.kind !== 'round-summary').sort((a, b) => a.createdAt - b.createdAt);
+    return this.cards.filter((c) => c.urgency === 'needs_you' && !away(c) && c.kind !== 'round-summary').sort(byRank);
   }
 
   /** A card answered in a round waits out of sight until it is sent (or Undo brings it back). */
@@ -410,13 +449,40 @@ export class CardQueue {
     if (this.ends.size > ENDED_KEEP) this.ends.delete(this.ends.keys().next().value!);
   }
 
-  status(id: string, now: number): CardStatus | null {
+  status(asked: string, now: number): CardStatus | null {
+    const id = this.aliases.get(asked) ?? asked;
     const c = this.get(id);
     if (!c) return this.ends.get(id) ?? null;
     if (c.snoozedUntil !== undefined) return { state: 'snoozed', until: c.snoozedUntil };
     if (this.ends.has(id)) return this.ends.get(id)!;
     if (c.quiet) return { state: 'held' };
     return c.firstShownAt !== undefined || this.view(now).top?.id === id ? { state: 'shown' } : { state: 'held' };
+  }
+
+  /** A card brought back after a restart: its first arrival, its snoozes, and the ids card_status knew it by. */
+  restore(id: string, was: { createdAt: number; snoozes?: number; snoozedUntil?: number; aliases: string[] }, now: number): void {
+    const c = this.get(id);
+    if (!c) return;
+    c.createdAt = was.createdAt;
+    if (was.snoozedUntil !== undefined && was.snoozedUntil > now) this.snooze(id, was.snoozedUntil, now);
+    c.snoozes = was.snoozes;
+    for (const old of was.aliases) this.aliases.set(old, id);
+    this.sort();
+  }
+
+  /** What card_status needs after a restart. */
+  saved(): SavedQueue {
+    return { ends: [...this.ends], aliases: [...this.aliases] };
+  }
+
+  load(s: SavedQueue): void {
+    this.ends = new Map(s.ends.slice(-ENDED_KEEP));
+    this.aliases = new Map(s.aliases.slice(-ENDED_KEEP));
+  }
+
+  /** The earlier ids of a card, for saving it. */
+  aliasesOf(id: string): string[] {
+    return [...this.aliases].filter(([, to]) => to === id).map(([old]) => old);
   }
 
   /**
@@ -452,7 +518,7 @@ export class CardQueue {
     }
   }
 
-  /** Fades info cards that have been up long enough, brings snoozed cards back, and forgets old faded ones. Returns true when anything changed. */
+  /** Fades info cards that have been up long enough into the "earlier" list, brings snoozed cards back, and forgets old notes. Returns true when anything changed. */
   tick(now: number): boolean {
     let changed = false;
     for (const c of this.cards) if (c.snoozedUntil !== undefined && c.snoozedUntil <= now) changed = this.wake(c.id, now) || changed;
@@ -461,15 +527,10 @@ export class CardQueue {
     if (!top) this.onScreen = null;
     if (top && top.id !== this.replying) this.markShown(top.id, now);
     if (top && fades(top) && top.shownAt === undefined) top.shownAt = now;
-    for (const c of this.cards) {
-      if (this.ticking(c) && now - c.shownAt! >= INFO_MS) {
-        c.faded = true;
-        changed = true;
-      }
-    }
-    const before = this.cards.length;
-    this.cards = this.cards.filter((c) => !(c.faded && now - c.createdAt > FADED_KEEP_MS));
-    return changed || this.cards.length !== before;
+    for (const c of this.cards.filter((x) => this.ticking(x) && now - x.shownAt! >= INFO_MS)) changed = !!this.retire(c.id, now) || changed;
+    const before = this.recent.length;
+    this.recent = this.recent.filter((r) => now - r.at < RECENT_MS);
+    return changed || this.recent.length !== before;
   }
 
   /** When the next tick could change what is on screen, or null. */
@@ -479,9 +540,11 @@ export class CardQueue {
     if (typingAt(this.typedAt, now)) times.push(this.typedAt + TYPING_MS);
     for (const c of this.cards) {
       if (this.ticking(c)) times.push(c.shownAt! + INFO_MS);
-      if (c.faded) times.push(c.createdAt + FADED_KEEP_MS);
       if (c.snoozedUntil !== undefined) times.push(c.snoozedUntil);
     }
+    const last = this.recent[0];
+    if (last && now < last.at + RECENT_FRESH_MS) times.push(last.at + RECENT_FRESH_MS);
+    if (this.recent.length) times.push(this.recent[this.recent.length - 1].at + RECENT_MS);
     const top = this.view(now).top;
     if (top && fades(top) && top.shownAt === undefined) times.push(now);
     return times.length ? Math.max(now, Math.min(...times)) : null;
@@ -493,7 +556,8 @@ export class CardQueue {
     const top = replying ? this.get(replying)! : this.topAt(now);
     const visible = this.visible();
     const waiting = top ? 0 : visible.length + this.inbox().length;
-    const extra = { waiting, reason: this.heldFor(now), ...(this.pausedUntil !== undefined ? { pausedUntil: this.pausedUntil } : {}), snoozed: this.snoozed(), back: all.filter((c) => c.back).map((c) => c.id) };
+    const recentFresh = !!this.recent[0] && now < this.recent[0].at + RECENT_FRESH_MS;
+    const extra = { waiting, reason: this.heldFor(now), ...(this.pausedUntil !== undefined ? { pausedUntil: this.pausedUntil } : {}), snoozed: this.snoozed(), back: all.filter((c) => c.back).map((c) => c.id), recent: this.recent, recentFresh };
     return { top, more: top ? all.length - 1 : 0, all, extra };
   }
 
@@ -528,16 +592,15 @@ export class CardQueue {
 
   /** An info card whose time is running: shown, not hovered, not being answered. */
   private ticking(c: Card): boolean {
-    return fades(c) && !c.faded && c.shownAt !== undefined && this.hoveredSince === null && c.id !== this.replying;
+    return fades(c) && c.shownAt !== undefined && this.hoveredSince === null && c.id !== this.replying;
   }
 
   private visible(): Card[] {
-    return this.cards.filter((c) => !c.faded && !away(c) && !c.quiet);
+    return this.cards.filter((c) => !away(c) && !c.quiet);
   }
 
   private sort(): void {
-    // A card back from snooze goes on top of its urgency; the round's summary above all.
-    this.cards.sort((a, b) => rank(a) - rank(b) || Number(!!b.back) - Number(!!a.back) || a.createdAt - b.createdAt);
+    this.cards.sort(byRank);
   }
 }
 

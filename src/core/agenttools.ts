@@ -110,7 +110,7 @@ export const TOOLS: ToolDef[] = [
         question: { type: 'string', description: 'The question, cut at 120 characters.' },
         message: { type: 'string', description: 'What you are choosing between and what each option means, about 280 characters shown.' },
         choices,
-        timeout_s: { type: 'number', minimum: 1, maximum: ASK_TIMEOUT.maxS, description: 'Seconds to wait; default 120, at most 600.' },
+        timeout_s: { type: 'number', minimum: 1, maximum: ASK_TIMEOUT.maxS, description: 'Seconds to wait; default 120, at most 600. On timeout the card stays up until the person acts: card_status reports a later answer.' },
       },
       required: ['question'],
       additionalProperties: false,

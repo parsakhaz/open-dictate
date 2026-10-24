@@ -83,6 +83,46 @@ it('CLI ownership survives connection closure and long snooze, then retains the 
   expect(result).toMatchObject({ state: 'answered', result: { answered: true, choice: 'Blue', raw: 'Blue', card_id: card.id } });
 });
 
+it('a CLI ask outlives its timeout_s: it waits until answered, and a cancel withdraws it', async () => {
+  const { hub, advance } = setup();
+  const book = new RequestBook();
+  const make = (question: string) => book.create({ kind: 'ask', args: { question, timeout_s: 30 }, cwd: outside.cwd }, (owner) => hub.callOwned({ ...outside, id: `cli:${question}` }, 'ask', { question, timeout_s: 30 }, owner));
+  const one = await make('One?');
+  const two = await make('Two?');
+  await advance(3600_000);
+  expect(book.get(one.request_id)).toMatchObject({ terminal: false });
+  await hub.reply(one.card_id!, 'Yes.', 'yes');
+  expect(await book.wait(one.request_id, 1000)).toMatchObject({ state: 'answered', result: { text: 'Yes.' } });
+  await book.cancel(two.request_id);
+  expect(hub.queue.get(two.card_id!)).toBeUndefined();
+});
+
+it('an MCP question comes back after a restart with its age and snoozes, card_status finds it by its old id, and its answer reaches the tab', async () => {
+  const before = setup();
+  void before.hub.call(inTab(), 'ask', { question: 'Which region?', choices: ['EU', 'US'] }, sig());
+  await settle();
+  const old = before.hub.queue.view(Date.now()).top!;
+  before.hub.queue.snooze(old.id, Date.now() + 60_000, Date.now());
+  before.hub.queue.wake(old.id, Date.now(), false);
+  await before.hub.call(outside, 'notify', { title: 'The nightly backup moved to EU', urgency: 'needs_you' }, sig());
+  const saved = JSON.parse(JSON.stringify(before.hub.saved()));
+
+  const { hub, sent, advance } = setup();
+  await advance(60_000);
+  hub.load(saved);
+  hub.resumeCall(saved.calls[0]);
+  await settle();
+  const back = hub.queue.view(Date.now()).top!;
+  expect(back).toMatchObject({ title: 'Which region?', createdAt: old.createdAt, snoozes: 1 });
+  expect(back.id).not.toBe(old.id);
+  expect(hub.queue.status(old.id, Date.now())).toEqual({ state: 'shown' });
+  expect(hub.saved().calls[0].aliases).toEqual([old.id, back.id]);
+  expect(hub.queue.view(Date.now()).all.map((c) => c.title)).toEqual(['Which region?', 'The nightly backup moved to EU']);
+  await hub.choose(back.id, 'EU');
+  await settle();
+  expect(sent).toEqual([{ panelId: 'X', text: 'Answer to your earlier question “Which region?”: EU' }]);
+});
+
 it('CLI notify has an answer sink without a Pane target and never sends to a claimed remote panel', async () => {
   const { hub, sent } = setup();
   const book = new RequestBook();
@@ -199,13 +239,21 @@ describe('ask', () => {
     expect(await p).toEqual({ answered: true, text: 'Staging, please.', raw: 'staging please', choice: 'Staging', card_id: expect.any(String) });
   });
 
-  it('times out at timeout_s, and Esc returns dismissed', async () => {
-    const { hub, advance } = setup();
-    const p = hub.call(inTab(), 'ask', { question: 'q?', timeout_s: 30 }, sig());
+  it('returns timeout at timeout_s and keeps the card: a later answer goes to its tab, and Esc returns dismissed', async () => {
+    const { hub, advance, sent } = setup();
+    const p = hub.call(inTab(), 'ask', { question: 'Which region?', timeout_s: 30 }, sig());
     await settle();
     await advance(29_000);
     await advance(1_000);
-    expect(await p).toEqual({ answered: false, reason: 'timeout', card_id: expect.any(String) });
+    const r = (await p) as { card_id: string };
+    expect(r).toEqual({ answered: false, reason: 'timeout', card_id: expect.any(String) });
+    expect(hub.queue.view(Date.now()).top?.title).toBe('Which region?');
+    await advance(24 * 3600_000);
+    expect(hub.queue.get(r.card_id)).toBeDefined();
+    await hub.reply(r.card_id, 'EU, please.', 'eu please');
+    await settle();
+    expect(hub.queue.get(r.card_id)).toBeUndefined();
+    expect(sent).toEqual([{ panelId: 'X', text: 'Answer to your earlier question “Which region?”: EU, please.' }]);
     const q = hub.call(inTab(), 'ask', { question: 'q?' }, sig());
     await settle();
     hub.dismiss(hub.queue.view(Date.now()).top!.id);
@@ -226,7 +274,7 @@ describe('ask', () => {
       'card k1 raised (ask from dictate-mcp · Codex): shown',
       'card k1 answered (ask from dictate-mcp · Codex)',
       'card k2 raised (ask from dictate-mcp · Codex): shown',
-      'card k2 expired (ask from dictate-mcp · Codex)',
+      'card k2 stays after its call ended (ask from dictate-mcp · Codex)',
     ]);
   });
 
@@ -552,7 +600,8 @@ describe('the surfaces seams', () => {
     const ids = [hub.newId(), hub.newId(), hub.newId(), hub.newId(), hub.newId()];
     const ac = new AbortController();
     for (const [i, id] of ids.entries()) {
-      void hub.wait(id, { session: `s-${i}`, kind: 'decide', timeoutMs: i === 2 ? 1000 : 60_000, signal: i === 3 ? ac.signal : sig() });
+      // A peek times out; the blocking kinds (decide here) outlive their timeout.
+      void hub.wait(id, { session: `s-${i}`, kind: i === 2 ? 'peek' : 'decide', timeoutMs: i === 2 ? 1000 : 60_000, signal: i === 3 ? ac.signal : sig() });
       hub.raise({ ...card(id), key: `k:${id}` });
     }
     hub.settle(ids[0], { answered: true });

@@ -15,6 +15,8 @@ export interface CardDto {
   linkHost: string | null;
   canOpen: boolean;
   canReply: boolean;
+  /** How many times it was snoozed: its Snooze button takes the next length. */
+  snoozes?: number;
   /** A surface card's own data (decide's questions, lineup's thumbnails). */
   data?: unknown;
 }

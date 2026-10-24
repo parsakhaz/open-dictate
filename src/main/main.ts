@@ -1810,6 +1810,10 @@ function startAgents(): void {
       watchCardHover(cardsShown || extraRects.length > 0);
     },
     chime: () => pillSend('dictate:sound', 'chime'),
+    pulse: () => {
+      pillSend('dictate:pulse');
+      if (isolatedQa) log('info', 'QA pulse');
+    },
     openSettings: (page) => openSettings(page),
     openExternal: (url) => {
       if (/^https:\/\/\S+$/.test(url)) void shell.openExternal(url);

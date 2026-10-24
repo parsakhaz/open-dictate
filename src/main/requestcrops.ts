@@ -15,13 +15,15 @@ export class RequestCrops {
       total: REQUEST_LIMITS.crops,
       keep: REQUEST_LIMITS.lifetime,
     },
+    /** Crops that saved request results still name, with when they may go. */
+    kept = new Map<string, number>(),
   ) {
     try {
       fs.mkdirSync(dir, { recursive: true });
-      // A new app instance cannot serve old request results. Restrict cleanup to our generated names.
+      // Crops no saved result names go. Restrict cleanup to our generated names.
       for (const name of fs.readdirSync(dir)) if (/^cli-[0-9a-f-]{36}\.png$/.test(name)) {
         const file = path.join(dir, name);
-        this.owned.set(file, { card: '', size: fs.statSync(file).size, until: 0 });
+        this.owned.set(file, { card: '', size: fs.statSync(file).size, until: kept.get(file) ?? 0 });
       }
       this.sweep();
     } catch {

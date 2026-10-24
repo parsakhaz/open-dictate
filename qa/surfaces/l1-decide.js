@@ -139,6 +139,10 @@ module.exports = {
         const t = (await within(short, sleep, 8000))?.result;
         check('a timeout with one answer returns it as partial', t?.answered === false && t.reason === 'timeout' && t.partial?.length === 1 && t.partial[0].picked[0] === 'Production' && typeof t.card_id === 'string', t);
         d = await dump(ctx);
+        check('the card stays after the timeout, for a later answer', d?.cards.length === 1, d);
+        cmd('card dismiss');
+        await sleep(300);
+        d = await dump(ctx);
         check('nothing of this lane is left waiting', d?.cards.length === 0, d);
 
         const twin = { header: 'When', question: 'When?', options: [{ label: 'Today' }, { label: 'Tomorrow' }] };

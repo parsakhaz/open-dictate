@@ -4,7 +4,7 @@
 import { cleanMessage, cleanText } from './agenttext';
 import { CAPS, parseAsk, parseHistoryRequest, parseNotify, ToolInputError } from './agenttools';
 import type { ClientInfo, PaneIds } from './agentwire';
-import { type AddResult, type Card, type CardKind, CardQueue, type CardTarget } from './cards';
+import { type AddResult, BLOCKING_KINDS, type Card, type CardKind, CardQueue, type CardTarget, type SavedQueue } from './cards';
 import type { HistoryStore } from './history';
 import { type AccessOutcome, type AccessRecord, CONSENT_TIMEOUT_MS, consentSummary, GrantBook, HISTORY_NOTE, readHistory } from './historyaccess';
 import { clientSourceLine, type PaneAction, paneSourceLine, WORDS } from './panewatch';
@@ -20,6 +20,29 @@ export interface HubSession {
   cwd: string;
   origin?: Origin;
   requestOwned?: boolean;
+  /** A question brought back after a restart: the card ids it had before. */
+  restoredFrom?: string[];
+}
+
+/** An agent's question as asked, kept so it can come back after a restart. */
+export interface SavedCall {
+  tool: string;
+  args: unknown;
+  session: Pick<HubSession, 'client' | 'pane' | 'cwd' | 'origin'>;
+  /** Every id the card has had, the current one last. */
+  aliases: string[];
+  createdAt: number;
+  snoozes?: number;
+  snoozedUntil?: number;
+}
+
+/** What the hub keeps across a restart. CLI requests are kept by their own book. */
+export interface SavedHub {
+  next: number;
+  queue: SavedQueue;
+  calls: SavedCall[];
+  /** An agent's notes that need the person and no call waits on: kept as they are. */
+  notes?: Card[];
 }
 
 export interface Source {
@@ -45,6 +68,8 @@ export interface HubDeps {
   changed(): void;
   /** A card that needs the person just appeared. */
   chime(): void;
+  /** A card an agent waits on arrived: one pulse of the pill. */
+  pulse?(): void;
   log(level: 'info' | 'warn', msg: string): void;
   status(): { modelsReady: boolean; dictating: boolean };
   pane: {
@@ -96,6 +121,8 @@ interface Waiter {
   timer: unknown;
   detach?: () => void;
   ends: { timeout: unknown; cancelled: unknown; dismissed: unknown };
+  /** The MCP question behind this wait, saved so its card survives a restart. */
+  call?: Omit<SavedCall, 'aliases' | 'createdAt'>;
 }
 
 const WAIT_ENDS = {
@@ -131,6 +158,8 @@ export class AgentHub {
   private enders: ((cardId: string, how: CardEnd, value: unknown) => void)[] = [];
   private owners = new Map<string, RequestOwner>();
   private cardOwners = new Map<string, RequestOwner>();
+  /** MCP questions being raised, by `<session>:<tool>` (a session asks one of each kind at a time). */
+  private calling = new Map<string, NonNullable<Waiter['call']>>();
 
   constructor(private deps: HubDeps) {}
 
@@ -152,7 +181,7 @@ export class AgentHub {
   tickOwned(): void {
     for (const [id] of this.cardOwners) {
       const card = this.queue.get(id);
-      if (!card || (card.kind === 'notify' && card.urgency === 'info' && card.faded)) this.settle(id, { reason: 'faded', card_id: id });
+      if (!card) this.settle(id, { reason: 'faded', card_id: id });
     }
   }
 
@@ -208,19 +237,23 @@ export class AgentHub {
   wait<T, E = WaitEnd>(cardId: string, o: WaitOptions<E>): Promise<T | E> {
     return new Promise((resolve) => {
       const startedAt = this.deps.now();
-      const w: Waiter = { session: o.session, kind: o.kind, resolve: resolve as (v: unknown) => void, timer: undefined, ends: o.ends ?? WAIT_ENDS };
+      const w: Waiter = { session: o.session, kind: o.kind, resolve: resolve as (v: unknown) => void, timer: undefined, ends: o.ends ?? WAIT_ENDS, call: this.calling.get(`${o.session}:${o.kind}`) };
       const owner = this.owners.get(o.session);
       if (owner) this.cardOwners.set(cardId, owner);
-      // When the time comes the queue may have moved the deadline out (time held doesn't count): wait on.
+      const blocking = BLOCKING_KINDS.has(o.kind);
+      // When the time comes the queue may have moved the deadline out (time held doesn't count): wait on. A blocking
+      // card outlives the call: the agent hears timeout, and the card stays until the person acts.
       const arm = (due: number) => {
         w.timer = this.deps.setTimer(() => {
           const next = this.queue.deadline(cardId, startedAt, o.timeoutMs, this.deps.now(), !!owner);
           if (next > due) arm(next);
+          else if (blocking) this.release(cardId, w.ends.timeout);
           else this.settle(cardId, w.ends.timeout);
         }, Math.max(0, due - this.deps.now()));
       };
       this.waits.set(cardId, w);
-      arm(this.queue.deadline(cardId, startedAt, o.timeoutMs, startedAt, !!owner));
+      // A CLI request's blocking card waits until answered, cancelled, or the request's own lifetime ends.
+      if (Number.isFinite(o.timeoutMs) && !(blocking && owner)) arm(this.queue.deadline(cardId, startedAt, o.timeoutMs, startedAt, !!owner));
       const abort = () => this.settle(cardId, o.signal.reason === 'request_expired' ? w.ends.timeout : w.ends.cancelled);
       o.signal.addEventListener('abort', abort, { once: true });
       w.detach = () => o.signal.removeEventListener('abort', abort);
@@ -232,7 +265,7 @@ export class AgentHub {
   settle(cardId: string, value: unknown, keepCard = false): boolean {
     const w = this.waits.get(cardId);
     if (!w) return false;
-    this.deps.clearTimer(w.timer);
+    if (w.timer !== undefined) this.deps.clearTimer(w.timer);
     w.detach?.();
     this.waits.delete(cardId);
     const how = value === w.ends.timeout ? 'expired' : value === w.ends.cancelled ? 'cancelled' : value === w.ends.dismissed ? 'dismissed' : 'answered';
@@ -241,12 +274,88 @@ export class AgentHub {
       this.cardOwners.get(cardId)?.ending(w.kind === 'notify' && how === 'answered' && result?.answered !== true ? 'completed' : how);
       this.cardOwners.delete(cardId);
     }
-    const card = keepCard ? undefined : this.queue.remove(cardId);
+    // A blocking card that ran out of time leaves a line in the "earlier" list.
+    const card = keepCard ? undefined : how === 'expired' && BLOCKING_KINDS.has(w.kind) ? this.queue.retire(cardId, this.deps.now()) : this.queue.remove(cardId);
     if (card) this.deps.changed();
     w.resolve(value);
     // A wait settled with keepCard (a snoozed question) hasn't ended: its card is still in Dictate.
     if (!keepCard) this.ended(cardId, how, value, card);
     return true;
+  }
+
+  /**
+   * The agent stops waiting and the card stays: it still takes an answer, which card_status reports and, in Pane, is
+   * typed into the agent's tab. The card goes when the person acts on it.
+   */
+  release(cardId: string, value: unknown): boolean {
+    const w = this.waits.get(cardId);
+    const card = this.queue.get(cardId);
+    if (!w || !card) return this.settle(cardId, value);
+    this.settle(cardId, value, true);
+    this.deps.log('info', `card ${cardId} stays after its call ended (${cardLabel(card)})`);
+    const late = this.wait<unknown>(cardId, { session: `late:${cardId}`, kind: card.kind, timeoutMs: Number.POSITIVE_INFINITY, signal: new AbortController().signal });
+    this.waits.get(cardId)!.call = w.call;
+    void late.then((v) => this.deliverLate(card, v));
+    return true;
+  }
+
+  /** An answer given after the agent's call returned: into its Pane tab as a message (card_status has it either way). */
+  private async deliverLate(card: Card, value: unknown): Promise<void> {
+    const v = (value ?? {}) as Record<string, unknown>;
+    const text = v.answered === false ? '' : String(v.choice ?? v.text ?? (v.approved === true ? 'Approved' : (v.changes ?? '')));
+    if (!card.target || !text) return;
+    const r = await this.deps.pane.send(card.target.panelId, `Answer to your earlier question “${card.title}”: ${text}`).catch(() => ({ delivered: false }));
+    this.deps.log(r.delivered ? 'info' : 'warn', `card ${card.id} late answer ${r.delivered ? 'sent to its tab' : 'not delivered; card_status has it'}`);
+  }
+
+  // ---------- across a restart ----------
+
+  /** The waiting MCP questions, the id counter and what card_status knows. */
+  saved(): SavedHub {
+    const calls: SavedCall[] = [];
+    for (const [id, w] of this.waits) {
+      const c = this.queue.get(id);
+      if (w.call && c) calls.push({ ...w.call, aliases: [...this.queue.aliasesOf(id), id], createdAt: c.createdAt, snoozes: c.snoozes, snoozedUntil: c.snoozedUntil });
+    }
+    const notes = this.queue.list().filter((c) => c.origin === 'agent' && c.kind === 'notify' && c.urgency === 'needs_you' && !this.waits.has(c.id));
+    return { next: this.next, queue: this.queue.saved(), calls, notes };
+  }
+
+  /** What card_status knows and the agents' notes come back; saved questions come back through resumeCall. */
+  load(s: SavedHub): void {
+    this.next = Math.max(this.next, s.next);
+    this.queue.load(s.queue);
+    for (const c of s.notes ?? []) this.queue.add({ ...c, shownAt: undefined, firstShownAt: undefined }, this.deps.now());
+  }
+
+  /**
+   * Raises a saved question again, owned by `owner`: an MCP question whose call ended with the app, or a CLI request.
+   * Its card takes back its age and snoozes.
+   */
+  resume(session: HubSession, tool: string, args: unknown, owner: RequestOwner, was: Pick<SavedCall, 'aliases' | 'createdAt' | 'snoozes' | 'snoozedUntil'>): Promise<unknown> {
+    const accepted = owner.accepted;
+    const restoring: RequestOwner = {
+      ...owner,
+      accepted: (card, presentation, destination) => {
+        this.queue.restore(card, was, this.deps.now());
+        accepted(card, presentation, destination);
+      },
+    };
+    return this.callOwned(session, tool as RequestKind, args, restoring);
+  }
+
+  /** A saved MCP question comes back after a restart; a later answer reaches card_status and its Pane tab. */
+  resumeCall(s: SavedCall): void {
+    let card: Card | undefined;
+    const owner: RequestOwner = {
+      requestId: `resumed:${s.aliases[0]}`,
+      signal: new AbortController().signal,
+      accepted: (id) => { card = this.queue.get(id); },
+      ending: () => undefined,
+    };
+    void this.resume({ id: `resumed:${s.aliases[0]}:${this.next}`, ...s.session, restoredFrom: s.aliases }, s.tool, s.args, owner, s)
+      .then((v) => card && this.deliverLate(card, v))
+      .catch((err) => this.deps.log('warn', `agents: a saved question could not come back (${(err as Error).message})`));
   }
 
   /** A call is waiting on this card. */
@@ -255,13 +364,25 @@ export class AgentHub {
   }
 
   /** The session is already waiting on a card of this kind. */
-  private waitingOn(session: string, kind: CardKind): boolean {
+  waitingOn(session: string, kind: CardKind): boolean {
     return [...this.waits.values()].some((w) => w.session === session && w.kind === kind);
   }
 
   // ---------- tools ----------
 
   async call(session: HubSession, tool: string, args: unknown, signal: AbortSignal): Promise<unknown> {
+    // An MCP question is kept with its wait, so its card can come back after a restart (CLI requests keep their own).
+    const key = `${session.id}:${tool}`;
+    const keep = BLOCKING_KINDS.has(tool as CardKind) && (!session.requestOwned || !!session.restoredFrom);
+    if (keep) this.calling.set(key, { tool, args, session: { client: session.client, pane: session.pane, cwd: session.cwd, ...(session.origin ? { origin: session.origin } : {}) } });
+    try {
+      return await this.dispatch(session, tool, args, signal);
+    } finally {
+      if (keep) this.calling.delete(key);
+    }
+  }
+
+  private async dispatch(session: HubSession, tool: string, args: unknown, signal: AbortSignal): Promise<unknown> {
     switch (tool) {
       case 'status':
         return { running: true, ...this.deps.status(), doNotDisturb: this.queue.paused, historyAccess: this.deps.history.enabled(), ...Object.assign({}, ...this.statusParts.map((p) => p())) };
@@ -308,6 +429,7 @@ export class AgentHub {
     this.cardOwners.get(card.id)?.accepted(card.id, { state: r }, { source: card.source, ...(card.target ? { local_pane: card.target } : {}) });
     this.queue.tick(this.deps.now());
     if (card.urgency !== 'info' && this.queue.view(this.deps.now()).top?.id === card.id) this.deps.chime();
+    if (BLOCKING_KINDS.has(card.kind)) this.deps.pulse?.();
     this.deps.changed();
     return r;
   }

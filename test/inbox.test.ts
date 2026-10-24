@@ -105,8 +105,35 @@ describe('held time and wait deadlines', () => {
   });
 });
 
+describe('order', () => {
+  it('puts cards an agent waits on before the rest, oldest first in each group, on the pill, in +N and in the round', () => {
+    const q = new CardQueue();
+    const note = card({ title: 'note', urgency: 'info', createdAt: 1 });
+    const blocked = card({ title: 'pane', kind: 'pane-blocked', origin: 'pane', createdAt: 2 });
+    const decide = card({ title: 'decide', kind: 'decide', createdAt: 3 });
+    const ask = card({ title: 'ask', kind: 'ask', createdAt: 4 });
+    const lineup = card({ title: 'lineup', kind: 'lineup', createdAt: 5 });
+    for (const c of [lineup, note, ask, blocked, decide]) q.add(c, 0);
+    const v = q.view(0);
+    expect(v.top?.title).toBe('decide');
+    expect(v.all.map((c) => c.title)).toEqual(['decide', 'ask', 'lineup', 'pane', 'note']);
+    expect(v.more).toBe(4);
+    expect(q.roundCards().map((c) => c.title)).toEqual(['decide', 'ask', 'lineup', 'pane']);
+  });
+});
+
 describe('snooze', () => {
-  it('puts a card away until its time, then brings it back on top marked back from snooze', () => {
+  it('counts each snooze of a card, also after it came back', () => {
+    const q = new CardQueue();
+    const a = card();
+    q.add(a, 0);
+    q.snooze(a.id, 1000, 0);
+    q.tick(1000);
+    q.snooze(a.id, 5000, 1000);
+    expect(q.get(a.id)?.snoozes).toBe(2);
+  });
+
+  it('puts a card away until its time, then brings it back marked back from snooze', () => {
     const q = new CardQueue();
     const a = card({ createdAt: 1 });
     const b = card({ createdAt: 2 });
@@ -262,7 +289,7 @@ function AFTER(): number {
 it('CLI answer time starts when shown and pauses across snooze, quiet return and round Undo', () => {
   const q = new CardQueue();
   const blocker = card({ createdAt: 0 });
-  const request = card({ kind: 'ask', createdAt: 1, requestOwned: true });
+  const request = card({ kind: 'peek', createdAt: 1, requestOwned: true });
   q.add(blocker, 0);
   q.add(request, 1);
   q.tick(1);
@@ -283,7 +310,7 @@ it('CLI answer time starts when shown and pauses across snooze, quiet return and
 
 it('resumes a quiet CLI card budget while displayed in a round and pauses it again when the round closes', () => {
   const q = new CardQueue();
-  const request = card({ kind: 'ask', createdAt: 0, requestOwned: true });
+  const request = card({ kind: 'peek', createdAt: 0, requestOwned: true });
   q.add(request, 0);
   q.tick(0);
   q.snooze(request.id, 1200, 200);
@@ -299,7 +326,7 @@ it('resumes a quiet CLI card budget while displayed in a round and pauses it aga
 
 it('pauses the outgoing quiet CLI card when a round moves to MCP, then resumes on returning to it', () => {
   const q = new CardQueue();
-  const cli = card({ kind: 'ask', createdAt: 0, requestOwned: true });
+  const cli = card({ kind: 'peek', createdAt: 0, requestOwned: true });
   const mcp = card({ kind: 'ask', createdAt: 1 });
   q.add(cli, 0);
   q.tick(0);

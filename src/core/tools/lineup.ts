@@ -58,7 +58,7 @@ export const lineup: ToolModule = {
         candidates: { type: 'array', minItems: 2, maxItems: 6, items: candidate },
         pick: { type: 'string', enum: ['one', 'many', 'rank'], description: 'Default many (favourites).' },
         max: { type: 'number', minimum: 1, maximum: 6 },
-        timeout_s: { type: 'number', minimum: 1, maximum: ASK_TIMEOUT.maxS, description: 'Seconds to wait; default 600, at most 600.' },
+        timeout_s: { type: 'number', minimum: 1, maximum: ASK_TIMEOUT.maxS, description: 'Seconds to wait; default 600, at most 600. On timeout the card stays up until the person acts: card_status reports a later answer.' },
       },
       required: ['title', 'candidates'],
       additionalProperties: false,

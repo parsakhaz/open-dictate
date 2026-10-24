@@ -1,6 +1,7 @@
 // L2 · Inbox, flow guard, decision round and snooze. Cards wait while the person is busy (the queue's rules in
 // src/core/cards.ts; the typing and busy signals come from here), a card can be snoozed from the pill, the shortcut
-// or a round, and the round works through the waiting cards in the sheet right above the pill, by keys or by holding
+// or a round (3, 5, then 10 minutes for the same card), Esc over a card dismisses it after an Undo toast, and the
+// round works through the waiting cards in the sheet right above the pill, by keys or by holding
 // the dictation key. card_status reports where a card is, also an answer given after the agent's call returned.
 
 import { type CardEnd, cardLabel } from '../../core/agenthub';
@@ -9,16 +10,14 @@ import { type Card, HOVER_GRACE_MS, MAX_WAIT_MS, takesReply } from '../../core/c
 import { answersOut, complete, type DecideData, isAnswered } from '../../core/decidecard';
 import { isApproval } from '../../core/decidematch';
 import { BUSY_POLL_MS, isBusyState } from '../../core/flowguard';
-import { clockTime, nextLength, parseCommand, Round, type RoundCommand, type RoundResult, sentAnswer, summaryLine } from '../../core/round';
+import { clockTime, parseCommand, Round, type RoundCommand, type RoundResult, sentAnswer, snoozeLength, summaryLine } from '../../core/round';
 import { foregroundWindow, setForeground } from '../../native/platform';
 import type { Feature, FeatureHost } from './host';
 
-/** The snooze toast stays this long; pressing the shortcut again meanwhile steps to the next length. */
+/** The snooze and dismiss toasts stay this long; a dismissed card goes when its toast does, unless Undo brought it back. */
 const TOAST_MS = 5000;
 /** The round's summary stays this long (and while the pointer is on it), then the last action is sent and the summary goes. */
 const SUMMARY_MS = 8000;
-/** A question told it was snoozed still takes a late answer for this long. */
-const LATE_ANSWER_MS = 8 * 60 * 60_000;
 /** What each quick press of the pause shortcut pauses for, in minutes; null: until resumed. */
 const PAUSE_STEPS = [30, 60, null] as const;
 /** How often the shortcuts' claims are checked against what is on screen. */
@@ -41,7 +40,7 @@ class Inbox {
   private timers: ReturnType<typeof setInterval>[] = [];
   private claims = { snooze: false, round: false };
   private busyOverride: boolean | null = null;
-  private toast: { id: string; minutes: number; until: number; at: number } | null = null;
+  private toast: ({ id: string; at: number } & ({ kind: 'snoozed'; minutes: number; until: number } | { kind: 'dismissed' })) | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
   private round: Round | null = null;
   /** The last action in the round, not yet sent so Undo can take it back. */
@@ -103,8 +102,9 @@ class Inbox {
     hub.onEnded((id, how, value) => this.ended(id, how, value));
 
     // ---------- the pill's chips, toast and shelf ----------
-    host.ipc.handle('snooze', (id, minutes) => typeof id === 'string' && typeof minutes === 'number' && this.snooze(id, minutes));
-    host.ipc.handle('undo-snooze', () => this.undoSnooze());
+    host.ipc.handle('snooze', (id) => typeof id === 'string' && this.snooze(id));
+    host.ipc.handle('undo', () => this.undo());
+    host.agents.escape = (id) => this.dismissLater(id);
     host.ipc.handle('now', (id) => typeof id === 'string' && this.bringBack(id));
     host.ipc.handle('drop', (id) => typeof id === 'string' && hub.dismiss(id));
     host.ipc.handle('round', () => this.startRound('click'));
@@ -151,7 +151,7 @@ class Inbox {
 
   stop(): void {
     for (const t of this.timers) clearInterval(t);
-    clearTimeout(this.toastTimer);
+    this.setToast(null);
     if (this.summary) clearTimeout(this.summary.timer);
   }
 
@@ -169,8 +169,8 @@ class Inbox {
 
   private poll(): void {
     this.q.returnTo = this.host.settings().snooze.returnTo;
-    // The toast's card came back (its time, Now): pressing the shortcut again starts over at the first length.
-    if (this.toast && this.q.get(this.toast.id)?.snoozedUntil === undefined) this.setToast(null);
+    // The snooze toast's card came back (its time, Now): the toast has nothing left to undo.
+    if (this.toast?.kind === 'snoozed' && this.q.get(this.toast.id)?.snoozedUntil === undefined) this.setToast(null);
     const snooze = this.snoozeClaimed();
     const round = this.roundClaimed();
     if (snooze !== this.claims.snooze || round !== this.claims.round) {
@@ -219,60 +219,60 @@ class Inbox {
   }
 
   private snoozePressed(): void {
-    const s = this.host.settings().snooze;
-    if (this.round) return void this.roundKeyCommand({ type: 'snooze', minutes: s.minutes[0] });
-    if (this.toast && this.now() - this.toast.at < TOAST_MS) {
-      this.snooze(this.toast.id, nextLength(s.minutes, this.toast.minutes));
-      return;
-    }
+    if (this.round) return void this.roundKeyCommand({ type: 'snooze' });
+    // Pressed again while the snooze toast shows: the same card, for its next length.
+    if (this.toast?.kind === 'snoozed' && this.now() - this.toast.at < TOAST_MS) return void this.snooze(this.toast.id);
     const top = this.q.view(this.now()).top;
-    if (top) this.snooze(top.id, s.minutes[0]);
+    if (top) this.snooze(top.id);
   }
 
-  /** Puts a card away for `minutes`. A waiting call keeps waiting if the card comes back in time; otherwise it is told now. */
-  snooze(id: string, minutes: number, toast = true): boolean {
+  /**
+   * Puts a card away for `minutes`, or for the card's next length (3, then 5, then 10). A waiting call keeps waiting if
+   * the card comes back in time; otherwise it is told now, and the card still takes a late answer.
+   */
+  snooze(id: string, minutes?: number, toast = true): boolean {
     const c = this.q.get(id);
     const now = this.now();
-    const until = now + Math.round(Math.min(120, Math.max(1, minutes))) * 60_000;
-    if (!c || !this.q.snooze(id, until, now)) return false;
-    if (!this.host.hub.requestOwned(id) && this.host.hub.waiting(id) && until > c.createdAt + MAX_WAIT_MS) {
-      this.host.hub.settle(id, { answered: false, reason: 'snoozed', until: iso(until), card_id: id }, true);
-      this.lateAnswer(c);
-    }
-    this.host.log('info', `card ${id} snoozed for ${minutes} min (${cardLabel(c)})`);
-    if (toast) this.setToast({ id, minutes, until, at: now });
+    if (!c) return false;
+    const m = Math.round(Math.min(120, Math.max(1, minutes ?? snoozeLength(this.host.settings().snooze.minutes, c.snoozes ?? 0))));
+    const until = now + m * 60_000;
+    if (!this.q.snooze(id, until, now)) return false;
+    if (!this.host.hub.requestOwned(id) && this.host.hub.waiting(id) && until > c.createdAt + MAX_WAIT_MS) this.host.hub.release(id, { answered: false, reason: 'snoozed', until: iso(until), card_id: id });
+    this.host.log('info', `card ${id} snoozed for ${m} min (${cardLabel(c)})`);
+    if (toast) this.setToast({ id, kind: 'snoozed', minutes: m, until, at: now });
     this.render();
     return true;
   }
 
-  /**
-   * A question told it was snoozed still takes an answer: a click or the person's words settle this second wait.
-   * In Pane the answer goes to the tab as a message, as voice replies do; elsewhere it waits for card_status.
-   */
-  private lateAnswer(c: Card): void {
-    const never = new AbortController();
-    void this.host.hub.wait<unknown>(c.id, { session: `inbox:${c.id}`, kind: c.kind, timeoutMs: LATE_ANSWER_MS, signal: never.signal }).then(async (v) => {
-      const a = answerOf(v);
-      if (!a || !c.target || (v as { answered?: unknown }).answered === false) return;
-      const text = String(a.choice ?? a.text ?? '');
-      if (!text) return;
-      const r = await this.host.agents.pane.send(c.target.panelId, `Answer to your snoozed question “${c.title}”: ${text}`).catch(() => ({ delivered: false }));
-      this.host.log(r.delivered ? 'info' : 'warn', `inbox: late answer to card ${c.id} ${r.delivered ? 'sent to its tab' : 'not delivered; card_status has it'}`);
-    });
+  /** Esc over a card: it goes out of sight now and ends with its toast, unless Undo brings it back first. */
+  private dismissLater(id: string): void {
+    if (!this.q.get(id)) return;
+    this.setToast(null);
+    this.q.park(id, true, this.now());
+    this.host.log('info', `card ${id} hidden by Esc, Undo for 5 s (${cardLabel(this.q.get(id)!)})`);
+    this.setToast({ id, kind: 'dismissed', at: this.now() });
+    this.render();
   }
 
+  /** Replaces the toast. A dismissed card whose toast ends, by time or by the next toast, is dismissed for good. */
   private setToast(t: Inbox['toast']): void {
     clearTimeout(this.toastTimer);
+    const was = this.toast;
     this.toast = t;
-    this.host.pill.send('dictate:inbox:toast', t ? { id: t.id, minutes: t.minutes, back: clockTime(t.until) } : null);
+    if (was?.kind === 'dismissed' && this.q.get(was.id)?.parked) this.host.hub.dismiss(was.id);
+    this.host.pill.send('dictate:inbox:toast', t ? (t.kind === 'snoozed' ? { id: t.id, kind: t.kind, minutes: t.minutes, back: clockTime(t.until) } : { id: t.id, kind: t.kind }) : null);
     if (t) this.toastTimer = setTimeout(() => this.setToast(null), TOAST_MS);
     this.host.bindingsChanged();
   }
 
-  private undoSnooze(): void {
+  /** The toast's Undo: the snoozed card comes back (that snooze uncounted), or the dismissed one, its agent still waiting. */
+  private undo(): void {
     const t = this.toast;
     if (!t) return;
-    this.q.wake(t.id, this.now(), false);
+    const c = this.q.get(t.id);
+    if (t.kind === 'snoozed' && c && this.q.wake(t.id, this.now(), false)) c.snoozes = Math.max(0, (c.snoozes ?? 1) - 1);
+    if (t.kind === 'dismissed') this.q.park(t.id, false, this.now());
+    this.toast = null;
     this.setToast(null);
     this.render();
   }
@@ -365,10 +365,9 @@ class Inbox {
   }
 
   private roundKey(key: string): void {
-    const s = this.host.settings().snooze;
     if (/^[1-4]$/.test(key)) this.roundKeyCommand({ type: 'choose', n: Number(key) });
     else if (key === 'Enter') this.roundKeyCommand({ type: 'approve' });
-    else if (key === 's' || key === 'S') this.roundKeyCommand({ type: 'snooze', minutes: s.minutes[0] });
+    else if (key === 's' || key === 'S') this.roundKeyCommand({ type: 'snooze' });
     else if (key === 'ArrowRight') this.roundKeyCommand({ type: 'skip' });
     else if (key === 'o' || key === 'O') this.roundKeyCommand({ type: 'open' });
     else if (key === 'Escape') this.endRound('esc');
@@ -593,9 +592,8 @@ class Inbox {
     const r = this.round;
     const id = r?.current();
     const c = id ? this.q.get(id) : undefined;
-    const lengths = this.host.settings().snooze.minutes;
     // On an approval card, "yes, go ahead" approves as "approve" does; other words are the changes asked for.
-    const cmd = parseCommand(said, lengths) ?? parseCommand(raw, lengths) ?? (c?.kind === 'approve' && (isApproval(said) || isApproval(raw)) ? { type: 'approve' as const } : null);
+    const cmd = parseCommand(said) ?? parseCommand(raw) ?? (c?.kind === 'approve' && (isApproval(said) || isApproval(raw)) ? { type: 'approve' as const } : null);
     if (cmd) {
       const done = this.roundCommand(cmd, true);
       if (done !== true) this.note = done;
@@ -630,8 +628,9 @@ class Inbox {
       this.render();
     } else if (cmd === 'snooze') {
       const top = this.q.view(now).top;
-      if (top) this.snooze(top.id, Number(arg) || this.host.settings().snooze.minutes[0]);
-    } else if (cmd === 'shortcut') {
+      if (top) this.snooze(top.id, Number(arg) || undefined);
+    } else if (cmd === 'esc') this.host.agents.dismissTop();
+    else if (cmd === 'shortcut') {
       if (arg === 'snooze' && this.snoozeClaimed()) this.snoozePressed();
       else if (arg === 'round' && this.roundClaimed()) (this.round ? this.endRound('key') : this.startRound('shortcut'));
       else if (arg === 'pause') this.pausePressed();
@@ -639,6 +638,7 @@ class Inbox {
     } else if (cmd === 'key') this.roundKey(arg);
     else if (cmd === 'say') void this.utterance(arg, arg).then((r) => this.host.log('info', `QA inbox said ${JSON.stringify(r)}`));
     else if (cmd === 'undo') void this.summaryAction('undo');
+    else if (cmd === 'undo-toast') this.undo();
     else if (cmd === 'pill') this.host.pill.send('dictate:inbox:qa', arg);
     else if (cmd === 'dump') this.dump();
   }
@@ -656,7 +656,7 @@ class Inbox {
         round: r ? { current: r.current(), position: r.position(), results: r.results.map((x) => x.action) } : null,
         listening: this.listening,
         sheet: { open: this.host.sheet.isOpen, kind: this.host.sheet.kind },
-        toast: this.toast ? { id: this.toast.id, minutes: this.toast.minutes } : null,
+        toast: this.toast ? { id: this.toast.id, kind: this.toast.kind, ...(this.toast.kind === 'snoozed' ? { minutes: this.toast.minutes } : {}) } : null,
         claims: { snooze: this.snoozeClaimed(), round: this.roundClaimed() },
         summary: this.summary?.id ?? null,
         foreground: foregroundWindow(),

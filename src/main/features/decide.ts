@@ -19,7 +19,6 @@ type ApproveResult = { approved: true } | { approved: false; changes: string; ra
 
 interface Live {
   kind: 'decide' | 'approve';
-  session: string;
   /** decide: the questions and answers so far. */
   data?: DecideData;
   /** approve: the plan as the agent sent it. */
@@ -90,7 +89,7 @@ class Decisions {
     const src = await hub.source(session);
     if (signal.aborted) return { answered: false, reason: 'cancelled' };
     const id = hub.newId();
-    const live: Live = { kind: 'decide', session: session.id, data: newDecide(a.questions, a.previews) };
+    const live: Live = { kind: 'decide', data: newDecide(a.questions, a.previews) };
     this.live.set(id, live);
     const answer = hub.wait<DecideResult>(id, { session: session.id, kind: 'decide', timeoutMs: a.timeoutS * 1000, signal });
     hub.raise({
@@ -112,7 +111,8 @@ class Decisions {
     });
     const r = await answer;
     const data = live.data!;
-    this.ended(id);
+    // A card that outlived the call (its time ran out, or a long snooze) still takes an answer: its state stays.
+    if (!hub.queue.get(id)) this.ended(id);
     const extra = { card_id: id, ...(a.truncated ? { truncated: true } : {}) };
     // An unanswered sheet never answers itself: what was filled comes back as partial.
     if (!r.answered) return { ...r, ...(answeredCount(data) ? { partial: answersOut(data, true) } : {}), ...extra };
@@ -126,7 +126,7 @@ class Decisions {
     const src = await hub.source(session);
     if (signal.aborted) return { answered: false, reason: 'cancelled' };
     const id = hub.newId();
-    this.live.set(id, { kind: 'approve', session: session.id, plan: a });
+    this.live.set(id, { kind: 'approve', plan: a });
     const answer = hub.wait<ApproveResult>(id, { session: session.id, kind: 'approve', timeoutMs: a.timeoutS * 1000, signal });
     hub.raise({
       id,
@@ -147,12 +147,12 @@ class Decisions {
       data: { summary: a.summary, risk: a.risk, link: a.link?.host ?? null },
     });
     const r = await answer;
-    this.ended(id);
+    if (!hub.queue.get(id)) this.ended(id);
     return { ...r, card_id: id, ...(a.truncated ? { truncated: true } : {}) };
   }
 
   private busy(session: string, kind: Live['kind']): boolean {
-    return [...this.live.entries()].some(([id, l]) => l.session === session && l.kind === kind && this.host.hub.waiting(id));
+    return this.host.hub.waitingOn(session, kind);
   }
 
   private ended(id: string): void {

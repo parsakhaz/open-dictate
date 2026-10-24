@@ -51,7 +51,7 @@ export const decide: ToolModule = {
         title: { type: 'string', description: 'The outcome in plain words, cut at 60 characters.' },
         message: { type: 'string', description: 'What you are deciding and why, about 280 characters shown.' },
         questions: { type: 'array', minItems: 1, maxItems: 4, items: question },
-        timeout_s: { type: 'number', minimum: 1, maximum: ASK_TIMEOUT.maxS, description: 'Seconds to wait; default 300, at most 600.' },
+        timeout_s: { type: 'number', minimum: 1, maximum: ASK_TIMEOUT.maxS, description: 'Seconds to wait; default 300, at most 600. On timeout the card stays up until the person acts: card_status reports a later answer.' },
       },
       required: ['title', 'questions'],
       additionalProperties: false,

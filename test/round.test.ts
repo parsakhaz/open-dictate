@@ -1,44 +1,42 @@
 import { describe, expect, it } from 'vitest';
-import { nextLength, parseCommand, Round, type RoundResult, sentAnswer, summaryLine } from '../src/core/round';
+import { parseCommand, Round, type RoundResult, sentAnswer, snoozeLength, summaryLine } from '../src/core/round';
 
 const L = [3, 5, 10];
 
 describe('spoken round commands', () => {
   it('reads a whole utterance of approve, next, skip, open or done as a command', () => {
-    expect(parseCommand('Approve.', L)).toEqual({ type: 'approve' });
-    expect(parseCommand('next', L)).toEqual({ type: 'skip' });
-    expect(parseCommand('Skip it, please', L)).toEqual({ type: 'skip' });
-    expect(parseCommand('Open', L)).toEqual({ type: 'open' });
-    expect(parseCommand("That's all.", L)).toEqual({ type: 'end' });
+    expect(parseCommand('Approve.')).toEqual({ type: 'approve' });
+    expect(parseCommand('next')).toEqual({ type: 'skip' });
+    expect(parseCommand('Skip it, please')).toEqual({ type: 'skip' });
+    expect(parseCommand('Open')).toEqual({ type: 'open' });
+    expect(parseCommand("That's all.")).toEqual({ type: 'end' });
   });
 
-  it('snoozes for the first length, or the one said', () => {
-    expect(parseCommand('Snooze.', L)).toEqual({ type: 'snooze', minutes: 3 });
-    expect(parseCommand('snooze ten', L)).toEqual({ type: 'snooze', minutes: 10 });
-    expect(parseCommand('Snooze for 20 minutes', L)).toEqual({ type: 'snooze', minutes: 20 });
-    expect(parseCommand('snooze twenty five', L)).toEqual({ type: 'snooze', minutes: 25 });
-    expect(parseCommand('Later.', L)).toEqual({ type: 'snooze', minutes: 3 });
-    expect(parseCommand('snooze a thousand', L)).toBeNull();
+  it("snoozes for the card's next length, or the one said", () => {
+    expect(parseCommand('Snooze.')).toEqual({ type: 'snooze' });
+    expect(parseCommand('snooze ten')).toEqual({ type: 'snooze', minutes: 10 });
+    expect(parseCommand('Snooze for 20 minutes')).toEqual({ type: 'snooze', minutes: 20 });
+    expect(parseCommand('snooze twenty five')).toEqual({ type: 'snooze', minutes: 25 });
+    expect(parseCommand('Later.')).toEqual({ type: 'snooze' });
+    expect(parseCommand('snooze a thousand')).toBeNull();
   });
 
   it('a bare number one to four picks that choice', () => {
-    expect(parseCommand('Two.', L)).toEqual({ type: 'choose', n: 2 });
-    expect(parseCommand('option 4', L)).toEqual({ type: 'choose', n: 4 });
-    expect(parseCommand('five', L)).toBeNull();
+    expect(parseCommand('Two.')).toEqual({ type: 'choose', n: 2 });
+    expect(parseCommand('option 4')).toEqual({ type: 'choose', n: 4 });
+    expect(parseCommand('five')).toBeNull();
   });
 
   it('anything else is the answer', () => {
-    expect(parseCommand('Approve it but only on staging', L)).toBeNull();
-    expect(parseCommand('behind a link', L)).toBeNull();
-    expect(parseCommand('next week', L)).toBeNull();
+    expect(parseCommand('Approve it but only on staging')).toBeNull();
+    expect(parseCommand('behind a link')).toBeNull();
+    expect(parseCommand('next week')).toBeNull();
   });
 });
 
-describe('the snooze shortcut pressed again', () => {
-  it('steps to the next length and stays on the last', () => {
-    expect(nextLength(L, 3)).toBe(5);
-    expect(nextLength(L, 5)).toBe(10);
-    expect(nextLength(L, 10)).toBe(10);
+describe("a card's snooze length", () => {
+  it('is 3 the first time, then 5, then 10 from then on', () => {
+    expect([0, 1, 2, 3, 7].map((n) => snoozeLength(L, n))).toEqual([3, 5, 10, 10, 10]);
   });
 });
 

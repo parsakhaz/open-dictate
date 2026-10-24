@@ -1,9 +1,10 @@
-// The inbox on the pill (L2): the "3 waiting" badge, the "Held while you talk" and "Paused" capsules, snooze chips on every expanded
-// card, the snooze toast with Undo, the snoozed shelf with countdown rings, and the "Back from snooze" tag. Main
-// sends the queue's summary with the cards (view.extra), the toast and the lengths on its own channels. Everything
-// is plain text in elements.
+// The inbox on the pill (L2): the "3 waiting" badge, the "Held while you talk" and "Paused" capsules, the Snooze
+// button on every expanded card (its next length), the snooze and dismiss toasts with Undo, the snoozed shelf with
+// countdown rings, the "Back from snooze" tag, the "earlier" list of faded notes, and one pulse when a card an agent
+// waits on arrives. Main sends the queue's summary with the cards (view.extra), the toast and the lengths on its own
+// channels. Everything is plain text in elements.
 import { bindingLabel } from '../../core/hotkeys';
-import { clockTime } from '../../core/round';
+import { clockTime, snoozeLength } from '../../core/round';
 import type { Binding } from '../../core/types';
 import { dictate, h } from '../bridge';
 import type { CardDto, CardsView, PillExtra } from './types';
@@ -15,6 +16,13 @@ interface Shelved {
   until: number;
   since: number;
 }
+interface Recent {
+  id: string;
+  source: string;
+  title: string;
+  message: string;
+  at: number;
+}
 interface Extra {
   waiting?: number;
   reason?: string | null;
@@ -22,6 +30,9 @@ interface Extra {
   pausedUntil?: number;
   snoozed?: Shelved[];
   back?: string[];
+  recent?: Recent[];
+  /** A note faded a moment ago: the "earlier" capsule shows on its own. */
+  recentFresh?: boolean;
 }
 
 const invoke = (name: string, ...args: unknown[]) => void dictate.invoke(`dictate:inbox:${name}`, ...args);
@@ -31,10 +42,26 @@ let extra: Extra = {};
 let hasTop = false;
 let lengths = [3, 5, 10];
 let snoozeKey = 'Off';
-let toast: { id: string; minutes: number; back: string } | null = null;
+let toast: { id: string; kind: 'snoozed'; minutes: number; back: string } | { id: string; kind: 'dismissed' } | null = null;
 let shelfOpen = false;
+let earlierOpen = false;
+let pulseDue = false;
 let ticker: ReturnType<typeof setInterval> | undefined;
 let drawn = '';
+
+/** "now", "4 min", "1 h": how long ago a note faded. */
+function ago(at: number, now: number): string {
+  const m = Math.floor((now - at) / 60_000);
+  return m < 1 ? 'now' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h`;
+}
+
+/** One soft ring around the card, or the waiting badge when the card is held: a card an agent waits on arrived. */
+function pulse(): void {
+  pulseDue = false;
+  const el = document.querySelector<HTMLElement>('.cards .card') ?? strip.querySelector<HTMLElement>('.capsule.waiting');
+  if (!el || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  el.animate([{ boxShadow: '0 0 0 1.5px rgba(96, 205, 255, 1), 0 0 0 0 rgba(96, 205, 255, 0.5)' }, { boxShadow: '0 0 0 1.5px rgba(96, 205, 255, 1), 0 0 0 12px rgba(96, 205, 255, 0)' }], { duration: 900, easing: 'ease-out' });
+}
 
 /** A ring that drains towards the minute the card comes back, with the time left inside. */
 function ring(s: Shelved, now: number): HTMLElement {
@@ -65,12 +92,23 @@ function ring(s: Shelved, now: number): HTMLElement {
 
 function draw(): void {
   if (!strip) return;
-  const next = JSON.stringify([extra, hasTop, lengths, snoozeKey, toast, shelfOpen]);
+  const next = JSON.stringify([extra, hasTop, lengths, snoozeKey, toast, shelfOpen, earlierOpen]);
   if (next === drawn) return;
   drawn = next;
   const now = Date.now();
   const snoozed = extra.snoozed ?? [];
+  const recent = extra.recent ?? [];
   const parts: HTMLElement[] = [];
+  if (earlierOpen && recent.length) {
+    parts.push(
+      h(
+        'div.shelf.earlier',
+        {},
+        h('div.shelfhead', {}, h('span.ttl', {}, 'Earlier'), h('button.cbtn.ghost.close', { onclick: () => { earlierOpen = false; draw(); } }, 'Close')),
+        ...recent.map((r) => h('div.shelfrow', { 'data-id': r.id }, h('span.ago', {}, ago(r.at, now)), h('div.shelftext', {}, h('div.src', {}, r.source), h('div.title', {}, r.title), r.message ? h('div.msg', {}, r.message) : null))),
+      ),
+    );
+  }
   if (shelfOpen && snoozed.length) {
     parts.push(
       h(
@@ -83,8 +121,10 @@ function draw(): void {
       ),
     );
   }
-  if (toast) {
-    parts.push(h('div.toast', {}, h('span.clock', {}, '◷'), `Snoozed ${toast.minutes} min`, h('span.dim', {}, `· back at ${toast.back}`), h('button.undo', { onclick: () => invoke('undo-snooze') }, 'Undo')));
+  if (toast?.kind === 'snoozed') {
+    parts.push(h('div.toast', {}, h('span.clock', {}, '◷'), `Snoozed ${toast.minutes} min`, h('span.dim', {}, `· back at ${toast.back}`), h('button.undo', { onclick: () => invoke('undo') }, 'Undo')));
+  } else if (toast) {
+    parts.push(h('div.toast', {}, 'Dismissed', h('button.undo', { onclick: () => invoke('undo') }, 'Undo')));
   }
   const caps: HTMLElement[] = [];
   const waiting = extra.waiting ?? 0;
@@ -94,8 +134,11 @@ function draw(): void {
   } else if (waiting && extra.reason === 'talking') caps.push(h('div.capsule.held', {}, h('span.pause', {}, '❚❚'), 'Held while you talk', h('span.dim', {}, `· ${waiting}`)));
   else if (waiting && !hasTop && extra.reason !== 'round' && extra.reason !== 'paused') caps.push(h('button.capsule.waiting', { title: 'Start a decision round', onclick: () => invoke('round') }, h('span.wdot'), `${waiting} waiting`));
   if (snoozed.length && extra.reason !== 'round') caps.push(h('button.capsule.snoozed', { title: shelfOpen ? 'Close' : 'Show snoozed cards', onclick: () => { shelfOpen = !shelfOpen; draw(); } }, h('span.clock', {}, '◷'), `${snoozed.length} snoozed`));
+  // The faded notes: on their own just after one fades, else alongside whatever else the pill shows.
+  if (recent.length && extra.reason !== 'round' && (extra.recentFresh || hasTop || caps.length || parts.length)) caps.push(h('button.capsule.earlier', { title: earlierOpen ? 'Close' : 'Show earlier notes', onclick: () => { earlierOpen = !earlierOpen; draw(); } }, `${recent.length} earlier`));
   if (caps.length) parts.push(h('div.caps', {}, ...caps));
   if (!snoozed.length) shelfOpen = false;
+  if (!recent.length) earlierOpen = false;
   strip.replaceChildren(...parts);
   strip.classList.toggle('shown', parts.length > 0);
   // The shelf's rings count down while it is open.
@@ -133,6 +176,10 @@ export const inbox: PillExtra = {
     dictate.on('dictate:cards', (v: CardsView) => {
       extra = (v.extra ?? {}) as Extra;
     });
+    // The card arrives in the next view; the pulse waits for it.
+    dictate.on('dictate:pulse', () => {
+      pulseDue = true;
+    });
     dictate.on('dictate:inbox:toast', (t: typeof toast) => {
       toast = t;
       draw();
@@ -147,7 +194,7 @@ export const inbox: PillExtra = {
     void dictate.invoke<{ lengths: number[]; key: Binding | null }>('dictate:inbox:config').then(config, () => undefined);
     // QA: clicks on the strip without a pointer.
     dictate.on('dictate:inbox:qa', (what: string) => {
-      const target = what === 'waiting' ? strip.querySelector<HTMLElement>('.capsule.waiting') : what === 'snoozed' ? strip.querySelector<HTMLElement>('.capsule.snoozed') : what === 'undo' ? strip.querySelector<HTMLElement>('.toast .undo') : what.startsWith('now ') ? strip.querySelector<HTMLElement>(`.shelfrow[data-id="${what.slice(4)}"] .now`) : what.startsWith('chip ') ? document.querySelector<HTMLElement>(`.cards .snz button[data-min="${what.slice(5)}"]`) : null;
+      const target = what === 'waiting' ? strip.querySelector<HTMLElement>('.capsule.waiting') : what === 'snoozed' ? strip.querySelector<HTMLElement>('.capsule.snoozed') : what === 'earlier' ? strip.querySelector<HTMLElement>('.capsule.earlier') : what === 'snooze' ? document.querySelector<HTMLElement>('.cards .snz button') : what === 'undo' ? strip.querySelector<HTMLElement>('.toast .undo') : what.startsWith('now ') ? strip.querySelector<HTMLElement>(`.shelfrow[data-id="${what.slice(4)}"] .now`) : what.startsWith('chip ') ? document.querySelector<HTMLElement>(`.cards .snz button[data-min="${what.slice(5)}"]`) : null;
       target?.click();
       const card = document.querySelector('.cards .card');
       dictate.send('dictate:inbox:qa-dump', {
@@ -158,6 +205,7 @@ export const inbox: PillExtra = {
         card: card ? (card as HTMLElement).innerText : null,
         back: !!document.querySelector('.cards .backtag'),
         chips: [...document.querySelectorAll('.cards .snz button')].map((b) => b.textContent),
+        earlier: [...strip.querySelectorAll('.earlier .shelfrow')].map((r) => (r as HTMLElement).innerText),
       });
     });
   },
@@ -165,18 +213,20 @@ export const inbox: PillExtra = {
     extra = (view.extra ?? {}) as Extra;
     hasTop = !!view.top;
     draw();
+    if (pulseDue) requestAnimationFrame(pulse);
   },
   cardParts(c: CardDto, ctx) {
     const parts: HTMLElement[] = [];
     if (extra.back?.includes(c.id)) parts.push(h('div.backtag', {}, h('span.clock', {}, '◷'), 'Back from snooze'));
-    // The snooze row, under the card's own buttons, on every expanded card that can wait.
+    // The snooze row, under the card's own buttons, on every expanded card that can wait: one button, for the card's
+    // next length.
     if (ctx.expanded && !ctx.replying && c.urgency !== 'consent' && c.kind !== 'round-summary') {
+      const m = snoozeLength(lengths, c.snoozes ?? 0);
       parts.push(
         h(
           'div.snz',
           {},
-          h('span.lbl', {}, h('span.clock', {}, '◷'), 'Snooze'),
-          ...lengths.map((m) => h('button.cbtn.chip', { 'data-min': String(m), onclick: (e: Event) => { e.stopPropagation(); invoke('snooze', c.id, m); } }, `${m}m`)),
+          h('button.cbtn.chip', { 'data-min': String(m), onclick: (e: Event) => { e.stopPropagation(); invoke('snooze', c.id); } }, h('span.clock', {}, '◷'), `Snooze ${m} min`),
           snoozeKey === 'Off' ? null : h('span.keys', {}, ...snoozeKey.split(' + ').map((k) => h('kbd', {}, k))),
         ),
       );

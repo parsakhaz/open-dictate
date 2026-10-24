@@ -20,7 +20,7 @@ export const approve: ToolModule = {
         summary: { type: 'array', maxItems: 6, items: { type: 'string', maxLength: 100 }, description: 'The plan in up to six short lines.' },
         risk: { type: 'string', enum: ['low', 'medium', 'high'], description: 'high: only a click approves.' },
         link: { type: 'string', description: 'Optional https link to the whole plan, opened only if they click it.' },
-        timeout_s: { type: 'number', minimum: 1, maximum: ASK_TIMEOUT.maxS, description: 'Seconds to wait; default 600, at most 600.' },
+        timeout_s: { type: 'number', minimum: 1, maximum: ASK_TIMEOUT.maxS, description: 'Seconds to wait; default 600, at most 600. On timeout the card stays up until the person acts: card_status reports a later answer.' },
       },
       required: ['title'],
       additionalProperties: false,
