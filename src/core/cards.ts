@@ -1,8 +1,9 @@
 // Attention cards on the pill: what agents and Pane tabs need from the person. One card per tab (or per agent
 // session outside Pane), ranked most urgent and oldest first, held while the person dictates (except the card being
-// answered by voice) and while alerts are paused. The inbox's rules live here too: the flow guard holds a new card
-// while the person types or Windows says they're busy, a snoozed card waits for its time, and time a card waited
-// before it was first on screen doesn't count against a waiting call. Pure: time comes in as arguments.
+// answered by voice and the point review) and while alerts are paused. The inbox's rules live here too: the flow
+// guard holds a new card while the person types or Windows says they're busy, a snoozed card waits for its time, and
+// time a card waited before it was first on screen doesn't count against a waiting call. Pure: time comes in as
+// arguments.
 import type { ActionHint } from './agenttools';
 import { type Focus, type HeldReason, TYPING_MS, typingAt } from './flowguard';
 
@@ -103,7 +104,7 @@ export interface Snoozed {
   since: number;
 }
 
-const rank = (c: Card) => (c.kind === 'round-summary' ? -1 : c.urgency === 'consent' ? 0 : c.urgency === 'needs_you' ? 1 : 2);
+const rank = (c: Card) => (c.kind === 'point-review' ? -2 : c.kind === 'round-summary' ? -1 : c.urgency === 'consent' ? 0 : c.urgency === 'needs_you' ? 1 : 2);
 /** Info cards fade; the vocabulary review asks the person to act, so it stays like a card that needs them. The round's summary goes when the inbox takes it. */
 const fades = (c: Card) => c.urgency === 'info' && c.kind !== 'vocab' && c.kind !== 'round-summary';
 const away = (c: Card) => c.snoozedUntil !== undefined || !!c.parked;
@@ -482,9 +483,10 @@ export class CardQueue {
 
   /** The pill's top card: none while held, except the card already on screen when the flow guard started holding. */
   private topAt(now: number): Card | null {
-    if (this.isHeld(now) || this.round) return null;
     const first = this.visible()[0] ?? null;
-    if (!first) return null;
+    // The point review is what the person just did: it shows at once, through any hold.
+    if (first?.kind === 'point-review') return first;
+    if (this.isHeld(now) || this.round || !first) return null;
     // A round's summary always shows.
     if (first.kind === 'round-summary') return first;
     if (this.heldFor(now)) {

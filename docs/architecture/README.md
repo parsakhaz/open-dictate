@@ -63,4 +63,4 @@ How open-dictate is put together, for contributors. Each claim here points at th
 7. **History.** The entry is written to `history.json` *before* delivery, so a hung paste or a quit mid-paste keeps the words.
 8. **Output.** [src/main/paste.ts](../../src/main/paste.ts) snapshots the clipboard, writes the text, sends Ctrl+V (Cmd+V on macOS) and restores the old clipboard when the target can be confirmed. See [input-and-output.md](input-and-output.md).
 
-Esc cancels at any point until the text starts going out: during recording it stops capture; after release it aborts the cleanup and nothing is pasted.
+Esc cancels at any point until the text starts going out: nothing is pasted or sent, and the recognizer's transcript goes to history as it was heard, to paste later. During recording the capture ends as usual so the recognizer finishes the last words; after release Esc aborts the cleanup.

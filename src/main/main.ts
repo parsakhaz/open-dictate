@@ -40,7 +40,7 @@ import { realPasteSink } from './output';
 import type { PasteSink } from './paste';
 import { type PickRequest, pickFromHistory } from './pick';
 import { PickerController, type PickerWindow } from './picker';
-import { type Delivery, finishDictation, type OutputSink } from './pipeline';
+import { type Delivery, finishDictation, newId, type OutputSink } from './pipeline';
 import { debouncedWriter, loadJson, readJson, writeJson } from './store';
 import { SttLink } from './sttlink';
 import { createPicker, createPill, createSettings, placePicker, showPill } from './windows';
@@ -312,10 +312,11 @@ function cancelAfterRelease(): void {
   for (const s of cancellable) {
     s.abort.abort();
     s.cleaner?.cancel();
-    s.final?.('');
   }
   cancellable.clear();
   syncEsc();
+  sound('cancel');
+  pillSend('dictate:pill', { kind: 'info', message: 'Cancelled' });
 }
 let trayState: TrayState = 'loading';
 
@@ -415,7 +416,8 @@ function onHotkey(a: HotkeyAction): void {
       const route = surfaces?.route(rec.route);
       const finish = route?.finish ?? finishHint(a.mode, a.via, { hotkey: hotkeyLabel(a.key), toggle: bindingLabel(settings.toggle) });
       const routeLabel = route?.label;
-      pillSend('dictate:pill', cleanup.warming() ? { kind: 'warming', finish } : { kind: 'listening', mode: a.mode, finish, starting: !rec.live, replyTo: rec.reply?.to, ...(rec.route ? { route: rec.route, routeLabel } : {}) });
+      const answering = rec.reply && (agents?.hub.queue.get(rec.reply.cardId)?.title || rec.reply.to);
+      pillSend('dictate:pill', cleanup.warming() ? { kind: 'warming', finish } : { kind: 'listening', mode: a.mode, finish, starting: !rec.live, answering, ...(rec.route ? { route: rec.route, routeLabel } : {}) });
       showPill(pill);
       rec.shown = true;
       if (first && rec.live) sound('start');
@@ -429,13 +431,15 @@ function onHotkey(a: HotkeyAction): void {
       rec = null;
       syncEsc();
       if (!s) return;
-      router.cancel(s.id);
       stopLiveCleanup(s, true);
       surfaces?.route(s.route)?.cancelled?.(s.id);
       if (a.reason === 'escape' && s.shown) {
         sound('cancel');
         pillSend('dictate:pill', { kind: 'info', message: 'Cancelled' });
-      } else if (s.shown) pillSend('dictate:pill', { kind: 'hidden' });
+        return void keepWords(s);
+      }
+      router.cancel(s.id);
+      if (s.shown) pillSend('dictate:pill', { kind: 'hidden' });
       applyPendingMicSwitch();
       idleTray();
       return;
@@ -459,7 +463,13 @@ function startRecording(route = surfaces?.dictationRoute()): void {
   }
   rec = { id: nextId++, mode: null, shown: false, releasedAt: 0, partial: '', live: false, abort: new AbortController(), route };
   // The pointer over a card at key down (or Reply) sends this one dictation to it; a route's words never answer a card.
+  const armed = agents?.armed;
   rec.reply = route ? undefined : (surfaces?.replyTarget() ?? agents?.replyTarget(pointerOverCard()) ?? undefined);
+  // "Hold to reply" lasts one dictation, whichever card that one answers.
+  if (!route && armed && agents) {
+    agents.armed = null;
+    agents.render();
+  }
   agents?.setDictating(true, rec.reply?.cardId);
   surfaces?.route(route)?.began?.(rec.id);
   cleanup.touch();
@@ -471,11 +481,31 @@ function startRecording(route = surfaces?.dictationRoute()): void {
   syncEsc();
 }
 
-/** Esc after release: the session ends quietly, with nothing pasted. */
-function cancelled(s: Session, when: string): void {
-  log('info', `dictation ${s.id}: cancelled with Esc while ${when}`);
-  sound('cancel');
-  pillSend('dictate:pill', { kind: 'info', message: 'Cancelled' });
+/** Esc while recording: the capture ends as usual, so the recognizer finishes the words, and they go to history only. */
+async function keepWords(s: Session): Promise<void> {
+  finishing.set(s.id, s);
+  const final = new Promise<string>((resolve) => {
+    s.final = resolve;
+    setTimeout(() => resolve(s.partial), 6000);
+  });
+  router.stop(s.id);
+  const raw = await final;
+  finishing.delete(s.id);
+  applyPendingMicSwitch();
+  cancelled(s, 'recording', raw);
+}
+
+/** Esc: nothing is pasted or sent, but what was heard goes to history, to paste later. */
+function cancelled(s: Session, when: string, raw: string): void {
+  const said = raw.trim();
+  log('info', `dictation ${s.id}: cancelled with Esc while ${when}${said ? ', kept in history' : ''}`);
+  if (said) {
+    history.add({ id: newId(), at: new Date().toISOString(), raw: said, text: said });
+    saveHistory.save();
+    pillSend('dictate:pill', { kind: 'info', message: 'Cancelled · saved to History' });
+    pushState();
+    rebuildTrayMenu();
+  }
   idleTray();
 }
 
@@ -501,7 +531,7 @@ async function stopRecording(): Promise<void> {
   finishing.delete(s.id);
   applyPendingMicSwitch();
   const sttMs = performance.now() - s.releasedAt;
-  if (s.abort.signal.aborted) return cancelled(s, 'transcribing');
+  if (s.abort.signal.aborted) return cancelled(s, 'transcribing', raw);
   if (!raw.trim()) {
     cancellable.delete(s);
     syncEsc();
@@ -554,7 +584,7 @@ async function stopRecording(): Promise<void> {
   });
   cancellable.delete(s);
   syncEsc();
-  if (result.cancelled) return cancelled(s, 'cleaning');
+  if (result.cancelled) return cancelled(s, 'cleaning', raw);
   if (practice && result.entry) {
     const e = result.entry;
     settingsWin?.webContents.send('dictate:practice-result', { raw: e.raw, text: e.text, ms: e.ms ?? null, cleaned: result.steps.some((x) => x.status === 'ok') });
@@ -1667,7 +1697,13 @@ async function main(): Promise<void> {
           log('info', `QA card at ${JSON.stringify(screen.dipToScreenRect(pill, { x: Math.round(b.x + cardRect.x), y: Math.round(b.y + cardRect.y), width: Math.round(cardRect.width), height: Math.round(cardRect.height) }))}`);
         } else if (line === 'cards-dump') {
           const v = agents?.hub.queue.view(Date.now());
-          log('info', `QA cards ${JSON.stringify({ top: v?.top ? { title: v.top.title, source: v.top.source, urgency: v.top.urgency, kind: v.top.kind, target: !!v.top.target } : null, more: v?.more ?? 0, all: v?.all.map((c) => c.title) ?? [], replying: agents?.hub.queue.replyingTo ?? null })}`);
+          log('info', `QA cards ${JSON.stringify({ top: v?.top ? { title: v.top.title, source: v.top.source, urgency: v.top.urgency, kind: v.top.kind, target: !!v.top.target } : null, more: v?.more ?? 0, all: v?.all.map((c) => c.title) ?? [], replying: agents?.hub.queue.replyingTo ?? null, armed: agents?.armed ?? null })}`);
+        }
+        // The pill's own words and the line above it.
+        else if (line === 'pill-dump') {
+          void pill.webContents
+            .executeJavaScript(`(() => ({ kind: document.querySelector('.pill')?.dataset.kind ?? null, text: document.querySelector('.pill .text')?.textContent ?? '', above: document.querySelector('.above')?.textContent ?? '' }))()`)
+            .then((r) => log('info', `QA pill ${JSON.stringify(r)}`));
         }
         else if (line.startsWith('pause ')) agents?.setPaused(line.slice(6) === 'on');
         // The sheet window: open a page by kind (the empty stub, or a surface's page with no data), close it, a
@@ -1681,7 +1717,7 @@ async function main(): Promise<void> {
           const w = sheet.window();
           void w.webContents
             .executeJavaScript(`(() => ({ kind: document.body.dataset.kind || null, text: document.getElementById('root')?.innerText ?? '' }))()`)
-            .then((page) => log('info', `QA sheet ${JSON.stringify({ open: sheet.isOpen, kind: sheet.kind, visible: w.isVisible(), focusable: w.isFocusable(), bounds: w.getBounds(), pill: pill.getBounds(), page })}`));
+            .then((page) => log('info', `QA sheet ${JSON.stringify({ open: sheet.isOpen, kind: sheet.kind, visible: w.isVisible(), focusable: w.isFocusable(), focused: w.isFocused(), bounds: w.getBounds(), pill: pill.getBounds(), page })}`));
         }
         // A surface feature's own QA commands: "<feature> <rest>".
         else if (surfaces?.qa(line)) {

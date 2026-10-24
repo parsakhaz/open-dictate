@@ -24,6 +24,8 @@ export interface CardsView {
   more: number;
   list: CardDto[];
   replying: boolean;
+  /** The card whose "Hold to reply" was clicked, until the next dictation. */
+  armed?: string;
   /** The queue's own summary (the inbox's held and snoozed counts), for the pill's extras. */
   extra?: Record<string, unknown>;
 }

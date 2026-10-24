@@ -176,6 +176,19 @@ describe('CardQueue', () => {
     expect(q.view(5000).top?.id).toBe(urgent.id);
   });
 
+  it('shows the point review on top at once, over older cards and while the point key’s dictation is still finishing', () => {
+    const q = new CardQueue();
+    const consent = card({ urgency: 'consent', kind: 'consent', key: 'consent:1', createdAt: 1 });
+    q.add(consent, 1);
+    q.setDictating(true, 100);
+    const review = card({ kind: 'point-review', origin: 'dictate', key: 'point:1', target: null, createdAt: 200 });
+    q.add(review, 200);
+    expect(q.view(200).top?.id).toBe(review.id);
+    q.setDictating(false, 300);
+    expect(q.view(300).top?.id).toBe(review.id);
+    expect(q.view(300).all[0].id).toBe(review.id);
+  });
+
   it('never fades an info card while it is being answered by voice', () => {
     const q = new CardQueue();
     const done = card({ kind: 'pane-ready', urgency: 'info' });

@@ -28,7 +28,6 @@ export function mountCards(parent: HTMLElement, before: Node): void {
   let view: CardsView = { top: null, more: 0, list: [], replying: false };
   let hovered = false;
   let listOpen = false;
-  let armed: string | null = null;
   /** The card on screen, kept while the same card is on top so redraws never replace it under the pointer. */
   let shown: { id: string; el: HTMLElement; body: HTMLElement; head: HTMLElement; drawn: string } | null = null;
   let resize: Animation | undefined;
@@ -51,7 +50,6 @@ export function mountCards(parent: HTMLElement, before: Node): void {
     h(`button.cbtn${cls}`, {
       onclick: (e: Event) => {
         e.stopPropagation();
-        if (a.action === 'arm-reply') armed = a.id;
         act(a);
         draw();
       },
@@ -68,14 +66,14 @@ export function mountCards(parent: HTMLElement, before: Node): void {
 
   /** The kind's own body: its title and message always; buttons on hover; a note while it is being answered. */
   function bodyParts(c: CardDto, expanded: boolean): HTMLElement[] {
-    const ctx = { expanded, replying: view.replying, armed: armed === c.id, button, act };
+    const ctx = { expanded, replying: view.replying, armed: view.armed === c.id, button, act };
     return [...(BODIES[c.kind] ?? standard).parts(c, ctx), ...EXTRAS.flatMap((x) => x.cardParts?.(c, ctx) ?? [])];
   }
 
   /** Sets the card's contents, and eases its body from the old height to the new one. */
   function fill(c: CardDto, fresh: boolean): void {
     const expanded = hovered && !view.replying;
-    const drawn = JSON.stringify([c, view.more, view.replying, expanded, armed === c.id]);
+    const drawn = JSON.stringify([c, view.more, view.replying, expanded, view.armed === c.id]);
     if (!shown || fresh) {
       const headEl = h('div.chead');
       const body = h('div.cbody');
@@ -161,7 +159,6 @@ export function mountCards(parent: HTMLElement, before: Node): void {
   function draw(): void {
     const top = view.top;
     if (!top || view.replying) listOpen = false;
-    if (armed && !view.list.some((c) => c.id === armed)) armed = null;
     if (!top) {
       shown = null;
       reach = null;

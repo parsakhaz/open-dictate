@@ -4,6 +4,7 @@
 // Small and centred, its width following its content; every state keeps the same height and cross-fades.
 import type { GainSpec } from '../core/agc';
 import { dbfs } from '../core/audio';
+import { plainTitle } from '../core/cardtext';
 import { hintVisible } from '../core/pillhint';
 import { dictate, h } from './bridge';
 import * as capture from './capture';
@@ -15,7 +16,8 @@ export type PillState =
   | { kind: 'hidden' }
   /** `starting`: the mic is still opening; the waveform is grey and flat until its first audio. */
   /** `route`: a surface's key is recording (the agent key, the point key, the dictation key in a round), and `routeLabel` says where it goes. */
-  | { kind: 'listening'; mode: 'push-to-talk' | 'toggle'; finish: string; starting?: boolean; replyTo?: string; route?: string; routeLabel?: string }
+  /** `answering`: the title of the card this dictation answers instead of being pasted. */
+  | { kind: 'listening'; mode: 'push-to-talk' | 'toggle'; finish: string; starting?: boolean; answering?: string; route?: string; routeLabel?: string }
   | { kind: 'warming'; finish?: string }
   | { kind: 'transcribing' }
   | { kind: 'cleaning' }
@@ -89,7 +91,6 @@ const recording = (k: PillState['kind']) => k === 'listening' || k === 'warming'
 const working = (k: PillState['kind']) => k === 'transcribing' || k === 'cleaning';
 
 function words(): string {
-  if (state.kind === 'listening' && state.replyTo) return `Replying to ${state.replyTo}… ${partial}`.trim();
   if (state.kind === 'listening' && state.routeLabel) return `${state.routeLabel}… ${partial}`.trim();
   if (state.kind === 'listening') return partial || (state.starting ? 'Starting…' : 'Listening…');
   if (state.kind === 'warming') return partial || 'Warming up…';
@@ -123,6 +124,7 @@ function render(): void {
   if (notice && live) line = notice;
   else if (recording(s.kind) && silent) line = 'Can’t hear you · check the mic';
   else if (s.kind === 'reply-preview') line = `${s.warn ? 'Starts like a command · ' : ''}Sending to ${s.to} in 2 s · Esc cancels`;
+  else if (s.kind === 'listening' && s.answering) line = `Answering: ${plainTitle(s.answering)}`;
   else if (s.kind === 'listening' && hintAllowed && hintVisible(0, performance.now() - sessionStart)) line = `${s.finish} · Esc cancels`;
   // Variant B carries the live words above a waveform-only pill.
   if (config.variant === 'b' && live && config.showText && !line) {
@@ -131,7 +133,7 @@ function render(): void {
     textwrap.hidden = true;
   } else {
     above.textContent = line;
-    above.dataset.role = notice || silent || (s.kind === 'reply-preview' && s.warn) ? 'warn' : 'hint';
+    above.dataset.role = notice || silent || (s.kind === 'reply-preview' && s.warn) ? 'warn' : s.kind === 'listening' && s.answering ? 'answering' : 'hint';
   }
   above.classList.toggle('shown', !!above.textContent);
   fitWidth();

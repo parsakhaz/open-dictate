@@ -41,7 +41,7 @@ A key whose down was swallowed has its up swallowed too. When a binding uses a l
 - `start` fires on the first key down, so capture begins before anyone knows whether it is a hold. The pill only appears on `mode`.
 - Another key during `press1`/`press2` means a shortcut (Right Ctrl+C): `cancel`, nothing typed. During push-to-talk the same applies for the first 1.5 s (`KEEP_WORDS_MS`); after that the dictation is finished and kept.
 - Up to four dictation bindings (`settings.hotkeys`), plus an optional toggle combo and the picker combo. A dedicated key toggles hands-free on a single tap, since mouse software may only send taps.
-- Esc cancels any recording. After release, main handles Esc itself and aborts every dictation still transcribing or cleaning.
+- Esc cancels any recording. After release, main handles Esc itself and aborts every dictation still transcribing or cleaning. Either way the words heard go to history, uncleaned, and nothing is pasted.
 - Timings are `tapMs` (250) and `doubleTapMs` (350), both settings. `clearKeys()` runs after unlock and resume, since key-ups during a locked session are never seen.
 
 Defaults ([src/main/config.ts](../../src/main/config.ts)): Right Ctrl on Windows and Linux, Right Option on macOS. The picker combo Right Ctrl+V is Windows-only, because elsewhere the hook cannot swallow the V.

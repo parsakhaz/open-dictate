@@ -114,6 +114,8 @@ export interface CardsView {
   list: CardDto[];
   /** The top card is being answered by voice right now. */
   replying: boolean;
+  /** The card whose "Hold to reply" was clicked: the next dictation answers it. */
+  armed?: string;
   /** The queue's summary for the pill's extras (CardView.extra). */
   extra?: Record<string, unknown>;
 }
@@ -148,7 +150,7 @@ export class Agents {
   accessLog: AccessRecord[];
   registrationState: AgentState[] = [];
   instructionsState: InstructionsFile[] = [];
-  /** A card the person chose to answer by voice (the Reply button, or the key held over it). */
+  /** A card whose "Hold to reply" was clicked: the next dictation answers it, and only that one. */
   armed: string | null = null;
   private sheetShows: ((top: Card | null) => boolean)[] = [];
   private saveLog: ReturnType<typeof debouncedWriter>;
@@ -254,7 +256,7 @@ export class Agents {
     // A sheet showing the top card takes the pill's place: one surface, never the card and its sheet together.
     const covered = this.sheetShows.map((fn) => fn(v.top)).includes(true);
     const top = v.top && !covered ? v.top : null;
-    this.host.showCards({ top: top ? dto(top) : null, more: top ? v.more : 0, list: v.all.map(dto), replying: !!top && top.id === this.hub.queue.replyingTo, ...(v.extra ? { extra: v.extra } : {}) });
+    this.host.showCards({ top: top ? dto(top) : null, more: top ? v.more : 0, list: v.all.map(dto), replying: !!top && top.id === this.hub.queue.replyingTo, ...(this.armed ? { armed: this.armed } : {}), ...(v.extra ? { extra: v.extra } : {}) });
     clearTimeout(this.dueTimer);
     const due = this.hub.queue.nextDue(now);
     if (due !== null) this.dueTimer = setTimeout(() => this.render(), Math.max(50, due - now));
@@ -329,6 +331,7 @@ export class Agents {
         return undefined;
       case 'arm-reply':
         this.armed = a.id;
+        this.render();
         return undefined;
       case 'choose':
         return this.deliver(card, await this.hub.choose(a.id, a.value), a.value);

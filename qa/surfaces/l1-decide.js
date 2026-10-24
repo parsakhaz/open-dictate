@@ -303,6 +303,8 @@ module.exports = {
         await click(ctx, 'Expand');
         let s = await sheetWith(ctx, DECIDE.title);
         const labels = QUESTIONS.flatMap((q) => q.options.map((o) => o.label));
+        // Expand asks for focus; an app in the background (QA on macOS) may not get it. The hint follows what it got.
+        check('the sheet shows its keys only while it has focus, else "Click to use keys"', s && (s.focused ? s.page.text.includes('Enter send') && !s.page.text.includes('Click to use keys') : s.page.text.includes('Click to use keys') && !s.page.text.includes('Enter send')), s);
         check('Expand opens the sheet with every question, option and description', s?.open && s.visible && QUESTIONS.every((q) => s.page.text.includes(q.question)) && labels.every((x) => s.page.text.includes(x)) && s.page.text.includes("Replays last week's 212 failed charges") && /0 of 3 answered/.test(s.page.text), s);
         await sleep(400);
         let d = await dump(ctx);
@@ -326,6 +328,7 @@ module.exports = {
         const next = agent.call('decide', FOUR);
         s = await sheetWith(ctx, FOUR.title);
         check('the next decision card opens expanded by itself', s?.open && s.visible && s.page.text.includes(FOUR.title), s);
+        check('it opens without taking focus, and says to click for keys', s?.focused === false && s.page.text.includes('Click to use keys') && !s.page.text.includes('Enter send'), s);
         check('and the pill again draws no card', (await layout()) === null);
         await sleep(400);
         d = await dump(ctx);
