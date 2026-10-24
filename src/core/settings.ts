@@ -150,7 +150,6 @@ export function parseSettings(data: unknown, defaults: Settings): Settings {
     // A saved value the person never chose was just the default of its day: it follows today's default.
     micWarm: micWarmChosen(d) ? ((['off', '30s', 'always'] as const).find((w) => w === d.micWarm) ?? defaults.micWarm) : defaults.micWarm,
     micWarmSet: micWarmChosen(d),
-    // A saved value the person never chose was just the default of its day: it follows today's default.
     liveCleanup: d.liveCleanupSet === true ? bool(d.liveCleanup, defaults.liveCleanup) : defaults.liveCleanup,
     liveCleanupSet: d.liveCleanupSet === true,
     livePauseMs: Math.round(num(d.livePauseMs, defaults.livePauseMs, 300, 3000)),
