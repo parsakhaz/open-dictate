@@ -74,7 +74,7 @@ export const TOOLS: ToolDef[] = [
     name: 'notify',
     title: 'Notify the person',
     description:
-      `Show the person a card on Dictate's pill. ${CARD_RULE} ${example('Needs a decision', CARD_EXAMPLES.decision)} ${example('Just so you know', CARD_EXAMPLES.fyi)} Returns at once with shown, queued, dnd or replaced.`,
+      `Show the person a card on Dictate's pill. ${CARD_RULE} ${example('Needs a decision', CARD_EXAMPLES.decision)} ${example('Just so you know', CARD_EXAMPLES.fyi)} Returns at once with shown, queued, dnd or replaced, and its card_id. The person can answer by voice: card_status then says answered, with their words in answer.text.`,
     inputSchema: {
       type: 'object',
       properties: {

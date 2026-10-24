@@ -506,9 +506,14 @@ export class AgentHub {
     if (!card) return { ok: false, message: 'That card is gone' };
     const handler = this.kinds.get(card.kind);
     if (handler?.reply) return handler.reply(card, text, raw);
-    if (this.waits.get(cardId)?.kind === 'ask' || (card.requestOwned && card.kind === 'notify')) {
+    // A notify with no tab to type into keeps the words for its agent: card_status, or the CLI request, returns them.
+    if (this.waits.get(cardId)?.kind === 'ask' || (card.kind === 'notify' && (card.requestOwned || !card.target))) {
       const choice = matchChoice(text, card.choices) ?? matchChoice(raw, card.choices);
-      this.settle(cardId, { answered: true, text, raw, ...(choice ? { choice } : {}) });
+      const answer = { answered: true, text, raw, ...(choice ? { choice } : {}) };
+      if (!this.settle(cardId, answer) && this.queue.remove(cardId)) {
+        this.deps.changed();
+        this.ended(cardId, 'answered', answer, card);
+      }
       return { ok: true, message: `Answered ${card.source.split(' · ').pop()}` };
     }
     if (!card.target) return { ok: false, message: 'Nowhere to send it' };

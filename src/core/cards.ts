@@ -110,6 +110,8 @@ const rank = (c: Card) => (c.kind === 'point-review' ? -2 : c.kind === 'round-su
 /** Info cards fade; the vocabulary review asks the person to act, so it stays like a card that needs them. The round's summary goes when the inbox takes it. */
 const fades = (c: Card) => c.urgency === 'info' && c.kind !== 'vocab' && c.kind !== 'round-summary';
 const away = (c: Card) => c.snoozedUntil !== undefined || !!c.parked;
+/** Spoken words reach this card's agent: through its Pane tab, a waiting ask, or an agent's notify (card_status, or the CLI request, returns them). */
+export const takesReply = (c: Card) => !!c.target || c.kind === 'ask' || c.kind === 'notify';
 
 export interface CardView {
   /** The card on the pill, if any is due. */
