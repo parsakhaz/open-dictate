@@ -64,10 +64,27 @@ export function homeDir(env: Env, platform: NodeJS.Platform): string {
   return (platform === 'win32' ? env.USERPROFILE || env.HOME : env.HOME) || os.homedir();
 }
 
+/**
+ * CODEX_HOME, unless it is a temporary one an agent's shell passed down when it launched Dictate: a folder inside a
+ * `.cache` folder or the TEMP/TMP/TMPDIR folder. Then the home folder's .codex, where the person's Codex reads.
+ */
+export function codexHomeDir(env: Env, platform: NodeJS.Platform): string {
+  const fallback = path.join(homeDir(env, platform), '.codex');
+  const dir = env.CODEX_HOME;
+  if (!dir) return fallback;
+  const p = platform === 'win32' ? path.win32 : path.posix;
+  const inside = (root: string) => {
+    const rel = p.relative(root, dir);
+    return rel !== '' && !rel.startsWith('..') && !p.isAbsolute(rel);
+  };
+  const temporary = p.resolve(dir).split(p.sep).includes('.cache') || [env.TEMP, env.TMP, env.TMPDIR].some((t) => t && inside(t));
+  return temporary ? fallback : dir;
+}
+
 function paths(opts: AgentOptions) {
   const platform = opts.platform ?? process.platform;
   const home = homeDir(opts.env, platform);
-  const codexHome = opts.env.CODEX_HOME || path.join(home, '.codex');
+  const codexHome = codexHomeDir(opts.env, platform);
   return {
     platform,
     home,

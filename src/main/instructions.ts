@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { editInstructions, instructionsState } from '../core/instructions';
 import type { Logger } from './log';
-import { findOnPath, homeDir, writeAtomic } from './registration';
+import { codexHomeDir, findOnPath, homeDir, writeAtomic } from './registration';
 
 export type InstructionsAgent = 'claude' | 'codex';
 type Env = Record<string, string | undefined>;
@@ -42,7 +42,7 @@ function targets(opts: Pick<InstructionsOptions, 'env' | 'platform'>): { agent: 
   const platform = opts.platform ?? process.platform;
   const home = homeDir(opts.env, platform);
   const claudeDir = opts.env.CLAUDE_CONFIG_DIR || path.join(home, '.claude');
-  const codexDir = opts.env.CODEX_HOME || path.join(home, '.codex');
+  const codexDir = codexHomeDir(opts.env, platform);
   const on = (name: string) => !!findOnPath(name, opts.env, platform);
   return [
     { agent: 'claude', file: path.join(claudeDir, 'CLAUDE.md'), found: () => fs.existsSync(claudeDir) || on('claude') },
