@@ -325,7 +325,7 @@ export class AgentHub {
 
   /**
    * Raises a saved question again, owned by `owner`: an MCP question whose call ended with the app, or a CLI request.
-   * It was accepted once already, so paused alerts don't turn it away. Its card takes back its age and snoozes.
+   * Its card takes back its age and snoozes.
    */
   resume(session: HubSession, tool: string, args: unknown, owner: RequestOwner, was: Pick<SavedCall, 'aliases' | 'createdAt' | 'snoozes' | 'snoozedUntil'>): Promise<unknown> {
     const accepted = owner.accepted;
@@ -336,14 +336,7 @@ export class AgentHub {
         accepted(card, presentation, destination);
       },
     };
-    const paused = this.queue.paused;
-    // The tools check for paused alerts before their first await, so this covers exactly that check.
-    this.queue.paused = false;
-    try {
-      return this.callOwned(session, tool as RequestKind, args, restoring);
-    } finally {
-      this.queue.paused = paused;
-    }
+    return this.callOwned(session, tool as RequestKind, args, restoring);
   }
 
   /** A saved MCP question comes back after a restart; a later answer reaches card_status and its Pane tab. */
