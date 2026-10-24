@@ -47,7 +47,7 @@ What runs where, why it is separate, and how the pieces talk. For the flow of on
 
 | Window | Focus | Notes |
 | --- | --- | --- |
-| Pill | `focusable: false`, shown with `showInactive()` | Transparent, frameless, always on top at `screen-saver` level, ignores the mouse (except while an Undo toast is up). At the Settings → Pill position spot (bottom centre by default) of the display under the cursor, inside its work area. |
+| Pill | `focusable: false`, shown with `showInactive()` | Transparent, frameless, always on top at `screen-saver` level, ignores the mouse except over a card, an inbox control or the mic toast's Undo. At the Settings → Pill position spot (bottom centre by default) of the display under the cursor, inside its work area. |
 | Picker | `focusable: false` on Windows; focusable elsewhere | On Windows the hook captures its keys, so the app being typed into keeps focus. On macOS/Linux the hook cannot swallow keys, so the picker takes focus and closes on blur. |
 | Settings | Normal | Mica title bar on Windows. |
 

@@ -167,6 +167,19 @@ dictate.on('dictate:notice', (msg: string) => {
   render();
 });
 
+/** Undo takes clicks: main lets the click-through pill catch them over it. */
+let undoSent = 'null';
+function sendUndoRect(): void {
+  requestAnimationFrame(() => {
+    const r = undo.getBoundingClientRect();
+    const on = !undo.hidden && root.classList.contains('visible');
+    const next = JSON.stringify(on ? { x: r.x, y: r.y, width: r.width, height: r.height } : null);
+    if (next === undoSent) return;
+    undoSent = next;
+    dictate.send('dictate:undo-rect', JSON.parse(next));
+  });
+}
+
 function show(): void {
   clearTimeout(hideTimer);
   root.classList.add('visible');
@@ -176,6 +189,7 @@ function hideAfter(ms: number): void {
   clearTimeout(hideTimer);
   hideTimer = setTimeout(() => {
     root.classList.remove('visible');
+    sendUndoRect();
     // Wait for the fade before telling main the window can hide.
     setTimeout(() => {
       if (!root.classList.contains('visible')) dictate.send('dictate:pill-hidden');
@@ -196,6 +210,7 @@ dictate.on('dictate:pill', (s: PillState) => {
   if (s.kind === 'hidden') {
     partial = '';
     root.classList.remove('visible');
+    sendUndoRect();
     return;
   }
   render();
@@ -206,6 +221,7 @@ dictate.on('dictate:pill', (s: PillState) => {
   else if (s.kind === 'error') hideAfter(4000);
   else if (s.kind === 'toast') hideAfter(s.ms);
   if (s.kind === 'done' || s.kind === 'copied' || s.kind === 'info' || s.kind === 'error' || s.kind === 'toast') partial = '';
+  sendUndoRect();
 });
 
 dictate.on('dictate:partial', (t: string) => {

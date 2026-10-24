@@ -13,11 +13,12 @@ vi.mock('electron', () => ({ app: { getAppPath: () => '/app' }, BrowserWindow: m
 vi.mock('../src/main/icons', () => ({ appIcon: () => undefined }));
 import { createPill, createPicker, createSheet } from '../src/main/windows';
 
-it('retains original transparent surfaces while enabling ordinary native input continuously', () => {
-  createPill(); createPicker(); createSheet();
-  for (const window of mock.windows) {
+it('the pill never takes focus and starts click-through; picker and sheet take ordinary input', () => {
+  const [pill, ...rest] = [createPill(), createPicker(), createSheet()].map((_, i) => mock.windows[i]);
+  expect(pill.options).toMatchObject({ transparent: true, focusable: false, frame: false, show: false, width: 600, height: 420 });
+  expect(pill.setIgnoreMouseEvents).toHaveBeenCalledWith(true, { forward: true });
+  for (const window of rest) {
     expect(window.options).toMatchObject({ transparent: true, focusable: true, frame: false, show: false });
     expect(window.setIgnoreMouseEvents).not.toHaveBeenCalled();
   }
-  expect(mock.windows[0].options).toMatchObject({ width: 600, height: 420 });
 });

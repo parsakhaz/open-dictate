@@ -1,5 +1,5 @@
-// Transparent native surfaces accept ordinary input. The pill and Windows picker
-// appear without activation; clicking their controls may focus them. Sheets focus on request.
+// Transparent native surfaces. The pill never takes focus and lets clicks through except over its controls. The
+// Windows picker appears without activation; clicking its controls may focus it. Sheets focus on request.
 import path from 'node:path';
 import { app, BrowserWindow, screen } from 'electron';
 import type { PillPosition } from '../core/types';
@@ -24,15 +24,15 @@ export function createPill(): BrowserWindow {
     minimizable: false,
     maximizable: false,
     skipTaskbar: true,
-    focusable: true,
+    focusable: false,
     hasShadow: false,
     alwaysOnTop: true,
     title: 'dictate',
     webPreferences: { preload: preload(), backgroundThrottling: false, contextIsolation: true, sandbox: false },
   });
   w.setAlwaysOnTop(true, 'screen-saver');
-  // The real transparent surface owns native input continuously. Alpha-zero desktop
-  // margins stay visually empty; input ownership never depends on hover or a relay.
+  // Start click-through. Main takes clicks only while the pointer is over a card, an inbox control or Undo.
+  w.setIgnoreMouseEvents(true, { forward: true });
   void w.loadFile(renderer('pill.html'));
   return w;
 }
