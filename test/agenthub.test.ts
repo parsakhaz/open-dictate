@@ -104,6 +104,7 @@ it('an MCP question comes back after a restart with its age and snoozes, card_st
   const old = before.hub.queue.view(Date.now()).top!;
   before.hub.queue.snooze(old.id, Date.now() + 60_000, Date.now());
   before.hub.queue.wake(old.id, Date.now(), false);
+  await before.hub.call(outside, 'notify', { title: 'The nightly backup moved to EU', urgency: 'needs_you' }, sig());
   const saved = JSON.parse(JSON.stringify(before.hub.saved()));
 
   const { hub, sent, advance } = setup();
@@ -116,6 +117,7 @@ it('an MCP question comes back after a restart with its age and snoozes, card_st
   expect(back.id).not.toBe(old.id);
   expect(hub.queue.status(old.id, Date.now())).toEqual({ state: 'shown' });
   expect(hub.saved().calls[0].aliases).toEqual([old.id, back.id]);
+  expect(hub.queue.view(Date.now()).all.map((c) => c.title)).toEqual(['Which region?', 'The nightly backup moved to EU']);
   await hub.choose(back.id, 'EU');
   await settle();
   expect(sent).toEqual([{ panelId: 'X', text: 'Answer to your earlier question “Which region?”: EU' }]);

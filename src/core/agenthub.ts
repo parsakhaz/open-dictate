@@ -41,6 +41,8 @@ export interface SavedHub {
   next: number;
   queue: SavedQueue;
   calls: SavedCall[];
+  /** An agent's notes that need the person and no call waits on: kept as they are. */
+  notes?: Card[];
 }
 
 export interface Source {
@@ -315,12 +317,15 @@ export class AgentHub {
       const c = this.queue.get(id);
       if (w.call && c) calls.push({ ...w.call, aliases: [...this.queue.aliasesOf(id), id], createdAt: c.createdAt, snoozes: c.snoozes, snoozedUntil: c.snoozedUntil });
     }
-    return { next: this.next, queue: this.queue.saved(), calls };
+    const notes = this.queue.list().filter((c) => c.origin === 'agent' && c.kind === 'notify' && c.urgency === 'needs_you' && !this.waits.has(c.id));
+    return { next: this.next, queue: this.queue.saved(), calls, notes };
   }
 
+  /** What card_status knows and the agents' notes come back; saved questions come back through resumeCall. */
   load(s: SavedHub): void {
     this.next = Math.max(this.next, s.next);
     this.queue.load(s.queue);
+    for (const c of s.notes ?? []) this.queue.add({ ...c, shownAt: undefined, firstShownAt: undefined }, this.deps.now());
   }
 
   /**

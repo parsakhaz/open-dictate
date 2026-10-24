@@ -1,4 +1,4 @@
-// Off-screen journey for cards across a restart: an MCP ask (snoozed once) and a CLI request wait on the pill, the
+// Off-screen journey for cards across a restart: an MCP ask (snoozed once), a CLI request and an agent's note wait on the pill, the
 // app is killed without a chance to save on quit, and after the relaunch both are back, in order, with their snooze
 // count, the MCP card's old card_id and the CLI request's id and instance. The real app on a throwaway profile, the
 // agent through the real MCP bridge, the CLI through the launcher the app installs in that profile.
@@ -19,6 +19,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const cmd = (line) => fs.appendFileSync(CONTROL, `${line}\n`);
 const log = () => (fs.existsSync(LOG) ? fs.readFileSync(LOG, 'utf8') : '');
 const checks = [];
+const ORDER = ['Which region should the nightly backup use?', 'Roll the new checkout out to 10%?', 'The staging database is full'];
 function check(what, ok, detail) {
   checks.push({ what, ok: !!ok, ...(detail === undefined ? {} : { detail }) });
   console.log(`${ok ? 'PASS' : 'FAIL'} ${what}${ok ? '' : ` :: ${JSON.stringify(detail)}`}`);
@@ -110,8 +111,9 @@ async function main() {
     await sleep(400);
     const created = await cli(['request', 'create', '--from-json', '-'], { kind: 'ask', args: { question: 'Roll the new checkout out to 10%?', choices: ['Roll it out', 'Wait'] } });
     check('the CLI request is accepted', typeof created.request_id === 'string' && created.terminal === false, created);
+    await agent.call('notify', { title: 'The staging database is full', urgency: 'needs_you' });
     const before = await cards();
-    check('both wait on the pill, the older first', JSON.stringify(before?.all) === JSON.stringify(['Which region should the nightly backup use?', 'Roll the new checkout out to 10%?']), before);
+    check('all three wait on the pill, questions first, the older first', JSON.stringify(before?.all) === JSON.stringify(ORDER), before);
     // The cards are saved a moment after each change; give that write its time, then kill without a quit.
     await sleep(1500);
     kill(app);
@@ -123,12 +125,12 @@ async function main() {
     const mark = log().length;
     app = launch();
     check('the app opened the agent channel again', await untilLog(/agents: channel open/, 60_000, mark));
-    check('it says the cards are back', await untilLog(/agents: 2 cards back from before the restart/, 10_000, mark), log().slice(mark).slice(-1500));
+    check('it says the cards are back', await untilLog(/agents: 3 cards back from before the restart/, 10_000, mark), log().slice(mark).slice(-1500));
     await untilLog(/pill ready/, 60_000, mark);
     cmd('inbox busy off');
     await sleep(1500);
     const after = await cards();
-    check('after the restart both cards are back, in the same order', JSON.stringify(after?.all) === JSON.stringify(['Which region should the nightly backup use?', 'Roll the new checkout out to 10%?']), after);
+    check('after the restart all three are back, in the same order', JSON.stringify(after?.all) === JSON.stringify(ORDER), after);
     await shot('restart-back');
     cmd('cards-hover on');
     await sleep(500);

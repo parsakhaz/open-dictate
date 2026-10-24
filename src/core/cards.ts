@@ -243,6 +243,11 @@ export class CardQueue {
     return c ? this.remove(c.id) : undefined;
   }
 
+  /** Every card, snoozed and parked ones included. */
+  list(): Card[] {
+    return [...this.cards];
+  }
+
   get(id: string): Card | undefined {
     return this.cards.find((c) => c.id === id);
   }

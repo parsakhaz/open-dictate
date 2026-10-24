@@ -265,8 +265,8 @@ export class Agents {
   /** The cards and requests saved before the last quit come back, once the features have registered their tools. */
   private restore(): void {
     const calls = this.saved?.hub?.calls ?? [];
+    let n = calls.length + (this.saved?.hub?.notes?.length ?? 0);
     this.saved = undefined;
-    let n = calls.length;
     try {
       for (const c of calls) this.hub.resumeCall(c);
       n += this.requests.restore();
