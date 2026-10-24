@@ -1,5 +1,7 @@
-// Transparent native surfaces. The pill never takes focus and lets clicks through except over its controls. The
-// Windows picker appears without activation; clicking its controls may focus it. Sheets focus on request.
+// Transparent native surfaces. The pill never takes focus and lets clicks through except over its controls. On
+// Windows Chromium drops clicks on a focusable: false window (#37), so the pill stays focusable and showPill sets
+// WS_EX_NOACTIVATE. The Windows picker appears without activation; clicking its controls may focus it. Sheets focus
+// on request.
 import path from 'node:path';
 import { app, BrowserWindow, screen } from 'electron';
 import type { PillPosition } from '../core/types';
@@ -24,7 +26,7 @@ export function createPill(): BrowserWindow {
     minimizable: false,
     maximizable: false,
     skipTaskbar: true,
-    focusable: false,
+    focusable: true,
     hasShadow: false,
     alwaysOnTop: true,
     title: 'dictate',
@@ -69,6 +71,8 @@ export function showPill(w: BrowserWindow): void {
   if (!w.isVisible()) {
     placePill(w);
     w.showInactive();
+    // Showing rewrites the window's extended styles.
+    if (process.platform === 'win32') (require('../native/win32') as typeof import('../native/win32')).setNoActivate(Number(w.getNativeWindowHandle().readBigUInt64LE()));
   }
   w.setAlwaysOnTop(true, 'screen-saver');
 }
