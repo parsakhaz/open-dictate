@@ -51,11 +51,11 @@ export class AgentRequests {
     );
   }
 
-  /** Takes back the saved requests: results as they were, and each pending request's card raised again. Once, after the features are set up. */
-  restore(): void {
+  /** Takes back the saved requests: results as they were, and each pending request's card raised again. Once, after the features are set up. Returns how many are raised. */
+  restore(): number {
     const saved = this.saved;
     this.saved = undefined;
-    if (!saved) return;
+    if (!saved) return 0;
     this.book.restore(saved.book, (owner, context) => {
       const { session, input } = context as Context;
       const snapshot = saved.book.records.find((r) => r.snapshot.request_id === owner.requestId)!.snapshot;
@@ -68,6 +68,7 @@ export class AgentRequests {
         { aliases: [], createdAt: Date.parse(snapshot.created_at), snoozes: saved.snoozes[owner.requestId], ...(presentation?.state === 'snoozed' && presentation.until ? { snoozedUntil: presentation.until } : {}) },
       );
     });
+    return saved.book.records.filter((r) => !r.snapshot.terminal && Date.parse(r.snapshot.hard_expires_at) > Date.now()).length;
   }
 
   /** What survives a restart. */

@@ -291,7 +291,8 @@ module.exports = {
       async run(ctx) {
         const { PANE_DIR, session, cmd, cards, sleep, check } = ctx;
         await clear(ctx);
-        fakePane.install(PANE_DIR, { node: ELECTRON, state: { panes: [{ id: 'P1', name: 'Dictate', panels: [{ id: 'T1', title: 'release', agentType: 'claude' }] }] } });
+        // Electron runs the stand-in as Node only through the Windows shim; elsewhere plain Node runs it.
+        fakePane.install(PANE_DIR, { node: process.platform === 'win32' ? ELECTRON : process.execPath, state: { panes: [{ id: 'P1', name: 'Dictate', panels: [{ id: 'T1', title: 'release', agentType: 'claude' }] }] } });
         const agent = session({ client: 'claude-code', title: 'Claude Code', env: { PANE_SESSION_ID: 'P1', PANE_PANEL_ID: 'T1' } });
         const ask = agent.call('ask', { question: 'Merge the release branch?', choices: ['Merge', 'Wait'], timeout_s: 120 });
         await waitFor(cards, (c) => c?.top?.title === 'Merge the release branch?', sleep);

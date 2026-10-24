@@ -64,7 +64,10 @@ async function shot(name) {
 /** The CLI the app installed in the profile, as an agent runs it. */
 function cli(args, input) {
   return new Promise((resolve) => {
-    const p = spawn(ELECTRON, [path.join(DATA, 'agents', 'dictate-cli.js'), ...args, '--json'], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', DICTATE_AGENT_CHANNEL: path.join(DATA, 'agents', 'channel.json') }, stdio: ['pipe', 'pipe', 'inherit'] });
+    const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1', DICTATE_AGENT_CHANNEL: path.join(DATA, 'agents', 'channel.json') };
+    delete env.PANE_SESSION_ID;
+    delete env.PANE_PANEL_ID;
+    const p = spawn(ELECTRON, [path.join(DATA, 'agents', 'dictate-cli.js'), ...args, '--json'], { env, stdio: ['pipe', 'pipe', 'inherit'] });
     let out = '';
     p.stdout.on('data', (d) => (out += d));
     p.on('close', () => {
@@ -100,6 +103,9 @@ async function main() {
     check('the MCP ask is on the pill', !!mcpId, d);
     cmd('inbox snooze');
     await sleep(400);
+    await pill();
+    cmd('inbox pill snoozed');
+    await sleep(300);
     cmd(`inbox pill now ${mcpId}`);
     await sleep(400);
     const created = await cli(['request', 'create', '--from-json', '-'], { kind: 'ask', args: { question: 'Roll the new checkout out to 10%?', choices: ['Roll it out', 'Wait'] } });

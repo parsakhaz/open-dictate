@@ -266,13 +266,13 @@ export class Agents {
   private restore(): void {
     const calls = this.saved?.hub?.calls ?? [];
     this.saved = undefined;
+    let n = calls.length;
     try {
       for (const c of calls) this.hub.resumeCall(c);
-      this.requests.restore();
+      n += this.requests.restore();
     } catch (err) {
       this.host.log('warn', `agents: saved cards could not come back (${(err as Error).message})`);
     }
-    const n = this.hub.queue.view(Date.now()).all.length;
     if (n) this.host.log('info', `agents: ${n} card${n === 1 ? '' : 's'} back from before the restart`);
   }
 
