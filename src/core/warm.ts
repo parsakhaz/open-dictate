@@ -1,5 +1,6 @@
-// How long the mic stays open after a dictation, so a follow-up starts instantly. Off by default: a held-open
-// Bluetooth headset mic keeps the headset in its call profile, and Windows shows the mic-in-use indicator.
+// How long the mic stays open after a dictation, so a follow-up starts instantly. Always (while plugged in) by
+// default, because a cold mic can take about 1 s to open and clip the first words. Main leaves a Bluetooth headset
+// out of the default: a held-open headset mic keeps it in its call profile.
 // Pure apart from the injected timers.
 import type { Timers } from './hotkeys';
 

@@ -91,6 +91,8 @@ export interface Settings {
   pillText: boolean;
   /** How long the mic stays open after a dictation, so a follow-up starts instantly. */
   micWarm: 'off' | '30s' | 'always';
+  /** The person chose micWarm themselves; otherwise it follows the default (Always while plugged in since 2026-10-23; it was Off). */
+  micWarmSet: boolean;
   /** Clean finished sentences while the person is still speaking. */
   liveCleanup: boolean;
   /** The person chose liveCleanup themselves; otherwise it follows the default (On since 2026-10-18; it was Off). */

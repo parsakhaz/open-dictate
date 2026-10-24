@@ -32,7 +32,7 @@ function setup(setting: WarmSetting = '30s', onAC = true) {
 }
 
 describe('WarmMic', () => {
-  it('Off (the default): closes the mic as soon as a dictation ends', () => {
+  it('Off: closes the mic as soon as a dictation ends', () => {
     const { w, closes } = setup('off');
     w.started();
     expect(w.ended()).toBe(false);

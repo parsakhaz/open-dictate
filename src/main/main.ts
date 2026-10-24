@@ -785,8 +785,8 @@ function startCapture(): void {
       if (why !== 'off') log('info', `mic closed (${why})`);
       nm.closeWarm();
     },
-    // Battery saver closes the mic at once, like Off.
-    setting: () => (batterySaverOn() ? 'off' : settings.micWarm),
+    // Battery saver closes the mic at once, like Off. The default leaves a Bluetooth headset out of call mode.
+    setting: () => (batterySaverOn() || (micBluetooth && !settings.micWarmSet) ? 'off' : settings.micWarm),
     onAC: () => !powerMonitor.isOnBatteryPower(),
     timers: { set: (fn, ms) => setTimeout(fn, ms), clear: (h) => clearTimeout(h as ReturnType<typeof setTimeout>) },
   });
@@ -1254,6 +1254,7 @@ function updateSettings(patch: Partial<Settings>): void {
   if (patch.startAtLogin !== undefined) patch = { ...patch, startWithWindows: patch.startAtLogin };
   // From the settings page: the person's own choice from now on.
   if (patch.liveCleanup !== undefined) patch = { ...patch, liveCleanupSet: true };
+  if (patch.micWarm !== undefined) patch = { ...patch, micWarmSet: true };
   settings = parseSettings({ ...settings, ...patch }, runtimeDefaults(settings.vocabulary, { platform: process.platform, userData: userData() }));
   saveSettings.save();
   if (['hotkeys', 'toggle', 'picker', 'tapMs', 'doubleTapMs', 'inbox', 'snooze', 'voice', 'point'].some((k) => k in patch)) applyBindings();
