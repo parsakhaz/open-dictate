@@ -34,6 +34,8 @@ export interface Card {
   urgency: CardUrgency;
   /** Always Dictate's own words: "<Pane name> · <tab>", or "<client> · <folder>". */
   source: string;
+  /** The round's chip: the Pane tab, the session a remote agent named, or the agent. */
+  sourceName?: string;
   /** Shown when the card is expanded, e.g. the Session name. */
   sourceDetail?: string;
   title: string;
@@ -278,6 +280,10 @@ export class CardQueue {
     if (this.dictating || now < this.holdUntil) return 'talking';
     if (typingAt(this.typedAt, now)) return 'typing';
     return this.busy ? 'busy' : null;
+  }
+
+  get hovered(): boolean {
+    return this.hoveredSince !== null;
   }
 
   /** The pointer is over the cards: info cards wait, then get the rest of their time when it leaves, at least 2 s. */

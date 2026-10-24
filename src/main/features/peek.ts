@@ -149,6 +149,7 @@ class PeekFeature {
       kind: 'peek',
       urgency: 'needs_you',
       source: src.line,
+      sourceName: src.name,
       sourceDetail: src.detail,
       title: a.title,
       message: a.message,

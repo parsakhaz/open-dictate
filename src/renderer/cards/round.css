@@ -285,6 +285,10 @@ button.capsule:hover {
   color: var(--text);
   overflow-wrap: anywhere;
 }
+.rans {
+  display: block;
+  color: var(--text-2);
+}
 .rtab {
   max-width: 96px;
   font-size: 11px;

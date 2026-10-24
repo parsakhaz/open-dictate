@@ -154,39 +154,51 @@ module.exports = {
     },
     {
       id: 'J6',
-      name: 'a decision round above the pill: it waits for the held key, keys and spoken commands, the summary, Undo, and Esc',
+      name: 'a decision round above the pill: the held key, picks before Enter, decisions and approvals, the summary, Undo, and Esc',
       async run(ctx) {
         const { session, cmd, qa, cards, sheet, shot, sheetShot, sleep, check, log, untilLog, MODELS } = ctx;
         await clear(ctx);
-        const agents = [0, 1, 2].map((i) => session({ client: 'codex-mcp-client', title: `Agent ${i}` }));
-        const questions = [
-          { question: 'Where should the coupon field go?', message: 'Four places fit. Most mobile shoppers never scroll past the order summary.', choices: ['Under summary', 'Behind a link', 'Payment step', 'Leave it out'], timeout_s: 120 },
-          { question: 'Run the migration on staging?', choices: ['Run it', 'Wait'], timeout_s: 120 },
-          { question: 'Review the welcome copy?', choices: ['Looks good', 'Rewrite'], timeout_s: 120 },
+        const agents = [0, 1, 2, 3, 4, 5].map((i) => session({ client: 'codex-mcp-client', title: `Agent ${i}` }));
+        const calls = [
+          ['ask', { question: 'Where should the coupon field go?', message: 'Four places fit. Most mobile shoppers never scroll past the order summary.', choices: ['Under summary', 'Behind a link', 'Payment step', 'Leave it out'], timeout_s: 120 }],
+          ['ask', { question: 'Run the migration on staging?', choices: ['Run it', 'Wait'], timeout_s: 120 }],
+          ['ask', { question: 'Restart the worker?', choices: ['Restart it'], timeout_s: 120 }],
+          ['decide', { title: 'Two calls before I ship the retry fix', questions: [
+            { header: 'Target', question: 'Where should the fix go first?', options: [{ label: 'Staging' }, { label: 'Production' }] },
+            { header: 'Policy', question: 'How should failed charges retry?', options: [{ label: 'Backoff ×3' }, { label: 'Once + email' }, { label: "Don't retry" }] },
+          ], timeout_s: 120 }],
+          ['approve', { title: 'Approve the retry plan', summary: ['Retry failed charges with backoff', 'Email customers after the last retry'], risk: 'medium', timeout_s: 120 }],
+          ['ask', { question: 'Review the welcome copy?', choices: ['Looks good', 'Rewrite'], timeout_s: 120 }],
         ];
         // One after another, so the round (oldest first) takes them in this order.
         const asks = [];
-        for (const [i, q] of questions.entries()) {
+        for (const [i, [tool, args]] of calls.entries()) {
           cmd('inbox keydown');
-          asks.push(agents[i].call('ask', q));
+          asks.push(agents[i].call(tool, args));
           await waitFor(() => qa('inbox dump', INBOX), (d) => d?.extra.waiting === i + 1, sleep, 25);
         }
         const held = await qa('inbox dump', INBOX);
-        check('three cards wait while the person types', held?.extra.waiting === 3 && !held.top, held);
-        await shot('l2-j6-three-waiting');
+        check('six cards wait while the person types', held?.extra.waiting === 6 && !held.top, held);
+        await shot('l2-j6-six-waiting');
         // The fake mic plays speech the whole time: a round that listened on its own would hear it.
         const opened = log().length;
         cmd('inbox shortcut round');
         await sleep(1000);
-        const s = await sheet();
+        let s = await sheet();
         check('the round opens in the sheet, focusable, right above the pill', s?.open && s.kind === 'round' && s.focusable && s.page.kind === 'round', s);
         check('it is 480 px wide (plus its shadow margin) and centred over the pill', s && s.bounds.width === 480 + 24 && Math.abs(s.bounds.x + s.bounds.width / 2 - (s.pill.x + s.pill.width / 2)) <= 1, s?.bounds);
-        check('it shows chips and "1 of 3"', s && /1 of 3/.test(s.page.text) && /Where should the coupon field go/.test(s.page.text), s?.page);
-        check('it says to hold the dictation key to answer', s && /Hold your dictation key and say your answer/.test(s.page.text), s?.page);
+        check('it shows chips and "1 of 6"', s && /1 of 6/.test(s.page.text) && /Where should the coupon field go/.test(s.page.text), s?.page);
+        check('outside Pane, each chip names its agent', s && ['Agent 0', 'Agent 1', 'Agent 2', 'Agent 3'].every((a) => s.page.text.includes(a)), s?.page);
+        check('with four choices, Enter has no button and the hint asks for a number or an answer', s && /Hold your dictation key and say a number, your answer or/.test(s.page.text) && !/Approve 1/.test(s.page.text), s?.page);
         await sleep(3000);
         let d = await qa('inbox dump', INBOX);
         check('for 4 s after it opens, with speech playing, nothing records and the first card waits', d && !d.listening && d.round?.position.n === 1 && d.round.results.length === 0 && !/capture \d+ on /.test(log().slice(opened)), d);
         check('the pill shows no card during the round', d && !d.top, d);
+        cmd('inbox key Enter');
+        await sleep(400);
+        s = await sheet();
+        d = await qa('inbox dump', INBOX);
+        check('Enter does not pick choice 1: the round stays and says to pick', d?.round?.position.n === 1 && d.round.results.length === 0 && /Pick 1–4/.test(s?.page.text), { d, text: s?.page.text });
         await sheetShot('l2-j6-round');
         if (MODELS) {
           const mark = log().length;
@@ -200,30 +212,72 @@ module.exports = {
           await untilLog(/dictation \d+: (final|nothing heard)/, 30_000, mark);
         } else cmd('inbox say Under the summary, next to the total');
         d = await waitFor(() => qa('inbox dump', INBOX), (x) => x?.round?.position.n === 2, sleep, 25);
-        check('the held key answers the first card, and the round moves to "2 of 3"', d?.round?.position.n === 2 && d.round.results[0] === 'answered', d);
+        check('the held key answers the first card, and the round moves to "2 of 6"', d?.round?.position.n === 2 && d.round.results[0] === 'answered', d);
         const waited = log().length;
         await sleep(3000);
         d = await qa('inbox dump', INBOX);
         check('the round then waits on the second card without recording', d && !d.listening && d.round?.position.n === 2 && d.round.results.length === 1 && !/capture \d+ on /.test(log().slice(waited)), d);
-        await sheetShot('l2-j6-round-2-waiting');
         cmd('inbox say approve');
+        await sleep(600);
+        d = await qa('inbox dump', INBOX);
+        s = await sheet();
+        check('"approve" on a question with two choices picks nothing and says to pick', d?.round?.position.n === 2 && d.round.results.length === 1 && /Pick 1–2/.test(s?.page.text), { d, text: s?.page.text });
+        await sheetShot('l2-j6-round-2-pick');
+        cmd('inbox key 1');
         await sleep(600);
         const first = await Promise.race([asks[0], sleep(3000).then(() => null)]);
         check('the first answer is sent once the person moves on', first?.result?.answered === true && typeof first.result.text === 'string' && first.result.text.length > 0, first);
+        s = await sheet();
+        check('a question with one choice names it on the Enter button', s && /3 of 6/.test(s.page.text) && /Restart it\s*Enter/.test(s.page.text), s?.page);
+        await sheetShot('l2-j6-round-3-named');
+        cmd('inbox key Enter');
+        await sleep(600);
+        const second = await Promise.race([asks[1], sleep(3000).then(() => null)]);
+        check('1 sent "Run it" on the second card', second?.result?.choice === 'Run it', second);
+        s = await sheet();
+        check('a decision shows its questions and choices', s && /4 of 6/.test(s.page.text) && /Where should the fix go first/.test(s.page.text) && /Once \+ email/.test(s.page.text), s?.page);
+        cmd('inbox key Enter');
+        await sleep(400);
         d = await qa('inbox dump', INBOX);
-        check('saying "approve" approves the second card', d?.round?.results[1] === 'approved' && d.round.position.n === 3, d);
-        await sheetShot('l2-j6-round-3');
+        s = await sheet();
+        check('Enter does not send a decision with open questions', d?.round?.position.n === 4 && /Pick an answer for every question/.test(s?.page.text), { d, text: s?.page.text });
+        cmd('inbox key 1');
+        await sleep(400);
+        cmd('inbox key 2');
+        await sleep(600);
+        d = await qa('inbox dump', INBOX);
+        check('1 and 2 pick for each question in turn, and the round stays on the decision', d?.round?.position.n === 4 && d.round.results.length === 3, d);
+        await sheetShot('l2-j6-round-4-decision');
+        cmd('inbox key Enter');
+        await sleep(600);
+        const third = await Promise.race([asks[2], sleep(3000).then(() => null)]);
+        check('Enter sent the named choice of the third card', third?.result?.choice === 'Restart it', third);
+        s = await sheet();
+        check('an approval shows its plan and an Approve button', s && /5 of 6/.test(s.page.text) && /Retry failed charges with backoff/.test(s.page.text) && /Approve\s*Enter/.test(s.page.text), s?.page);
+        await sheetShot('l2-j6-round-5-approve');
+        cmd('inbox say approve');
+        await sleep(600);
+        const fourth = await Promise.race([asks[3], sleep(3000).then(() => null)]);
+        check('once every question had a pick, Enter sent the decision', fourth?.result?.answered === true && JSON.stringify(fourth.result.answers?.map((x) => x.picked)) === JSON.stringify([['Staging'], ['Once + email']]), fourth);
         cmd('inbox key s');
         await sleep(800);
-        const second = await Promise.race([asks[1], sleep(3000).then(() => null)]);
-        check('S snoozes the last card; the approval before it is sent', second?.result?.choice === 'Run it', second);
+        const fifth = await Promise.race([asks[4], sleep(3000).then(() => null)]);
+        check('"approve" went through the approval handler', fifth?.result?.approved === true, fifth);
         const closed = await sheet();
         check('after the last card the round closes', closed && !closed.open && !closed.visible, closed);
         d = await qa('inbox dump', INBOX);
         check('focus goes back to the window that had it', d && d.foreground === d.before, d);
         const summary = await cards();
-        check('the summary shows the counts', summary?.top?.kind === 'round-summary' && /1 approved, 1 answered, 1 snoozed until \d\d:\d\d/.test(summary.top.title), summary);
+        check('the summary shows the counts', summary?.top?.kind === 'round-summary' && /2 approved, 3 answered, 1 snoozed until \d\d:\d\d/.test(summary.top.title), summary);
+        cmd('cards-hover on');
+        await sleep(400);
+        const rows = await qa('card-layout', /QA card-layout (.+)\n/);
+        check('each row shows the question and the answer sent', rows && /Run the migration on staging\?\s*Run it/.test(rows.text) && /Target: Staging · Policy: Once \+ email/.test(rows.text) && /Approve the retry plan\s*Approved/.test(rows.text), rows?.text);
         await shot('l2-j6-summary');
+        await sleep(9000);
+        const kept = await cards();
+        check('the summary stays past 8 s while the pointer is on it', kept?.top?.kind === 'round-summary', kept?.top);
+        cmd('cards-hover off');
         cmd('inbox undo');
         // Cards wait a second after a recording ends, then the card is back.
         const undone = await waitFor(cards, (c) => c?.top?.title === 'Review the welcome copy?', sleep, 15);
@@ -234,7 +288,7 @@ module.exports = {
         await sleep(800);
         const esc = await sheet();
         d = await qa('inbox dump', INBOX);
-        check('Esc ends the round', esc && !esc.open && d && !d.round, { esc, d });
+        check('Esc ends the round', esc && !esc.open && !esc.visible && d && !d.round, { esc, d });
         cmd('card dismiss');
         await sleep(300);
       },
