@@ -450,6 +450,7 @@ class Inbox {
   private advance(): void {
     if (!this.round) return;
     this.note = '';
+    this.heard = '';
     this.round.add(this.q.roundCards().map((c) => c.id));
     if (this.round.done()) this.endRound('done');
     else this.showRound();

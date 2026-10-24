@@ -183,8 +183,8 @@ module.exports = {
         // The fake mic plays speech the whole time: a round that listened on its own would hear it.
         const opened = log().length;
         cmd('inbox shortcut round');
-        await sleep(1000);
-        let s = await sheet();
+        // On a loaded machine the sheet's first dump can be slow: wait for an open one.
+        let s = await waitFor(sheet, (x) => x?.open && x.page.kind === 'round', sleep, 25);
         check('the round opens in the sheet, focusable, right above the pill', s?.open && s.kind === 'round' && s.focusable && s.page.kind === 'round', s);
         check('it is 480 px wide (plus its shadow margin) and centred over the pill', s && s.bounds.width === 480 + 24 && Math.abs(s.bounds.x + s.bounds.width / 2 - (s.pill.x + s.pill.width / 2)) <= 1, s?.bounds);
         check('it shows chips and "1 of 6"', s && /1 of 6/.test(s.page.text) && /Where should the coupon field go/.test(s.page.text), s?.page);
