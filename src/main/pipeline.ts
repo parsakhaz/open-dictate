@@ -1,6 +1,6 @@
 // After the recognizer's final: cleanup chain, then the output sink, then history. No Electron imports, so the
 // integration test drives it with a fake sink.
-import { type ChainDeps, type ChainStep, runChain } from '../core/chain';
+import { type ChainDeps, type ChainStep, RELEASE_STEP_MS, runChain } from '../core/chain';
 import { splitPressEnter } from '../core/commands';
 import type { HistoryEntry, HistoryStore } from '../core/history';
 import type { OutputMode, StepResult } from '../core/types';
@@ -83,7 +83,7 @@ export async function finishDictation(raw: string, steps: ChainStep[], mode: Out
   if (!said) return { steps: [] };
   const { text: heard, enter } = deps.pressEnter ? splitPressEnter(said) : { text: said, enter: false };
   if (steps.length) onPhase('cleaning');
-  const cleaned = deps.clean ? await deps.clean(heard) : await runChain(heard, steps, deps.chain, { timeoutMs: deps.stepTimeoutMs ?? 3000, signal: deps.signal });
+  const cleaned = deps.clean ? await deps.clean(heard) : await runChain(heard, steps, deps.chain, { timeoutMs: deps.stepTimeoutMs ?? 3000, signal: deps.signal, capMs: RELEASE_STEP_MS });
   if (deps.signal?.aborted) return { steps: cleaned.steps, cancelled: true };
   for (const s of cleaned.steps) if (s.status !== 'ok') deps.log('warn', `cleanup ${s.model} ${s.status}${s.reason ? `: ${s.reason}` : ''}`);
   // The cleanup may have kept the command as words ("Press Enter."): it never reaches the app as text.

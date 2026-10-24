@@ -30,12 +30,14 @@ Main loads the model once at start-up and shows "loading" in the tray until `rea
 
 - **Segmenter.** A sentence is committed when it ends in `.`, `?` or `!`, the next one has started, and it has stayed unchanged for 300 ms. A fallback commits the tail after 700 ms of silence (`livePauseMs`) once the transcript has been stable for one recognizer chunk. Silence comes from capture levels below −45 dBFS, which main only receives from native capture; on the browser path (macOS, Linux) the levels stay in the pill, so only punctuation commits sentences.
 - **Revisions.** If the recognizer later changes a committed sentence, that sentence and everything after it are withdrawn and their in-flight requests aborted.
-- **Context.** Pieces run one at a time, in order. Each request carries the earlier pieces as prior chat turns, so names stay consistent and llama-server's prompt cache covers them.
+- **Context.** Pieces run one at a time, in order. Each request carries the most recent earlier pieces as prior chat turns, up to 1,600 characters, so names stay consistent and llama-server's prompt cache covers them.
 - **Finish.** At release, early pieces that still match the final transcript are kept; the remainder is cleaned with them as context and everything is joined with spaces. If live cleanup throws, main falls back to cleaning the whole dictation.
 
 ## The cleanup chain
 
 [src/core/chain.ts](../../src/core/chain.ts) runs a list of steps, each cleaning the previous step's output. The settings value `cleanup` is `gemma-emberon`, `gemma`, `emberon` or `off`.
+
+Each step cleans its text in chunks (`chunk`): about 400 characters, never more than 440, cut at sentence ends, and a sentence longer than that at a space. Each chunk is one request, carrying the step's most recent earlier turns as context (up to 1,600 characters, and only as many as fit the 4,096-token context with the output budget). A 10-minute dictation is many small requests, so none outgrows the context.
 
 | Step | Model | System prompt |
 | --- | --- | --- |
@@ -44,7 +46,9 @@ Main loads the model once at start-up and shows "loading" in the tray until `rea
 
 Gemma goes first: in the other order, Emberon mangles names. Requests ([src/core/templating.ts](../../src/core/templating.ts) `chatRequest`) use temperature 0, `cache_prompt`, thinking disabled, and a `max_tokens` sized from the input.
 
-Each step has a time budget: 3 s for anything up to about 250 characters, plus about 15 ms per extra output token, never over 8 s (`stepTimeout`). A server that is not running is skipped; one that is still starting gets up to 12 s to come up.
+Each request has a time budget: 3 s for anything up to about 250 characters, plus about 15 ms per extra output token, never over 8 s (`stepTimeout`). A server that is not running is skipped; one that is still starting gets up to 12 s to come up.
+
+After the key is released, each step gets 2 s in all, its wait for the server included (`RELEASE_STEP_MS`). A chunk not cleaned by then goes out as that step received it. This covers the last piece of live cleanup and the whole-dictation run; the pieces cleaned while the person speaks keep the budgets above.
 
 **A step's output is rejected, and its input kept, when:**
 
@@ -65,6 +69,8 @@ Thresholds are `DEFAULT_GUARD` in [src/core/types.ts](../../src/core/types.ts). 
 - **Warm start.** `Cleanup.sync()` at start-up launches the servers the chain needs, if the binary and GGUF exist, and stops the rest. Changing the chain syncs; changing the server path or models folder replaces the servers. Starting a model download stops them all.
 - **Battery.** On battery, after `batteryUnloadMinutes` (60) without a dictation, both servers are stopped. The next hotkey press (`touch()`) loads them again; the pill says "warming up" until they are ready. `batteryEmberonOnly` optionally drops Gemma while on battery.
 - **Crash restart.** An unexpected exit marks the server `crashed` and retries after 1 s, 2 s, 4 s … up to 30 s; a healthy start resets the count. A launch superseded by `stop()` never claims the server's state.
+- **Failing requests.** After a request fails with a server error or is aborted, main checks `/health`. A server that fails the check, or fails three requests in a row, is restarted. A bad request (HTTP 4xx) does not count.
+- **Background check.** Every 30 s, `Cleanup.heal()` starts a needed server that is not running once its llama-server and GGUF exist (after a runtime swap or a missing file), and restarts one whose binary or model changed on disk (size or modification time). It leaves servers alone while they are stopped on purpose: the battery unload and a model download, until the next sync.
 
 ## Vocabulary
 

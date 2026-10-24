@@ -1,7 +1,10 @@
 // One llama-server per cleanup model (from voice-lab's LlamaServer): spawn, health, one warm-up with the real
-// system prompt, then idle at zero CPU (--poll 0, no polling from us). Restarts itself after a crash.
+// system prompt, then idle at zero CPU (--poll 0, no polling from us). Restarts itself after a crash, a failed
+// health check or repeated server errors.
 import { type ChildProcess, spawn } from 'node:child_process';
+import fs from 'node:fs';
 import net from 'node:net';
+import { CONTEXT_TOKENS } from '../core/chain';
 
 export type Log = (level: 'info' | 'warn' | 'error', msg: string) => void;
 
@@ -33,6 +36,18 @@ export interface LlamaOptions {
 
 export type ServerState = 'stopped' | 'starting' | 'ready' | 'crashed';
 
+/** Requests failing in a row (server errors, not bad requests) before the server is restarted. */
+const MAX_FAILURES = 3;
+
+/** Size and modification time of each file, or undefined when one is missing. */
+function stamp(files: string[]): string | undefined {
+  try {
+    return files.map((f) => { const st = fs.statSync(f); return `${st.size}:${st.mtimeMs}`; }).join('|');
+  } catch {
+    return undefined;
+  }
+}
+
 export function llamaArgs(gguf: string, port: number, ctx: number): string[] {
   return [
     '-m', gguf,
@@ -61,6 +76,9 @@ export class LlamaServer {
   private wanted = false;
   private restarts = 0;
   private restartTimer?: ReturnType<typeof setTimeout>;
+  private failures = 0;
+  /** The binary and model this process was started from (`stamp`). */
+  private launched?: string;
   /** Bumped by every launch and stop: a launch whose generation is stale never claims the server's state. */
   private gen = 0;
   /** Called on every state change, for the tray and settings. */
@@ -125,7 +143,8 @@ export class LlamaServer {
     const current = () => this.wanted && gen === this.gen;
     if (!current()) throw new Error('stopped');
     const t0 = performance.now();
-    const args = llamaArgs(this.opts.gguf, port, this.opts.ctx ?? 4096);
+    this.launched = stamp([this.opts.exe, this.opts.gguf]);
+    const args = llamaArgs(this.opts.gguf, port, this.opts.ctx ?? CONTEXT_TOKENS);
     const proc = (this.opts.spawn ?? spawn)(this.opts.exe, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
     this.proc = proc;
     if (proc.pid) this.opts.adopt?.(proc.pid);
@@ -177,6 +196,7 @@ export class LlamaServer {
     }
     this.port = port;
     this.restarts = 0;
+    this.failures = 0;
     this.set('ready');
   }
 
@@ -194,8 +214,38 @@ export class LlamaServer {
   /** One chat completion; returns the reply's content. */
   async complete(body: Record<string, unknown>, signal?: AbortSignal): Promise<string> {
     if (this.state !== 'ready') throw new Error(`${this.name} is ${this.state}`);
-    const j = await this.post(this.port, body, signal);
-    return j.choices?.[0]?.message?.content ?? '';
+    try {
+      const j = await this.post(this.port, body, signal);
+      this.failures = 0;
+      return j.choices?.[0]?.message?.content ?? '';
+    } catch (err) {
+      // A bad request (a 4xx such as a context overflow) is the request's fault, not the server's.
+      if (!/^HTTP 4\d\d/.test((err as Error).message)) void this.check(signal?.aborted ? this.failures : ++this.failures);
+      throw err;
+    }
+  }
+
+  /** After a failed request: a server that fails its health check, or keeps failing requests, is restarted. */
+  private async check(failures: number): Promise<void> {
+    const proc = this.proc;
+    const port = this.port;
+    const healthy = failures < MAX_FAILURES && (await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(2000) }).then((r) => r.ok, () => false));
+    if (healthy || !proc || this.proc !== proc || this.state !== 'ready') return;
+    this.restart(failures >= MAX_FAILURES ? `${failures} requests failed in a row` : 'health check failed');
+  }
+
+  /** True when the binary or model on disk differs from the one this server runs, and both are there to restart from. */
+  changed(): boolean {
+    if (this.state !== 'ready' || !this.launched) return false;
+    const now = stamp([this.opts.exe, this.opts.gguf]);
+    return now !== undefined && now !== this.launched;
+  }
+
+  /** A fresh process now: the old one is killed and a new one started. */
+  restart(reason: string): void {
+    this.opts.log('warn', `${this.name}: ${reason}; restarting`);
+    this.stop();
+    void this.start().catch(() => undefined);
   }
 
   /** Kills the process (battery unload or quit). start() brings it back. */

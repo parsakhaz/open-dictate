@@ -69,6 +69,7 @@ All of these isolate their data folder and close what they start.
 | Script | What it proves | Needs |
 | --- | --- | --- |
 | `node qa/app-smoke.mjs` | A real WAV through the app's AudioWorklet capture, recognizer, output and history, plus Esc, which keeps the words in history only. Synthetic hotkeys, log output. | `DICTATE_MODELS_DIR` |
+| `node qa/app-smoke.mjs --cleanup` | The same, then Emberon healing by itself: started once a missing llama-server appears, restarted when the binary changes and after a crash. Takes about 2 minutes. | `DICTATE_MODELS_DIR` with Emberon's GGUF, `DICTATE_LLAMA_SERVER` |
 | `node qa/native-smoke.mjs` | Native clipboard, focus, typing and the physical-key hook. | A desktop session (Xvfb on Linux) |
 | `node qa/settings-progress.mjs` | The Settings renderer: Getting started resumes at its step, download progress keeps the buttons, drafts survive state updates. | Nothing |
 | `node qa/first-run.mjs` | The real first-run downloads (about 0.7 GB): cut at 30% and resumed, a full disk refused, then the speed check on real servers. `--gemma` also downloads Gemma and times its chain. | Network |
