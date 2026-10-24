@@ -13,7 +13,7 @@ body {
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
-  padding: 0 24px 32px;
+  padding: 0 24px 20px;
   pointer-events: none;
 }
 .status {
@@ -33,12 +33,12 @@ body {
 /* Away, the status leaves the layout, so a card sits at the bottom. */
 #root:not(.visible) .status {
   position: absolute;
-  bottom: 32px;
+  bottom: 20px;
 }
 /* At the top, everything opens downward from the pill: the hint sits below it, the cards below that. */
 #root[data-position^='top'] {
   flex-direction: column-reverse;
-  padding: 32px 24px 0;
+  padding: 20px 24px 0;
   --rise: -6px;
 }
 #root[data-position^='top'] .status,
@@ -47,7 +47,7 @@ body {
 }
 #root[data-position^='top']:not(.visible) .status {
   bottom: auto;
-  top: 32px;
+  top: 20px;
 }
 /* In a corner, the pill, its cards and extras line up with the screen's side edge. */
 #root[data-position$='left'],

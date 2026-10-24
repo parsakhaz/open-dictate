@@ -39,8 +39,6 @@ export function createPill(): BrowserWindow {
 
 /** The cards' and pill's distance from the window's side edges (pill.css #root padding). */
 const PILL_SIDE = 24;
-/** The window overhangs the work area's edge by this much, so the pill sits 20 px in from it. */
-const PILL_OVERHANG = 12;
 
 let position: PillPosition = 'bottom-center';
 /** Where the pill, and the sheet that opens from it, are placed from now on. */
@@ -55,12 +53,15 @@ function sideX(a: Electron.Rectangle, width: number, inset: number): number {
   return Math.round(a.x + (a.width - width) / 2);
 }
 
-/** At the chosen spot of the display the mouse is on, inside its work area (clear of the taskbar or dock). */
+/**
+ * At the chosen spot of the display the mouse is on, wholly inside its work area (clear of the taskbar or dock):
+ * macOS moves a window that overhangs the screen edge or the menu bar, which would shift the pill under the sheet.
+ */
 export function placePill(w: BrowserWindow): void {
   const a = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
   // QA screenshots of the pill are taken off-screen, out of the person's way.
   const away = process.env.DICTATE_PILL_SHOTS ? -10_000 : 0;
-  const y = position.startsWith('top') ? a.y - PILL_OVERHANG : a.y + a.height - PILL_H + PILL_OVERHANG;
+  const y = position.startsWith('top') ? a.y : a.y + a.height - PILL_H;
   w.setBounds({ x: sideX(a, PILL_W, 0) + away, y, width: PILL_W, height: PILL_H });
 }
 
@@ -72,8 +73,8 @@ export function showPill(w: BrowserWindow): void {
   w.setAlwaysOnTop(true, 'screen-saver');
 }
 
-/** The pill itself and its hint line, at the pill window's screen edge: the sheet opens right beside them. */
-export const PILL_STATUS_H = 76;
+/** From the work area's edge to just past the pill: its 20 px inset (pill.css #root padding), the 40 px pill and a gap. The sheet starts there. */
+export const PILL_STATUS_H = 64;
 
 /**
  * The sheet: the big surfaces' one window (wide decision sheet, round, lineup, docked peek), frameless like the
@@ -113,8 +114,8 @@ export function placeSheet(w: BrowserWindow, size: { width: number; height: numb
   const width = size.width + 2 * SHEET_MARGIN;
   const height = size.height + 2 * SHEET_MARGIN;
   const y = position.startsWith('top')
-    ? a.y - PILL_OVERHANG + PILL_STATUS_H - SHEET_MARGIN
-    : a.y + a.height + PILL_OVERHANG - PILL_STATUS_H - height + SHEET_MARGIN;
+    ? a.y + PILL_STATUS_H - SHEET_MARGIN
+    : a.y + a.height - PILL_STATUS_H - height + SHEET_MARGIN;
   w.setBounds({ x: sideX(a, width, PILL_SIDE - SHEET_MARGIN) + away, y: Math.round(y), width, height });
 }
 

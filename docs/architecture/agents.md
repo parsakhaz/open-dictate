@@ -70,7 +70,7 @@ The **source line** is always Dictate's own words. In Pane it is "<Pane name> ·
 
 ## The sheet window
 
-The pill window is click-through and never takes focus, so the bigger surfaces share one more window: [src/main/sheet.ts](../../src/main/sheet.ts), a frameless window right above the pill with the cards' material. It shows one surface at a time, with a page per kind under [src/renderer/sheet/](../../src/renderer/sheet/): the decision sheet, the lineup grid, the docked peek and the round. It opens without focus when it only shows something, and takes focus when keys must reach it (a round, a lineup, a region to confirm). Esc closes it and leaves its card on the pill.
+The pill window is click-through and never takes focus, so the bigger surfaces share one more window: [src/main/sheet.ts](../../src/main/sheet.ts), a frameless window next to the pill (above it, or below it when the pill is at the top) with the cards' material. It shows one surface at a time, with a page per kind under [src/renderer/sheet/](../../src/renderer/sheet/): the decision sheet, the lineup grid, the docked peek and the round. It opens without focus when it only shows something, and takes focus when keys must reach it (a round, a lineup, a region to confirm). Esc closes it and leaves its card on the pill.
 
 ## Decide and approve
 

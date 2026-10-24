@@ -14,16 +14,16 @@ const setBounds = vi.fn();
 const win = { setBounds } as unknown as BrowserWindow;
 beforeEach(() => setBounds.mockClear());
 
-it('keeps the 600 x 420 pill window at the bottom centre of the work area by default', () => {
+it('keeps the 600 x 420 pill window at the bottom centre of the work area by default, wholly inside it', () => {
   setPillPosition('bottom-center');
   placePill(win);
-  expect(setBounds).toHaveBeenCalledWith({ x: 660, y: 632, width: 600, height: 420 });
+  expect(setBounds).toHaveBeenCalledWith({ x: 660, y: 620, width: 600, height: 420 });
 });
 
 it('puts the pill window in the top right corner of the work area', () => {
   setPillPosition('top-right');
   placePill(win);
-  expect(setBounds).toHaveBeenCalledWith({ x: 1320, y: -12, width: 600, height: 420 });
+  expect(setBounds).toHaveBeenCalledWith({ x: 1320, y: 0, width: 600, height: 420 });
 });
 
 it('opens the sheet below the pill at the top, centred', () => {
