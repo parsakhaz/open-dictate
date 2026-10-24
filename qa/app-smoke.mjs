@@ -1,4 +1,5 @@
-// Full app wiring: real WAV -> AudioWorklet capture -> utility recognizer -> output/history, then Escape.
+// Full app wiring: real WAV -> AudioWorklet capture -> utility recognizer -> output/history, then Escape, which
+// delivers nothing but keeps what was heard in history.
 // Model fixture and synthetic hotkey are declared; this does not prove a physical mic or native shortcut.
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -68,11 +69,13 @@ try {
   await until(() => /capture 2 on .*\(browser\)/.test(readLog()), 'second real browser capture start', 10_000);
   await until(() => /stt partial 2: recognizer activity/.test(readLog()), 'second-session audio decoded by the real recognizer', 15_000);
   fs.appendFileSync(control, 'escape\nup\n');
-  await until(() => /capture 2: cancelled \(browser\)/.test(readLog()) && /stt cancelled 2: [1-9]\d* ms audio discarded/.test(readLog()), 'capture graph and recognizer cancellation completion', 15_000);
-  if (JSON.parse(fs.readFileSync(historyFile, 'utf8')).length !== 1) throw new Error('Cancelled recording was added to history');
-  if ((readLog().match(/QA delivered/g) ?? []).length !== 1 || /stt final 2:/.test(readLog())) throw new Error('Cancelled recording produced a final transcript or output delivery');
+  await until(() => /dictation 2: cancelled with Esc while recording, kept in history/.test(readLog()) && JSON.parse(fs.readFileSync(historyFile, 'utf8')).length === 2, 'cancelled recording kept in history', 15_000);
+  const kept = JSON.parse(fs.readFileSync(historyFile, 'utf8'));
+  if (kept.length !== 2 || !kept[0].raw.trim() || kept[0].text !== kept[0].raw) throw new Error(`Cancelled recording was not kept in history: ${JSON.stringify(kept[0])}`);
+  if ((readLog().match(/QA delivered/g) ?? []).length !== 1) throw new Error('Cancelled recording was delivered');
   result.cancelledRecordingNotDelivered = true;
-  result.cancellationEvidence = { session: 2, captureStarted: true, recognizerDecodedAudio: true, captureClosed: true, recognizerDiscardedAudio: true, outputDeliveries: 1, historyEntries: 1 };
+  result.cancelledTranscript = kept[0].raw;
+  result.cancellationEvidence = { session: 2, captureStarted: true, recognizerDecodedAudio: true, recognizerFinished: /stt final 2:/.test(readLog()), outputDeliveries: 1, historyEntries: 2 };
   result.ok = true;
 } catch (error) { result.error = error.stack ?? String(error); process.exitCode = 1; }
 finally {

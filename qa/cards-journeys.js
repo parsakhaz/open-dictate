@@ -146,8 +146,13 @@ async function main() {
     // 4. The card stays up while the person holds the key to answer it.
     const spoken = claude.call('ask', { question: 'What should the release notes lead with?', timeout_s: 120 });
     await sleep(900);
+    cmd('cards-hover on');
+    await sleep(400);
     cmd('card arm-reply');
-    await sleep(200);
+    await sleep(300);
+    l = await layout();
+    check('reply', 'Hold to reply marks the card armed', (await dump())?.armed && l?.buttons.includes('Hold your key to reply'), l);
+    cmd('cards-hover off');
     const mark = log().length;
     cmd('down');
     await sleep(1500);
@@ -156,6 +161,11 @@ async function main() {
     l = await layout();
     check('reply', 'while the key is held, the card being answered stays on the pill', d?.top?.title === 'What should the release notes lead with?' && !!d.replying, d);
     check('reply', 'the card says it is being answered', l?.replying && /Replying by voice/.test(l.text), l);
+    if (MODELS) {
+      check('reply', 'one dictation uses up Hold to reply', d?.armed === null, d);
+      const p = await qa('pill-dump', /QA pill (.+)\n/);
+      check('reply', 'the pill says which card the words go to', p?.above === 'Answering: What should the release notes lead with?', p);
+    }
     if (MODELS) {
       await sleep(2500);
       cmd('up');
@@ -212,7 +222,8 @@ async function main() {
     check('timing', 'the vocabulary review is still up 7 s later, after the agent disconnected', /^Suggests \d+ terms/.test(v?.top?.title ?? ''), v);
   } finally {
     for (const s of sessions.splice(0)) await s.close();
-    execFileSync('taskkill', ['/PID', String(app.pid), '/T', '/F'], { stdio: 'ignore' });
+    if (process.platform === 'win32') execFileSync('taskkill', ['/PID', String(app.pid), '/T', '/F'], { stdio: 'ignore' });
+    else app.kill('SIGKILL');
     await sleep(1500);
   }
 

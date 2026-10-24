@@ -59,7 +59,7 @@ open-dictate runs the whole thing on your computer: a streaming speech model wri
 
 | | |
 | --- | --- |
-| **Hold to talk, double-tap for hands-free** | Hold your key while you speak. Double-tap to keep listening, tap again to finish. Esc cancels at any point. |
+| **Hold to talk, double-tap for hands-free** | Hold your key while you speak. Double-tap to keep listening, tap again to finish. Esc cancels at any point, and what you said waits in History. |
 | **Live words** | A small pill near the bottom of the screen shows what it hears as you speak, then "Cleaning up…", then "Pasted". It never takes focus. |
 | **Clean text, your words** | Fillers go, punctuation appears, and the names in your vocabulary come out spelled right. If cleanup ever rewrites too much, it keeps what you said. |
 | **History at the cursor** | <img src="docs/media/picker.png" width="420" alt="The history picker"><br>Right Ctrl+V opens everything you've dictated, searchable, pinnable, with the raw transcript one Tab away. |

@@ -23,6 +23,11 @@ let note = '';
 /** The expanded layout's height last asked of main. */
 let fitted = 0;
 
+/** A sheet that opened by itself has no keyboard focus, so its keys reach the app in front until it is clicked. */
+const NO_KEYS = 'Click to use keys';
+addEventListener('focus', () => draw());
+addEventListener('blur', () => draw());
+
 /** How long tiles a sentence filled stay lit, as on the card. */
 const FLASH_MS = 700;
 
@@ -175,7 +180,9 @@ function drawStacked(d: Payload): void {
       {},
       note
         ? h('span.dhint', {}, note)
-        : h('span.dhint', {}, h('kbd', {}, `1–${d.questions[cur].options.length}`), ' pick · ', h('kbd', {}, '↑'), h('kbd', {}, '↓'), ' question · ', h('kbd', {}, 'Enter'), ' send · or hold your key to say it'),
+        : !document.hasFocus()
+          ? h('span.dhint', {}, NO_KEYS)
+          : h('span.dhint', {}, h('kbd', {}, `1–${d.questions[cur].options.length}`), ' pick · ', h('kbd', {}, '↑'), h('kbd', {}, '↓'), ' question · ', h('kbd', {}, 'Enter'), ' send · or hold your key to say it'),
       h(`button.cbtn${complete(d) ? '.primary' : ''}`, { onclick: () => void send('click') }, left ? `Send answers · ${left} left` : 'Send answers'),
     ),
   );
@@ -243,7 +250,9 @@ function draw(): void {
       q.other ? h('button.cbtn.armed', { onclick: () => void armOther(d.cardId, cur) }, 'Other… (hold to say)') : null,
       note
         ? h('span.dhint', {}, note)
-        : h('span.dhint', {}, h('kbd', {}, '↑'), h('kbd', {}, '↓'), ' compare · ', h('kbd', {}, `1–${q.options.length}`), ' pick · ', h('kbd', {}, '←'), h('kbd', {}, '→'), ' question'),
+        : !document.hasFocus()
+          ? h('span.dhint', {}, NO_KEYS)
+          : h('span.dhint', {}, h('kbd', {}, '↑'), h('kbd', {}, '↓'), ' compare · ', h('kbd', {}, `1–${q.options.length}`), ' pick · ', h('kbd', {}, '←'), h('kbd', {}, '→'), ' question'),
       h('button.cbtn', { onclick: () => go(cur + 1) }, 'Skip'),
       h(`button.cbtn${complete(d) ? '.primary' : ''}`, { onclick: () => void send('click') }, left ? `Send answers · ${left} left` : 'Send answers'),
     ),

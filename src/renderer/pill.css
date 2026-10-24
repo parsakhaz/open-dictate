@@ -308,6 +308,9 @@ body {
 .above[data-role='warn'] {
   color: #ffb54c;
 }
+.above[data-role='answering'] {
+  color: var(--accent);
+}
 
 /* ---------- variant B: a waveform-only capsule with the words as a caption above ---------- */
 
