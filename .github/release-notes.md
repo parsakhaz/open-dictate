@@ -1,5 +1,16 @@
 Fully local dictation: hold a key, speak, and clean text appears where you type. Nothing leaves your computer.
 
+## What's new in 0.2.5
+
+Cards stay until you act on them, and they survive a restart ([#52](https://github.com/parsakhaz/open-dictate/pull/52)). Each card shows its choices without hovering, names the agent and project that sent it, and returns your whole answer to the agent ([#53](https://github.com/parsakhaz/open-dictate/pull/53)). The decision round shows every question on a decision card and sends only what you picked ([#48](https://github.com/parsakhaz/open-dictate/pull/48)). A notify card takes a spoken reply ([#49](https://github.com/parsakhaz/open-dictate/pull/49)).
+
+- **Pause cards** for 30 minutes, an hour, or until you resume, from the tray or a shortcut. Agents are also told to ask less ([#51](https://github.com/parsakhaz/open-dictate/pull/51)).
+- **Choose where the pill sits:** bottom center by default, or any corner or top center ([#50](https://github.com/parsakhaz/open-dictate/pull/50)).
+- **Cleanup** finishes within 2 seconds of releasing the key, cleans long dictations in bounded chunks, and restarts its local models by itself when they fail ([#47](https://github.com/parsakhaz/open-dictate/pull/47)).
+- **Dictation:** Esc cancels but keeps the words in History, and the pill shows where your text will go ([#45](https://github.com/parsakhaz/open-dictate/pull/45)).
+- The pill never takes focus from the app you type in, and clicks pass through it except on its controls ([#46](https://github.com/parsakhaz/open-dictate/pull/46)).
+- The mic stays warm while plugged in, Codex notes go to the real `~/.codex`, and the log records each card's lifecycle ([#44](https://github.com/parsakhaz/open-dictate/pull/44)).
+
 ## What's new in 0.2.4
 
 The decision round no longer listens on its own. Hold your dictation key to answer the card in front of you; the round then waits on the next card until you hold the key again ([#42](https://github.com/parsakhaz/open-dictate/pull/42)). Dictate's own text is shorter across cards, sheets, Settings and onboarding ([#43](https://github.com/parsakhaz/open-dictate/pull/43)).
