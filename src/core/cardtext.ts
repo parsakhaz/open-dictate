@@ -1,6 +1,8 @@
 // The little Markdown agents write, read for the pill. Titles are plain; messages keep bold, italic and inline code
 // as styled runs and lose every other mark. The result is text and styles only: the pill builds it as DOM text nodes,
-// never as HTML, so a tag in the input is shown as the characters it is. Pure.
+// never as HTML, so a tag in the input is shown as the characters it is. Cuts to fit happen after the marks are read,
+// so a cut never leaves a raw mark behind. Pure.
+import { type Clean, cleanText, cutWords } from './agenttext';
 
 export interface Run {
   text: string;
@@ -72,4 +74,35 @@ export function plainTitle(md: string): string {
     .map((l) => plainInline(l.replace(LINE_MARK, '').replace(LINK, '$1')).trim())
     .filter(Boolean)
     .join(' ');
+}
+
+/** An agent's title, or any text shown on one line: cleaned and plain, cut on a word at `cap` characters. */
+export function fitPlain(input: unknown, cap: number): Clean {
+  return cutWords(plainTitle(cleanText(input, Number.POSITIVE_INFINITY).text), cap);
+}
+
+/** The message as styled lines, cut on a word at `cap` characters of shown text, its styles kept up to the cut. */
+export function fitMessage(md: string, cap: number): { lines: Run[][]; truncated: boolean } {
+  const lines = messageLines(md);
+  const cut = cutWords(lines.map((l) => l.map((r) => r.text).join('')).join('\n'), cap);
+  if (!cut.truncated) return { lines, truncated: false };
+  let left = [...cut.text].length - 1;
+  const out: Run[][] = [];
+  for (const line of lines) {
+    const kept: Run[] = [];
+    for (const r of line) {
+      const chars = [...r.text];
+      if (left <= 0) break;
+      kept.push({ ...r, text: chars.slice(0, left).join('') });
+      left -= chars.length;
+    }
+    out.push(kept);
+    if (left <= 0) break;
+    left -= 1;
+  }
+  const last = out.at(-1) as Run[];
+  const end = last.at(-1);
+  if (end && !end.style) end.text += '…';
+  else last.push({ text: '…' });
+  return { lines: out, truncated: true };
 }

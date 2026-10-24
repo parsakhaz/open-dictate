@@ -2,7 +2,9 @@
 // one card with its choices as numbered tiles (a decision's questions each with theirs, an approval's plan), the line
 // on holding the dictation key, and the key legend. Keys: 1–4 choose (on a decision, for the first question without a
 // pick), Enter does what its button names, S snooze, → skip, Esc ends the round. Everything is plain text in elements.
-import { messageLines, plainTitle } from '../../core/cardtext';
+import { cutWords } from '../../core/agenttext';
+import { CAPS } from '../../core/agenttools';
+import { fitMessage, plainTitle } from '../../core/cardtext';
 import { dictate, h } from '../bridge';
 import type { SheetPage } from './types';
 
@@ -30,7 +32,7 @@ interface Payload {
 
 const send = (name: string, ...args: unknown[]) => void dictate.invoke(`dictate:inbox:${name}`, ...args);
 const kbd = (k: string) => h('kbd', {}, k);
-const tile = (n: number, label: string, cls: string, onclick: () => void) => h(`button.rtile${cls}`, { onclick }, h('span.num', {}, String(n)), h('span.lab', {}, label));
+const tile = (n: number, label: string, cls: string, onclick: () => void) => h(`button.rtile${cls}`, { onclick }, h('span.num', {}, String(n)), h('span.lab', {}, cutWords(label, CAPS.choice).text));
 
 /** A decision's questions, each with its options; picked tiles are lit, and the first question without a pick takes the number keys. */
 function questions(qs: NonNullable<Payload['card']['questions']>): HTMLElement {
@@ -70,7 +72,7 @@ function sayable(p: Payload): (string | HTMLElement)[] {
 
 function message(md: string): HTMLElement {
   const el = h('div.msg');
-  messageLines(md).forEach((line, i) => {
+  fitMessage(md, CAPS.message).lines.forEach((line, i) => {
     if (i) el.append('\n');
     for (const r of line) el.append(r.style === 'b' ? h('strong', {}, r.text) : r.style === 'i' ? h('em', {}, r.text) : r.style === 'code' ? h('code', {}, r.text) : r.text);
   });

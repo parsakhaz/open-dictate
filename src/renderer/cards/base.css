@@ -122,6 +122,11 @@
   gap: 6px;
   margin-top: 7px;
 }
+/* An ask's choices, shown at rest, stay last: the card grows upward, so rows added on hover open above them and the
+   chips never move under the pointer. */
+.crow.chips {
+  order: 1;
+}
 .cbtn {
   border: 1px solid var(--stroke-strong);
   background: var(--card);

@@ -1,5 +1,5 @@
-// Off-screen journeys for the agent cards on the pill (issue #9): a click on a choice answers the ask, the card shows
-// its whole title and message, eased open and capped, it stays up while a voice reply is held, and info cards last
+// Off-screen journeys for the agent cards on the pill (issue #9): an ask shows its choices at rest and a click on one
+// answers it with the agent's own string, the card shows its title and message, eased open, capped and cut on a word, it stays up while a voice reply is held, and info cards last
 // about 4.5 s (longer while hovered) while the vocabulary review stays until handled. The real app on a throwaway
 // profile, agents simulated by the real MCP bridge; clicks are input events sent into the pill page and the key is
 // the QA control file, so the OS pointer and keyboard are never touched.
@@ -57,6 +57,17 @@ async function qa(line, re) {
 }
 const dump = () => qa('cards-dump', /QA cards (.+)\n/);
 const layout = () => qa('card-layout', /QA card-layout (.+)\n/);
+/** The layout once the card has stopped easing to its height. */
+async function settledLayout() {
+  let last = await layout();
+  for (let i = 0; i < 20; i++) {
+    await sleep(150);
+    const next = await layout();
+    if (next && last && next.cardHeight === last.cardHeight) return next;
+    last = next;
+  }
+  return last;
+}
 
 async function shot(name) {
   const file = path.join(SHOTS, `a-${name}.png`);
@@ -84,14 +95,19 @@ async function main() {
     const message = 'The schema change adds two columns and backfills them. Staging has a copy of last week’s data; prod has the real traffic.';
     const ask = claude.call('ask', { question: title, message, choices: ['Staging', 'Prod', 'Both', 'Neither'], timeout_s: 120 });
     await sleep(900);
+    let l = await settledLayout();
     await shot('01-ask-at-rest');
-    let l = await layout();
+    const rest = l;
     check('glance', 'at rest the whole title shows, with the message', l && !l.titleClipped && l.text.includes(title) && l.text.includes('backfills'), l);
+    check('glance', 'the source line names the agent, then the folder', l?.text.startsWith('Claude · docs'), l?.text);
+    check('glance', 'at rest the choices show, and Hold to reply waits for hover', l && JSON.stringify(l.buttons) === JSON.stringify(['Staging', 'Prod', 'Both', 'Neither']), l);
     cmd('cards-hover on');
     await sleep(600);
+    l = await settledLayout();
     await shot('02-ask-hovered');
-    l = await layout();
-    check('glance', 'hovered, the choices show under the whole title', l && !l.titleClipped && ['Staging', 'Prod', 'Both', 'Neither'].every((c) => l.buttons.includes(c)), l);
+    check('glance', 'hovered, Hold to reply and Snooze join the choices under the whole title', l && !l.titleClipped && ['Staging', 'Prod', 'Both', 'Neither', 'Hold to reply'].every((c) => l.buttons.includes(c)) && l.buttons.some((b) => /Snooze/.test(b)), l);
+    const y = (layout, label) => layout?.shown.find((b) => b.label === label)?.y;
+    check('glance', 'hovering moves no choice under the pointer and grows the card by at most two rows', rest && l && y(rest, 'Prod') === y(l, 'Prod') && l.cardHeight - rest.cardHeight <= 80, { rest: rest?.cardHeight, hovered: l?.cardHeight, at: [y(rest, 'Prod'), y(l, 'Prod')] });
     const click = await qa('card-click Prod', /QA card-click "Prod" (.+)\n/);
     check('click', 'the centre of the "Prod" button is the button itself', click?.hit === 'button', click);
     const answer = await Promise.race([ask, sleep(3000).then(() => null)]);
@@ -115,6 +131,31 @@ async function main() {
       cmd('cards-hover off');
       await sleep(400);
     }
+
+    // Choices show up to 40 characters, cut on a word, and a click returns the agent's whole string.
+    const whole = 'Virginia (US east, cheaper, slower to reach from Europe)';
+    const region = claude.call('ask', { question: 'Which region should the new database live in?', choices: ['Virginia (US east, cheaper)', whole], timeout_s: 60 });
+    await sleep(900);
+    await shot('09-long-choices');
+    l = await layout();
+    check('choices', 'a 27-character choice shows whole, a longer one is cut on a word at 40', l?.buttons.includes('Virginia (US east, cheaper)') && l.buttons.includes('Virginia (US east, cheaper, slower to…'), l);
+    const cutClick = await qa('card-click Virginia (US east, cheaper, slower to…', /QA card-click "Virginia \(US east, cheaper, slower to…" (.+)\n/);
+    check('choices', 'the cut choice takes the click', cutClick?.hit === 'button', cutClick);
+    const picked = await Promise.race([region, sleep(3000).then(() => null)]);
+    check('choices', "clicking the cut choice returns the agent's whole string", picked?.result?.choice === whole && picked.result.text === whole, picked);
+    if (!picked) cmd('card dismiss');
+    await sleep(400);
+
+    // A title and message cut after their Markdown is read: on a word, with no mark left behind.
+    const marked = claude.call('notify', { urgency: 'needs_you', title: '**Production** deploy is blocked by a failing migration on the billing service tonight', message: `${'The billing migration adds a column and backfills it. '.repeat(4)}**Rolling it back drops the new column and every value written to it since the deploy.**` });
+    await sleep(900);
+    await shot('10-markdown-cut');
+    l = await layout();
+    check('cut', 'the title is cut on a word after its marks are gone', l?.text.includes('Production deploy is blocked by a failing migration on the…') && !l.text.includes('**'), l);
+    check('cut', 'the message is cut on a word inside its bold run, still bold', l?.styled.some((x) => /^strong:Rolling it back .*\S$/.test(x)) && /\S…/.test(l.text.split('\n').slice(1).join('\n')), l);
+    cmd('card dismiss');
+    await marked;
+    await sleep(400);
 
     // Markdown: bold, italic and code styled; other marks dropped; HTML shown as its characters.
     const md = claude.call('ask', { question: '## **Ship** the `v2` API?', message: '**Breaking:** renames `user_id`.\n- see [the plan](https://example.com)\n- <img src=x onerror=alert(1)> stays *text*', timeout_s: 60 });

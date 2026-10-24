@@ -47,7 +47,7 @@ export interface SavedHub {
 
 export interface Source {
   line: string;
-  /** Short enough for a round's chip: the Pane tab, the session a remote agent named, or the agent. */
+  /** The round's chip: the same "<agent> · <project>" line. */
   name: string;
   detail?: string;
   /** The Pane tab to open and reply to, when the session is inside one Dictate could find. */
@@ -56,6 +56,7 @@ export interface Source {
 
 export interface TabInfo {
   paneName: string;
+  repoName?: string;
   panelTitle?: string;
   agentType?: string;
 }
@@ -404,22 +405,22 @@ export class AgentHub {
     }
   }
 
-  /** Where a session really is: its Pane tab when Pane knows it, else its client and folder. */
+  /** Where a session really is, as "<agent> · <project>": its Pane tab when Pane knows it, else its folder. The round's chips use the same line. */
   async source(session: HubSession): Promise<Source> {
-    const agent = clientSourceLine(session.client, '');
     if (session.origin) {
       const o = session.origin;
-      return { line: [o.machine, o.agent, o.workspace].filter(Boolean).join(' · ') || o.id, name: cleanText(o.id, 40).text || agent, detail: 'Claimed remote origin', target: null };
+      const line = o.agent || o.workspace ? clientSourceLine({ name: o.agent || session.client.name, title: o.agent ? undefined : session.client.title }, o.workspace ?? '') : cleanText(o.id, 60).text;
+      return { line, name: line, detail: ['Claimed remote origin', cleanText(o.machine, 40).text].filter(Boolean).join(' · '), target: null };
     }
     if (session.pane) {
       const tab = await this.deps.pane.tab(session.pane.sessionId, session.pane.panelId).catch(() => null);
       if (tab) {
-        const line = paneSourceLine(tab.paneName, tab.panelTitle, tab.agentType);
-        return { line, name: line.split(' · ').pop() ?? agent, target: { paneId: session.pane.sessionId, panelId: session.pane.panelId } };
+        const line = paneSourceLine(tab, session.client);
+        return { line, name: line, target: { paneId: session.pane.sessionId, panelId: session.pane.panelId } };
       }
-      return { line: `Pane tab · ${agent}`, name: agent, target: null };
     }
-    return { line: clientSourceLine(session.client, session.cwd), name: agent, target: null };
+    const line = clientSourceLine(session.client, session.cwd);
+    return { line, name: line, target: null };
   }
 
   private add(card: Card): AddResult {
@@ -694,7 +695,7 @@ export class AgentHub {
     if (a.type === 'finished' && this.deps.pane.inFront()) return;
     const epoch = this.paneEpoch;
     const tab = await this.deps.pane.tab(a.paneId, a.panelId).catch(() => null);
-    const message = a.message ?? cleanMessage(await this.deps.pane.lastMessage(a.panelId).catch(() => null), CAPS.message).text;
+    const message = a.message ?? cleanMessage(await this.deps.pane.lastMessage(a.panelId).catch(() => null), CAPS.kept).text;
     if (epoch !== this.paneEpoch) return;
     const blocked = a.type === 'blocked';
     this.add({
@@ -703,7 +704,7 @@ export class AgentHub {
       origin: 'pane',
       kind: blocked ? 'pane-blocked' : 'pane-ready',
       urgency: blocked ? 'needs_you' : 'info',
-      source: tab ? paneSourceLine(tab.paneName, tab.panelTitle, tab.agentType) : 'Pane tab',
+      source: tab ? paneSourceLine(tab) : 'Pane tab',
       title: a.title ?? (blocked ? WORDS.blocked : WORDS.finished),
       message,
       action: blocked ? 'reply' : null,

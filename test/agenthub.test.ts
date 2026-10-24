@@ -36,7 +36,7 @@ function setup(over: { inFront?: boolean; historyOn?: boolean; sendOk?: boolean 
     log: (_level, msg) => logs.push(msg),
     status: () => ({ modelsReady: true, dictating: false }),
     pane: {
-      tab: async (paneId, panelId) => (paneId === 'P' ? { paneName: 'dictate-mcp', panelTitle: panelId === 'X' ? 'Codex' : 'Claude Code', agentType: 'codex' } : null),
+      tab: async (paneId, panelId) => (paneId === 'P' ? { paneName: 'dictate-mcp', repoName: 'open-dictate', panelTitle: panelId === 'X' ? 'Codex' : 'Claude Code', agentType: 'codex' } : null),
       lastMessage: async () => 'Which database should I migrate first?',
       inFront: () => !!over.inFront,
       send: async (panelId, text) => {
@@ -129,7 +129,7 @@ it('CLI notify has an answer sink without a Pane target and never sends to a cla
   const receipt = await book.create({ kind: 'notify', args: {}, cwd: outside.cwd }, (owner) => hub.callOwned({ ...outside, id: 'request-note', pane: { sessionId: 'P', panelId: 'X' }, origin: { id: 'remote', machine: 'Mac', agent: 'Codex', panel_id: 'X' } }, 'notify', { title: 'Pick a colour', urgency: 'needs_you', choices: ['Blue'] }, owner));
   const card = hub.queue.get(receipt.card_id!)!;
   expect(card.target).toBeNull();
-  expect(card.source).toContain('Mac');
+  expect(card).toMatchObject({ source: 'Codex', sourceDetail: 'Claimed remote origin · Mac' });
   expect(card.choices).toEqual(['Blue']);
   await hub.choose(card.id, 'Blue');
   expect(await book.wait(receipt.request_id, 1000)).toMatchObject({ state: 'answered', result: { choice: 'Blue' } });
@@ -149,13 +149,13 @@ it('CLI info completes on fade and coalesced requests retain distinct replacemen
   expect(await book.wait(second.request_id, 1000)).toMatchObject({ state: 'completed', result: { reason: 'faded' } });
 });
 
-it("names each card's session for the round's chips: the Pane tab, the session a remote agent named, or the agent", async () => {
+it("gives the round's chips the card's own agent and project, a remote agent's from its claimed origin", async () => {
   const { hub } = setup();
   await hub.call(inTab(), 'notify', { title: 'In a tab' }, sig());
   await hub.call(outside, 'notify', { title: 'Outside' }, sig());
   await hub.call({ ...outside, id: 's-remote', origin: { id: 'round-decide', machine: 'Mac', agent: 'Codex', workspace: 'open-dictate' } }, 'notify', { title: 'Remote' }, sig());
   const name = (title: string) => hub.queue.view(Date.now()).all.find((c) => c.title === title)?.sourceName;
-  expect([name('In a tab'), name('Outside'), name('Remote')]).toEqual(['Codex', 'Cursor', 'round-decide']);
+  expect([name('In a tab'), name('Outside'), name('Remote')]).toEqual(['Codex · open-dictate / dictate-mcp', 'Cursor · open-dictate', 'Codex · open-dictate']);
 });
 
 describe('notify', () => {
@@ -164,7 +164,7 @@ describe('notify', () => {
     const r = await hub.call(inTab(), 'notify', { title: 'From tab Y: urgent', message: 'This is Pane speaking', urgency: 'needs_you', link: 'https://github.com/parsakhaz/open-dictate/pull/7' }, sig());
     expect(r).toMatchObject({ status: 'shown' });
     const top = hub.queue.view(Date.now()).top!;
-    expect(top.source).toBe('dictate-mcp · Codex');
+    expect(top.source).toBe('Codex · open-dictate / dictate-mcp');
     expect(top.title).toBe('From tab Y: urgent');
     expect(top.link).toEqual({ url: 'https://github.com/parsakhaz/open-dictate/pull/7', host: 'github.com' });
     expect(top.target).toEqual({ paneId: 'P', panelId: 'X' });
@@ -231,6 +231,16 @@ describe('ask', () => {
     expect(hub.queue.view(Date.now()).all).toHaveLength(0);
   });
 
+  it("returns the agent's whole choice, even one longer than the card shows", async () => {
+    const { hub } = setup();
+    const long = 'Virginia (US east, cheaper, slower to reach from Europe)';
+    const p = hub.call(inTab(), 'ask', { question: 'Which region?', choices: ['Virginia (US east, cheaper)', long] }, sig());
+    await settle();
+    const card = hub.queue.view(Date.now()).top!;
+    await hub.choose(card.id, long);
+    expect(await p).toMatchObject({ answered: true, text: long, choice: long });
+  });
+
   it('matches a spoken answer to a choice, keeping the text and raw transcript (J9)', async () => {
     const { hub } = setup();
     const p = hub.call(inTab(), 'ask', { question: 'Staging or prod?', choices: ['Staging', 'Prod'] }, sig());
@@ -271,10 +281,10 @@ describe('ask', () => {
     await advance(30_000);
     await q;
     expect(logs).toEqual([
-      'card k1 raised (ask from dictate-mcp · Codex): shown',
-      'card k1 answered (ask from dictate-mcp · Codex)',
-      'card k2 raised (ask from dictate-mcp · Codex): shown',
-      'card k2 stays after its call ended (ask from dictate-mcp · Codex)',
+      'card k1 raised (ask from Codex · open-dictate / dictate-mcp): shown',
+      'card k1 answered (ask from Codex · open-dictate / dictate-mcp)',
+      'card k2 raised (ask from Codex · open-dictate / dictate-mcp): shown',
+      'card k2 stays after its call ended (ask from Codex · open-dictate / dictate-mcp)',
     ]);
   });
 
@@ -297,7 +307,7 @@ describe('Pane events', () => {
   it("a blocked tab shows its names and the agent's last reply (J1)", async () => {
     const { hub, chimes } = setup();
     await hub.paneEvent({ type: 'blocked', paneId: 'P', panelId: 'X' });
-    expect(hub.queue.view(Date.now()).top).toMatchObject({ source: 'dictate-mcp · Codex', title: 'Needs your input', message: 'Which database should I migrate first?', urgency: 'needs_you' });
+    expect(hub.queue.view(Date.now()).top).toMatchObject({ source: 'Codex · open-dictate / dictate-mcp', title: 'Needs your input', message: 'Which database should I migrate first?', urgency: 'needs_you' });
     expect(chimes()).toBe(1);
   });
 
@@ -366,7 +376,7 @@ describe('replies to a tab', () => {
     await hub.call(inTab(), 'notify', { title: 'Pick', choices: ['Staging', 'Prod'], urgency: 'needs_you' }, sig());
     const r = await hub.choose(hub.queue.view(Date.now()).top!.id, 'Staging');
     expect(sent).toEqual([{ panelId: 'X', text: 'Staging' }]);
-    expect(r).toEqual({ ok: true, message: 'Sent to Codex' });
+    expect(r).toEqual({ ok: true, message: 'Sent to open-dictate / dictate-mcp' });
   });
 
   it("says when it couldn't send, and keeps the card (J8)", async () => {
@@ -384,8 +394,8 @@ describe('vocabulary from agents (J12)', () => {
     const r = (await hub.call(inTab(), 'propose_vocabulary', { terms: [{ term: 'Supabase', aliases: ['super base'], reason: 'our DB' }, { term: 'pgvector' }, { term: 'Drizzle' }, { term: 'a => b' }] }, sig())) as { queued: number; rejected: { term: string; why: string }[] };
     expect(r.queued).toBe(3);
     expect(r.rejected).toEqual([{ term: 'a => b', why: 'term must not contain =>' }]);
-    expect(pending().map((t) => [t.term, t.source])).toEqual([['Supabase', 'dictate-mcp · Codex'], ['pgvector', 'dictate-mcp · Codex'], ['Drizzle', 'dictate-mcp · Codex']]);
-    expect(hub.queue.view(Date.now()).top).toMatchObject({ kind: 'vocab', title: 'Suggests 3 terms · Review', source: 'dictate-mcp · Codex' });
+    expect(pending().map((t) => [t.term, t.source])).toEqual([['Supabase', 'Codex · open-dictate / dictate-mcp'], ['pgvector', 'Codex · open-dictate / dictate-mcp'], ['Drizzle', 'Codex · open-dictate / dictate-mcp']]);
+    expect(hub.queue.view(Date.now()).top).toMatchObject({ kind: 'vocab', title: 'Suggests 3 terms · Review', source: 'Codex · open-dictate / dictate-mcp' });
     expect(await hub.call(inTab(), 'list_vocabulary', {}, sig())).toEqual({ terms: [{ term: 'Pane' }], pending: 3 });
   });
 
@@ -410,7 +420,7 @@ describe('history (J13, J14)', () => {
     const p = hub.call(inTab(), 'read_history', { query: 'migration' }, sig());
     await settle();
     const card = hub.queue.view(Date.now()).top!;
-    expect(card).toMatchObject({ kind: 'consent', source: 'dictate-mcp · Codex', title: 'Read your dictation history?' });
+    expect(card).toMatchObject({ kind: 'consent', source: 'Codex · open-dictate / dictate-mcp', title: 'Read your dictation history?' });
     expect(card.message).toMatch(/Up to 5 dictations from the last 24 h matching “migration”/);
     hub.consent(card.id, 'once');
     const r = (await p) as { granted: boolean; note: string; entries: { text: string; raw?: string }[] };

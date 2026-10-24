@@ -1,7 +1,8 @@
 // decide: one to four questions in one grown card, answered by click, number keys or one spoken sentence. The
 // definition, and the checks that turn an agent's arguments into something the card may show. Pure.
 import { cleanText } from '../agenttext';
-import { ASK_TIMEOUT, CARD_RULE, ToolInputError } from '../agenttools';
+import { ASK_TIMEOUT, CARD_RULE, CAPS, cardMessage, ToolInputError } from '../agenttools';
+import { fitPlain } from '../cardtext';
 import type { ToolModule } from './types';
 
 export const DECIDE_CAPS = { questions: 4, options: 4, header: 12, question: 120, label: 24, description: 80, preview: 1200, id: 40 } as const;
@@ -117,9 +118,9 @@ export function cleanPreview(input: unknown): Preview | null {
 
 export function parseDecide(input: unknown): DecideArgs {
   const a = obj(input);
-  const title = cleanText(a.title, 60);
+  const title = fitPlain(a.title, CAPS.title);
   if (!title.text) throw new ToolInputError('decide needs a title');
-  const message = cleanText(a.message, 280);
+  const message = cardMessage(a.message);
   let truncated = title.truncated || message.truncated;
   if (!Array.isArray(a.questions) || a.questions.length < 1) throw new ToolInputError('decide needs one to four questions');
   if (a.questions.length > DECIDE_CAPS.questions) throw new ToolInputError('decide takes at most four questions; ask the rest in a second call');

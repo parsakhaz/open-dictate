@@ -344,6 +344,7 @@ module.exports = {
         s = await sheet();
         const back = await layout();
         check('Shrink closes the sheet and the compact card is back', s && !s.open && back && back.text.includes(FOUR.title), { s, back });
+        check('the compact card scrolls, and Send stays in view', back?.bodyScrolls && back.shown.find((x) => x.label === 'Send answers')?.inView, back);
         check('shrinking is saved in settings', (await savedExpanded(ctx, false))?.expanded === false);
         await shot('l1-j5-shrunk');
         await click(ctx, 'Production');

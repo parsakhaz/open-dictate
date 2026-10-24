@@ -13,13 +13,20 @@ export interface Clean {
   truncated: boolean;
 }
 
-/** Escape codes, control and bidi characters and HTML tags removed, whitespace collapsed, cut at `cap` characters. */
+/** Escape codes, control and bidi characters and HTML tags removed, whitespace collapsed, cut on a word at `cap` characters. */
 export function cleanText(input: unknown, cap: number): Clean {
   if (typeof input !== 'string') return { text: '', truncated: false };
-  const s = input.replace(ANSI, '').replace(TAG, ' ').replace(CONTROL, ' ').replace(/\s+/g, ' ').trim();
+  return cutWords(input.replace(ANSI, '').replace(TAG, ' ').replace(CONTROL, ' ').replace(/\s+/g, ' ').trim(), cap);
+}
+
+/** Cut at `cap` characters, "…" included, at the last space when that keeps at least half of it. */
+export function cutWords(s: string, cap: number): Clean {
   const chars = [...s];
   if (chars.length <= cap) return { text: s, truncated: false };
-  return { text: `${chars.slice(0, cap - 1).join('').trimEnd()}…`, truncated: true };
+  const head = chars.slice(0, cap - 1).join('');
+  const space = Math.max(head.lastIndexOf(' '), head.lastIndexOf('\n'));
+  const kept = space >= head.length / 2 ? head.slice(0, space) : head;
+  return { text: `${kept.trimEnd()}…`, truncated: true };
 }
 
 /**
@@ -32,10 +39,7 @@ export function cleanMessage(input: unknown, cap: number): Clean {
     .replace(ANSI, '')
     .split(/\r\n|\r|\n/)
     .map((l) => l.replace(CONTROL, ' ').replace(/\s+/g, ' ').trim());
-  const s = lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
-  const chars = [...s];
-  if (chars.length <= cap) return { text: s, truncated: false };
-  return { text: `${chars.slice(0, cap - 1).join('').trimEnd()}…`, truncated: true };
+  return cutWords(lines.join('\n').replace(/\n{3,}/g, '\n\n').trim(), cap);
 }
 
 /** A link a card may offer: https only, shown by its host name, opened only on a click. */

@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { paneSourceLine } from '../src/core/panewatch';
 import { PaneLink } from '../src/main/panelink';
 import { VoiceOrchestrator } from '../src/main/voiceorch';
 
@@ -154,9 +155,10 @@ describe('VoiceOrchestrator', { timeout: 30_000 }, () => {
 });
 
 describe('PaneLink Session names', { timeout: 30_000 }, () => {
-  it('a Session chat, which panes list leaves out, reads "Session · <name>"', async () => {
+  it('a Session chat, which panes list leaves out, reads "Session / <name>"', async () => {
     const t = setup({ panes: [{ id: 'P', name: 'dictate', panels: [] }], sessions: [existing()], panels: {} });
-    expect(await t.pane.tabNames('S1terminal', 'S1-claude')).toEqual({ paneId: 'S1terminal', paneName: 'Session', panelTitle: 'Voice' });
+    const tab = await t.pane.tabNames('S1terminal', 'S1-claude');
+    expect(tab && paneSourceLine(tab, { name: 'claude-code' })).toBe('Claude · Session / Voice');
     expect(await t.pane.tabNames('nowhere', 'nothing')).toBeNull();
   });
 });

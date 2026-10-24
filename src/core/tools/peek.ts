@@ -2,8 +2,9 @@
 // person points at and talks over. The definition, its arguments, which pages it may show and where they may go.
 // The handler lives with the feature (src/main/features/peek.ts). Pure.
 import path from 'node:path';
-import { cleanMessage, cleanText } from '../agenttext';
-import { ASK_TIMEOUT, CARD_RULE, ToolInputError } from '../agenttools';
+import { cleanText } from '../agenttext';
+import { ASK_TIMEOUT, CARD_RULE, CAPS, cardMessage, ToolInputError } from '../agenttools';
+import { fitPlain } from '../cardtext';
 import { obj } from '../sections/fields';
 import type { ToolModule } from './types';
 
@@ -44,10 +45,10 @@ export interface PeekArgs {
 
 export function parsePeekArgs(input: unknown): PeekArgs {
   const a = obj(input);
-  const title = cleanText(a.title, 60);
+  const title = fitPlain(a.title, CAPS.title);
   if (!title.text) throw new ToolInputError('peek needs a title');
   if (typeof a.target !== 'string' || !a.target.trim()) throw new ToolInputError('peek needs a target: a localhost URL, an allowed https URL or a local .html path');
-  const message = cleanMessage(a.message, 280);
+  const message = cardMessage(a.message);
   const ask = cleanText(a.ask, 120);
   const t = typeof a.timeout_s === 'number' && Number.isFinite(a.timeout_s) ? a.timeout_s : ASK_TIMEOUT.maxS;
   return {

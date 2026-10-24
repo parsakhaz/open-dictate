@@ -2,6 +2,7 @@
 // turn an agent's arguments into something the card may show. Pure.
 import { cleanText, safeLink } from '../agenttext';
 import { ASK_TIMEOUT, CARD_RULE, ToolInputError } from '../agenttools';
+import { fitPlain } from '../cardtext';
 import type { ToolModule } from './types';
 
 export const APPROVE_CAPS = { title: 60, lines: 6, line: 100 } as const;
@@ -42,7 +43,7 @@ export interface ApproveArgs {
 
 export function parseApprove(input: unknown): ApproveArgs {
   const a = input && typeof input === 'object' && !Array.isArray(input) ? (input as Record<string, unknown>) : {};
-  const title = cleanText(a.title, APPROVE_CAPS.title);
+  const title = fitPlain(a.title, APPROVE_CAPS.title);
   if (!title.text) throw new ToolInputError('approve needs a title');
   let truncated = title.truncated;
   const summary: string[] = [];

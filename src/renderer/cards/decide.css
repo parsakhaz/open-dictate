@@ -215,6 +215,15 @@
   padding-top: 9px;
   border-top: 1px solid var(--divider);
 }
+/* Send stays in view while the questions scroll under it, and whatever scrolls into view stops above it. */
+.card[data-kind='decide'] .cbody {
+  scroll-padding-bottom: 44px;
+}
+.card[data-kind='decide'] .dfoot {
+  position: sticky;
+  bottom: 0;
+  background: rgb(32, 32, 32);
+}
 
 /* ---------- the person's words: as they come, then the 2 s countdown ---------- */
 
