@@ -1,11 +1,14 @@
-// L2 · Inbox, flow guard, round and snooze: J5 flow guard, J6 decision round, J7 snooze, J8 snoozed ask, J10 notify replies.
-// J9 (snooze settings across a restart) is covered by the settings tests; this harness runs one launch.
+// L2 · Inbox, flow guard, round and snooze: J5 flow guard, J6 decision round, J7 snooze, J8 snoozed ask, J10 notify
+// replies, J11 how long cards last (order, timeout, Esc with Undo, the earlier list, the pulse), J12 opening a card in
+// Pane, J13 the count under a decision sheet. J9 (snooze settings across a restart) is covered by the settings tests,
+// and cards across a restart by qa/restart-journey.js; this harness runs one launch.
 // Typing is simulated with `inbox keydown` (a key-down's time, as the hook reports it); time for snoozes moves with
 // `inbox clock <s>`; round keys and spoken commands go through `inbox key` and `inbox say` (no speech model needed); with the speech model
 // the round is also answered by holding the dictation key while the fake mic plays.
 
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const fakePane = require('./l3-fake-runpane.cjs');
 const { ELECTRON } = require('../agent-bridge');
 
 const INBOX = /QA inbox (\{.*\})\r?\n/;
@@ -82,7 +85,7 @@ module.exports = {
     },
     {
       id: 'J7',
-      name: 'snooze: chips, toast, badge and shelf; the card comes back; the shortcut steps 3 → 5',
+      name: 'snooze: one button, toast, badge and shelf; the card comes back; each snooze of it is longer, 3 → 5 → 10',
       async run(ctx) {
         const { session, cmd, qa, cards, shot, sleep, check } = ctx;
         await clear(ctx);
@@ -93,14 +96,14 @@ module.exports = {
         cmd('cards-hover on');
         await sleep(500);
         const hovered = await qa('inbox pill none', PILL);
-        check('an expanded card carries the snooze chips 3m 5m 10m', hovered && JSON.stringify(hovered.chips) === JSON.stringify(['3m', '5m', '10m']), hovered);
-        await shot('l2-j7-chips');
-        const clicked = await qa('inbox pill chip 5', PILL);
-        check('clicking 5m takes the card away', clicked?.clicked === true, clicked);
+        check('an expanded card carries one Snooze button, for 3 min', hovered && hovered.chips.length === 1 && /Snooze 3 min/.test(hovered.chips[0]), hovered);
+        await shot('l2-j7-snooze-button');
+        const clicked = await qa('inbox pill snooze', PILL);
+        check('clicking it takes the card away', clicked?.clicked === true, clicked);
         cmd('cards-hover off');
         await sleep(400);
         const after = await qa('inbox pill none', PILL);
-        check('the toast says "Snoozed 5 min · back at …" and the badge "1 snoozed"', after && /Snoozed 5 min/.test(after.strip) && /back at \d\d:\d\d/.test(after.strip) && /1 snoozed/.test(after.strip), after);
+        check('the toast says "Snoozed 3 min · back at …" and the badge "1 snoozed"', after && /Snoozed 3 min/.test(after.strip) && /back at \d\d:\d\d/.test(after.strip) && /1 snoozed/.test(after.strip), after);
         await shot('l2-j7-toast');
         const s = await agent.call('card_status', { card_id: id });
         check('card_status says snoozed, with until', s.result?.state === 'snoozed' && !Number.isNaN(Date.parse(s.result.until)), s.result);
@@ -112,19 +115,30 @@ module.exports = {
         const tag = await qa('inbox pill none', PILL);
         check('when time moves on, the card returns, marked "Back from snooze"', back?.top && tag?.back === true, { back, tag });
         await shot('l2-j7-back');
+        cmd('cards-hover on');
+        await sleep(400);
+        const again = await qa('inbox pill none', PILL);
+        check('back from its first snooze, its button says 5 min', again && /Snooze 5 min/.test(again.chips[0] ?? ''), again);
+        await shot('l2-j7-snooze-again');
+        cmd('cards-hover off');
         cmd('inbox shortcut snooze');
         await sleep(300);
         let d = await qa('inbox dump', INBOX);
-        check('the shortcut snoozes the top card for 3 min', d?.toast?.minutes === 3 && !d.top, d);
+        check('the shortcut snoozes it for 5 min, its second snooze', d?.toast?.minutes === 5 && !d.top, d);
         cmd('inbox shortcut snooze');
         await sleep(300);
         d = await qa('inbox dump', INBOX);
-        check('pressed again while the toast shows, it is 5', d?.toast?.minutes === 5 && d.extra.snoozed.length === 1, d);
+        check('pressed again while the toast shows, it is 10', d?.toast?.minutes === 10 && d.extra.snoozed.length === 1, d);
         await qa('inbox pill snoozed', PILL);
         const now = await qa(`inbox pill now ${id}`, PILL);
         await sleep(300);
         const nowBack = await cards();
         check('the shelf’s Now brings the card back', now?.clicked === true && nowBack?.top?.title === 'Roll the new checkout out to 10%?', { now, nowBack });
+        cmd('cards-hover on');
+        await sleep(400);
+        const last = await qa('inbox pill none', PILL);
+        check('from then on its button stays at 10 min', last && /Snooze 10 min/.test(last.chips[0] ?? ''), last);
+        cmd('cards-hover off');
         cmd('card dismiss');
         await sleep(5500);
         d = await qa('inbox dump', INBOX);
@@ -221,6 +235,105 @@ module.exports = {
         await sleep(9000);
         const got = cli('request', 'get', req.request_id);
         check('the CLI request result says answered, with the words', got.state === 'answered' && got.result?.text === 'Yes, roll it out', got);
+      },
+    },
+    {
+      id: 'J11',
+      name: 'cards an agent waits on: first in line, kept after a timeout, Esc with Undo; faded notes go to "earlier"',
+      async run(ctx) {
+        const { session, cmd, qa, cards, shot, sleep, check, log } = ctx;
+        await clear(ctx);
+        const builder = session({ client: 'codex-mcp-client', title: 'Codex' });
+        const asker = session({ client: 'claude-code', title: 'Claude Code' });
+        await builder.call('notify', { title: 'Lint is clean on main', message: 'No warnings in 260 files.' });
+        await sleep(300);
+        const pulses = (log().match(/QA pulse/g) ?? []).length;
+        const ask = asker.call('ask', { question: 'Ship the release notes now?', message: 'They cover 0.2.5 and the restart fix.', choices: ['Ship', 'Wait'], timeout_s: 3 });
+        const order = await waitFor(cards, (c) => c?.top?.title === 'Ship the release notes now?', sleep);
+        check('the ask goes in front of the info note, which waits behind it in +N', order?.top?.kind === 'ask' && order.more === 1 && JSON.stringify(order.all) === JSON.stringify(['Ship the release notes now?', 'Lint is clean on main']), order);
+        check('it arrived with one pulse of the pill', (log().match(/QA pulse/g) ?? []).length === pulses + 1, log().slice(-600));
+        await shot('l2-j11-ask-first');
+        const r = await Promise.race([ask, sleep(10_000).then(() => null)]);
+        check('at timeout_s the agent hears timeout', r?.result?.answered === false && r.result.reason === 'timeout', r);
+        const kept = await cards();
+        check('and the card stays up', kept?.top?.title === 'Ship the release notes now?', kept);
+        const faded = await waitFor(() => qa('inbox pill none', PILL), (p) => /1 earlier/.test(p?.strip ?? ''), sleep, 40);
+        check('the faded note leaves "1 earlier" on the pill', /1 earlier/.test(faded?.strip ?? ''), faded);
+        const more = await cards();
+        check('+N no longer counts the faded note', more?.more === 0, more);
+        const list = await qa('inbox pill earlier', PILL);
+        check('"1 earlier" opens the note', list?.clicked && list.earlier.some((t) => /Lint is clean on main/.test(t) && /No warnings/.test(t)), list);
+        await shot('l2-j11-earlier');
+        await qa('inbox pill earlier', PILL);
+        cmd('inbox esc');
+        await sleep(300);
+        let d = await qa('inbox dump', INBOX);
+        const toast = await qa('inbox pill none', PILL);
+        check('Esc hides the card and shows "Dismissed · Undo"', d && !d.top && d.toast?.kind === 'dismissed' && /Dismissed/.test(toast?.strip ?? '') && /Undo/.test(toast?.strip ?? ''), { d, toast });
+        await shot('l2-j11-dismissed');
+        await qa('inbox pill undo', PILL);
+        const undone = await waitFor(cards, (c) => c?.top?.title === 'Ship the release notes now?', sleep);
+        check('Undo brings it back', undone?.top?.title === 'Ship the release notes now?', undone);
+        cmd('card choose Ship');
+        await sleep(500);
+        const late = await asker.call('card_status', { card_id: r?.result?.card_id });
+        check('a click after the timeout is a late answer in card_status', late.result?.state === 'answered' && late.result.answer?.choice === 'Ship', late.result);
+        const second = asker.call('ask', { question: 'Tag the release too?', choices: ['Tag', 'Skip'], timeout_s: 120 });
+        await waitFor(cards, (c) => c?.top?.title === 'Tag the release too?', sleep);
+        cmd('inbox esc');
+        const gone = await Promise.race([second, sleep(8000).then(() => null)]);
+        check('without Undo, the card is dismissed when the toast goes', gone?.result?.answered === false && gone.result.reason === 'dismissed', gone);
+      },
+    },
+    {
+      id: 'J12',
+      name: 'in Pane, opening a card an agent waits on keeps it; opening an info note ends it',
+      async run(ctx) {
+        const { PANE_DIR, session, cmd, cards, sleep, check } = ctx;
+        await clear(ctx);
+        fakePane.install(PANE_DIR, { node: ELECTRON, state: { panes: [{ id: 'P1', name: 'Dictate', panels: [{ id: 'T1', title: 'release', agentType: 'claude' }] }] } });
+        const agent = session({ client: 'claude-code', title: 'Claude Code', env: { PANE_SESSION_ID: 'P1', PANE_PANEL_ID: 'T1' } });
+        const ask = agent.call('ask', { question: 'Merge the release branch?', choices: ['Merge', 'Wait'], timeout_s: 120 });
+        await waitFor(cards, (c) => c?.top?.title === 'Merge the release branch?', sleep);
+        cmd('card open');
+        await sleep(1500);
+        const opened = fakePane.read(PANE_DIR).calls.filter((c) => c[0] === 'links' && c[1] === 'open');
+        const still = await cards();
+        check('the tab opens and the ask stays', opened.length === 1 && still?.top?.title === 'Merge the release branch?' && still.top.target, { opened, still });
+        cmd('card choose Merge');
+        const r = await Promise.race([ask, sleep(3000).then(() => null)]);
+        check('it still takes its answer', r?.result?.choice === 'Merge', r);
+        await agent.call('notify', { title: 'Merged into main', urgency: 'info' });
+        await waitFor(cards, (c) => c?.top?.title === 'Merged into main', sleep);
+        cmd('card open');
+        await sleep(1500);
+        const note = await cards();
+        check('opening an info note ends it', !note?.all?.includes('Merged into main'), note);
+      },
+    },
+    {
+      id: 'J13',
+      name: 'while a decision sheet covers the top card, the other waiting cards still count',
+      async run(ctx) {
+        const { session, cmd, qa, sleep, check, shot } = ctx;
+        await clear(ctx);
+        const a = session({ client: 'claude-code', title: 'Claude Code' });
+        const b = session({ client: 'codex-mcp-client', title: 'Codex' });
+        const decide = a.call('decide', { title: 'Where should the backup run?', questions: [{ header: 'Region', question: 'Which region?', options: [{ label: 'EU' }, { label: 'US' }] }], timeout_s: 120 });
+        await sleep(800);
+        const ask = b.call('ask', { question: 'Rotate the API key now?', choices: ['Rotate', 'Later'], timeout_s: 120 });
+        await sleep(800);
+        await qa('card-click Expand', /QA card-click "Expand" (.+)\n/);
+        await sleep(1200);
+        const pill = await qa('inbox pill none', PILL);
+        check('the pill shows "1 waiting" under the sheet', /1 waiting/.test(pill?.strip ?? ''), pill);
+        await shot('l2-j13-waiting-under-sheet');
+        cmd('decide key Escape');
+        await sleep(400);
+        cmd('card dismiss');
+        await sleep(400);
+        cmd('card dismiss');
+        await Promise.all([decide, ask]);
       },
     },
     {

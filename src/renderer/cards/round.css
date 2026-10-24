@@ -63,6 +63,20 @@ button.capsule:hover {
   border-color: rgba(96, 205, 255, 0.35);
   background: rgba(20, 40, 52, 0.94);
 }
+.earlier .shelfhead .close {
+  margin-left: auto;
+}
+.earlier .ago {
+  min-width: 36px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.earlier .msg {
+  font-size: 11.5px;
+  line-height: 15px;
+  color: var(--text-2);
+  white-space: pre-wrap;
+}
 .toast {
   pointer-events: auto;
   display: inline-flex;
@@ -192,13 +206,10 @@ button.capsule:hover {
   font-size: 11px;
   color: var(--text-3);
 }
-.snz .lbl {
+.snz .cbtn.chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-right: 2px;
-}
-.snz .cbtn.chip {
   padding: 1px 9px;
   font-size: 11px;
 }

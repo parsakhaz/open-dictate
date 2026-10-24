@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AFTER_DICTATION_MS, type Card, CardQueue, FADED_KEEP_MS, INFO_MS } from '../src/core/cards';
+import { AFTER_DICTATION_MS, type Card, CardQueue, INFO_MS, RECENT_FRESH_MS, RECENT_MS } from '../src/core/cards';
 
 let n = 0;
 function card(over: Partial<Card> = {}): Card {
@@ -101,18 +101,21 @@ describe('CardQueue', () => {
     expect(q.deadline(ask.id, 0, 60_000, 100_000)).toBe(160_000);
   });
 
-  it('fades an info card a few seconds after it appears, and later forgets it', () => {
+  it('fades an info card a few seconds after it appears into the earlier list, and later forgets it', () => {
     const q = new CardQueue();
-    const fyi = card({ urgency: 'info', createdAt: 0 });
+    const fyi = card({ urgency: 'info', createdAt: 0, title: 'Build finished' });
     q.add(fyi, 0);
     q.tick(0);
     expect(q.view(INFO_MS - 1).top?.id).toBe(fyi.id);
     expect(q.nextDue(1)).toBe(INFO_MS);
     expect(q.tick(INFO_MS)).toBe(true);
-    expect(q.view(INFO_MS).top).toBeNull();
-    expect(q.view(INFO_MS).all).toHaveLength(1);
-    q.tick(FADED_KEEP_MS + 1);
-    expect(q.view(FADED_KEEP_MS + 1).all).toHaveLength(0);
+    const faded = q.view(INFO_MS);
+    expect(faded.top).toBeNull();
+    expect(faded.all).toHaveLength(0);
+    expect(faded.extra).toMatchObject({ recent: [{ id: fyi.id, title: 'Build finished', at: INFO_MS }], recentFresh: true });
+    expect(q.view(INFO_MS + RECENT_FRESH_MS).extra).toMatchObject({ recentFresh: false });
+    q.tick(INFO_MS + RECENT_MS);
+    expect(q.view(INFO_MS + RECENT_MS).extra).toMatchObject({ recent: [] });
   });
 
   it('shows an info card for about 4.5 s', () => {

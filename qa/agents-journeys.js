@@ -132,6 +132,10 @@ async function main() {
     check('J9', 'dismissing returns dismissed', a1.result?.answered === false && a1.result?.reason === 'dismissed', a1);
     const timed = await claude.call('ask', { question: 'Still there?', timeout_s: 2 });
     check('J9', 'an unanswered ask returns timeout at timeout_s', timed.result?.answered === false && timed.result?.reason === 'timeout', timed);
+    const kept = await claude.call('card_status', { card_id: timed.result?.card_id });
+    check('J9', 'and its card stays up for a later answer', kept.result?.state === 'shown', kept);
+    cmd('card dismiss');
+    await sleep(300);
 
     // J11: pausing alerts.
     cmd('pause on');

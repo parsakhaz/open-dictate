@@ -65,8 +65,8 @@ export function requestSchema(kind?: string) {
   if (kind && kind !== 'request' && !REQUEST_KINDS.includes(kind as RequestInput['kind'])) throw new RequestError('invalid_input', 'Unknown schema');
   return {
     schema_version: 1,
-    retention: 'app_lifetime_only',
-    restart: 'Requests and results are lost on app restart. Never automatically replay a stale-instance operation.',
+    retention: 'profile',
+    restart: 'Requests and results survive app restarts; pending cards come back and instance_id stays the same. Never automatically replay an instance_changed operation.',
     kinds: REQUEST_KINDS,
     inputs: Object.fromEntries(
       listedTools()
@@ -132,7 +132,7 @@ export function requestSchema(kind?: string) {
       observer_default_s: 45,
       observer_max_s: 600,
       zero: 'poll',
-      answer: 'MCP timeout_s; held/snoozed time pauses CLI answer budget',
+      answer: 'ask, decide, approve and lineup stay pending until answered, cancelled or absolute_lifetime_s (timeout_s ends only an MCP call; the card stays); peek: timeout_s, paused while held or snoozed',
       absolute_lifetime_s: 86400,
     },
     normalization:

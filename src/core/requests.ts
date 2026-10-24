@@ -1,4 +1,4 @@
-// App-lifetime requests. Connections observe; only the owner can end a request.
+// CLI requests, kept in the profile so they survive an app restart. Connections observe; only the owner can end a request.
 import { createHash, randomUUID } from 'node:crypto';
 
 export const REQUEST_KINDS = ['notify', 'ask', 'decide', 'approve', 'lineup', 'peek'] as const;
@@ -74,8 +74,23 @@ export interface RequestOwner {
   /** Reserve a terminal transition before the feature enriches its complete return value. */
   ending(state: RequestState): void;
 }
+/** One request as saved: its snapshot, and for a pending one what its owner needs to raise it again. */
+export interface SavedRequest {
+  snapshot: RequestSnapshot;
+  context?: unknown;
+}
+export interface SavedBook {
+  instance: string;
+  records: SavedRequest[];
+  keys: [string, { hash: string; id: string }][];
+}
+type Start = (owner: RequestOwner) => Promise<unknown>;
 interface RecordEntry {
   snapshot: RequestSnapshot;
+  /** What the owner needs to raise a pending request again after a restart (opaque here). */
+  context?: unknown;
+  /** Raised again after a restart: its creation time and lifetime stay as they were. */
+  restored?: boolean;
   ac: AbortController;
   ready: Promise<RequestSnapshot>;
   done: Promise<void>;
@@ -105,20 +120,23 @@ function outcome(result: unknown): RequestState {
   return 'completed';
 }
 export class RequestBook {
-  readonly instance = randomUUID();
+  /** Stays the same across restarts once a saved book is restored. */
+  instance: string = randomUUID();
   private records = new Map<string, RecordEntry>();
   private keys = new Map<string, { hash: string; id: string }>();
   constructor(
     private now = () => Date.now(),
     private limits = REQUEST_LIMITS,
     private completed?: (snapshot: RequestSnapshot) => void,
+    /** Anything saved changed. */
+    private changed?: () => void,
   ) {}
 
-  async create(input: RequestInput, start: (owner: RequestOwner) => Promise<unknown>, signal?: AbortSignal): Promise<RequestSnapshot> {
+  async create(input: RequestInput, start: Start, signal?: AbortSignal, context?: unknown): Promise<RequestSnapshot> {
     this.sweep();
     if (!REQUEST_KINDS.includes(input.kind)) throw new RequestError('invalid_input', 'Unsupported request kind');
     if (input.instance && input.instance !== this.instance)
-      throw new RequestError('instance_changed', 'The app restarted; do not replay the operation automatically', { instance_id: this.instance });
+      throw new RequestError('instance_changed', 'Saved requests were lost (another profile, or a reset); do not replay the operation automatically', { instance_id: this.instance });
     if (input.retry_key && (!input.instance || input.retry_key.length > 200))
       throw new RequestError('invalid_input', 'A bounded retry key requires the saved app instance');
     const bytes = Buffer.byteLength(
@@ -187,15 +205,8 @@ export class RequestBook {
         ...(input.kind === 'peek' ? ['CLI creation always returns a receipt; peek.wait does not disable result capture.'] : []),
       ],
     };
-    const e: RecordEntry = {
-      snapshot,
-      ac: new AbortController(),
-      ready,
-      done: Promise.resolve(),
-      admitted: false,
-      observers: new Set(),
-      reserved,
-    };
+    const e = this.entry(snapshot, reserved, context);
+    e.ready = ready;
     const detach = () => {
       if (!e.admitted) e.ac.abort();
     };
@@ -203,59 +214,12 @@ export class RequestBook {
     if (signal?.aborted) detach();
     this.records.set(id, e);
     if (key) this.keys.set(key, { hash, id });
-    const owner: RequestOwner = {
-      requestId: id,
-      signal: e.ac.signal,
-      accepted: (card, presentation, destination) => {
-        if (e.ac.signal.aborted) return;
-        e.admitted = true;
-        const acceptedAt = this.now();
-        snapshot.created_at = snapshot.updated_at = iso(acceptedAt);
-        snapshot.hard_expires_at = iso(acceptedAt + this.limits.lifetime);
-        clearTimeout(e.timer);
-        e.timer = this.armExpiry(e);
-        if (destination) Object.assign(snapshot.destination, structuredClone(destination));
-        const state = (presentation as { state?: string })?.state;
-        Object.assign(snapshot, {
-          card_id: card,
-          presentation,
-          state: ['held', 'shown', 'snoozed'].includes(state ?? '') ? state : 'pending',
-        });
-        accepted(structuredClone(snapshot));
-      },
-      ending: (state) => {
-        e.winning ??= state;
-      },
-    };
     // Reserve identity before entering any asynchronous feature preparation.
-    e.done = Promise.resolve()
-      .then(() => start(owner))
-      .then(
-        (result) => {
-          if (snapshot.terminal) return;
-          if (!e.admitted && e.ac.signal.aborted) {
-            this.records.delete(id);
-            if (key) this.keys.delete(key);
-            rejected(new RequestError('detached', 'Disconnected before acceptance; no request accepted'));
-            return;
-          }
-          e.admitted = true; // DND and other immediate outcomes are accepted terminal receipts.
-          e.reserved = bytes + this.limits.result;
-          this.finish(e, e.winning ?? outcome(result), result);
-          accepted(structuredClone(snapshot));
-        },
-        (error) => {
-          if (!e.admitted) {
-            this.records.delete(id);
-            if (key) this.keys.delete(key);
-            rejected(error);
-          } else
-            this.finish(e, 'failed', {
-              answered: false,
-              reason: 'feature_failed',
-            });
-        },
-      );
+    this.launch(e, Promise.resolve().then(() => start(this.owner(e, accepted))), bytes, accepted, (error) => {
+      this.records.delete(id);
+      if (key) this.keys.delete(key);
+      rejected(error);
+    });
     e.timer = this.armExpiry(e);
     try {
       return await ready;
@@ -267,10 +231,110 @@ export class RequestBook {
     }
   }
 
+  /** What survives a restart: every accepted request, and the retry keys. */
+  save(): SavedBook {
+    return {
+      instance: this.instance,
+      records: [...this.records.values()].filter((e) => e.admitted).map((e) => ({ snapshot: e.snapshot, ...(e.snapshot.terminal ? {} : { context: e.context }) })),
+      keys: [...this.keys],
+    };
+  }
+
+  /**
+   * Takes back a saved book after a restart: same instance, ids, keys and results. Each pending request is raised
+   * again by `start` (called at once, before this returns); one past its lifetime ends as expired.
+   */
+  restore(saved: SavedBook, start: (owner: RequestOwner, context: unknown) => Promise<unknown>): void {
+    this.instance = saved.instance;
+    this.keys = new Map(saved.keys);
+    for (const r of saved.records) {
+      const bytes = Buffer.byteLength(JSON.stringify(r));
+      const e = this.entry(r.snapshot, bytes + this.limits.result, r.context);
+      e.admitted = true;
+      e.restored = true;
+      this.records.set(r.snapshot.request_id, e);
+      if (r.snapshot.terminal) continue;
+      if (Date.parse(r.snapshot.hard_expires_at) <= this.now()) {
+        this.finish(e, 'expired', { answered: false, reason: 'timeout' });
+        continue;
+      }
+      let run: Promise<unknown>;
+      try {
+        run = Promise.resolve(start(this.owner(e, () => undefined), r.context));
+      } catch (error) {
+        run = Promise.reject(error);
+      }
+      this.launch(e, run, bytes, () => undefined, () => undefined);
+      e.timer = this.armExpiry(e);
+    }
+    this.sweep();
+  }
+
+  private entry(snapshot: RequestSnapshot, reserved: number, context?: unknown): RecordEntry {
+    return { snapshot, context, ac: new AbortController(), ready: Promise.resolve(snapshot), done: Promise.resolve(), admitted: false, observers: new Set(), reserved };
+  }
+
+  private owner(e: RecordEntry, accepted: (s: RequestSnapshot) => void): RequestOwner {
+    const { snapshot } = e;
+    return {
+      requestId: snapshot.request_id,
+      signal: e.ac.signal,
+      accepted: (card, presentation, destination) => {
+        if (e.ac.signal.aborted) return;
+        e.admitted = true;
+        if (!e.restored) {
+          const acceptedAt = this.now();
+          snapshot.created_at = snapshot.updated_at = iso(acceptedAt);
+          snapshot.hard_expires_at = iso(acceptedAt + this.limits.lifetime);
+          clearTimeout(e.timer);
+          e.timer = this.armExpiry(e);
+        }
+        if (destination) Object.assign(snapshot.destination, structuredClone(destination));
+        const state = (presentation as { state?: string })?.state;
+        Object.assign(snapshot, {
+          card_id: card,
+          presentation,
+          state: ['held', 'shown', 'snoozed'].includes(state ?? '') ? state : 'pending',
+        });
+        this.changed?.();
+        accepted(structuredClone(snapshot));
+      },
+      ending: (state) => {
+        e.winning ??= state;
+      },
+    };
+  }
+
+  /** Follows the feature's run to the request's end. */
+  private launch(e: RecordEntry, run: Promise<unknown>, bytes: number, accepted: (s: RequestSnapshot) => void, rejected: (e: unknown) => void): void {
+    const { snapshot } = e;
+    e.done = run.then(
+      (result) => {
+        if (snapshot.terminal) return;
+        if (!e.admitted && e.ac.signal.aborted) {
+          rejected(new RequestError('detached', 'Disconnected before acceptance; no request accepted'));
+          return;
+        }
+        e.admitted = true; // DND and other immediate outcomes are accepted terminal receipts.
+        e.reserved = bytes + this.limits.result;
+        this.finish(e, e.winning ?? outcome(result), result);
+        accepted(structuredClone(snapshot));
+      },
+      (error) => {
+        if (!e.admitted) rejected(error);
+        else
+          this.finish(e, 'failed', {
+            answered: false,
+            reason: 'feature_failed',
+          });
+      },
+    );
+  }
+
   get(id: string): RequestSnapshot {
     this.sweep();
     if (id.split('.')[0] !== this.instance)
-      throw new RequestError('state_lost', 'Request belongs to another app instance; app restarts lose requests', { instance_id: this.instance });
+      throw new RequestError('state_lost', 'Request belongs to another Dictate profile, or its saved requests were lost', { instance_id: this.instance });
     const e = this.records.get(id);
     if (!e) throw new RequestError('not_found', 'Unknown request or its app-lifetime retention expired');
     return structuredClone(e.snapshot);
@@ -353,12 +417,14 @@ export class RequestBook {
   }
   update(id: string, presentation: { state: RequestState; until?: number }): void {
     const e = this.records.get(id);
-    if (e && !e.snapshot.terminal && canonical(e.snapshot.presentation) !== canonical(presentation))
+    if (e && !e.snapshot.terminal && canonical(e.snapshot.presentation) !== canonical(presentation)) {
       Object.assign(e.snapshot, {
         state: presentation.state,
         presentation,
         updated_at: iso(this.now()),
       });
+      this.changed?.();
+    }
   }
   private armExpiry(e: RecordEntry): ReturnType<typeof setTimeout> {
     const timer = setTimeout(
@@ -387,10 +453,16 @@ export class RequestBook {
       updated_at: iso(this.now()),
       retained_until: iso(this.now() + this.limits.lifetime),
     });
+    e.context = undefined;
     this.completed?.(structuredClone(e.snapshot));
+    this.changed?.();
     for (const cb of [...e.observers]) cb();
   }
   private sweep(): void {
-    for (const [id, e] of this.records) if (e.snapshot.terminal && Date.parse(e.snapshot.retained_until!) <= this.now()) this.records.delete(id);
+    for (const [id, e] of this.records)
+      if (e.snapshot.terminal && Date.parse(e.snapshot.retained_until!) <= this.now()) {
+        this.records.delete(id);
+        this.changed?.();
+      }
   }
 }

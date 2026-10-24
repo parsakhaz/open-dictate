@@ -17,8 +17,8 @@ export interface RoundResult {
   until?: number;
 }
 
-/** A whole utterance that is a command rather than an answer. */
-export type RoundCommand = { type: 'approve' } | { type: 'skip' } | { type: 'open' } | { type: 'end' } | { type: 'choose'; n: number } | { type: 'snooze'; minutes: number };
+/** A whole utterance that is a command rather than an answer. A snooze with no minutes takes the card's next length. */
+export type RoundCommand = { type: 'approve' } | { type: 'skip' } | { type: 'open' } | { type: 'end' } | { type: 'choose'; n: number } | { type: 'snooze'; minutes?: number };
 
 const NUMBERS: Record<string, number> = {
   one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
@@ -37,20 +37,20 @@ function number(words: string): number | null {
 const words = (text: string) => ` ${text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ')} `.replace(/\s+/g, ' ');
 
 /**
- * The person's whole utterance as a round command: "approve", "next" or "skip", "open", "done", "snooze" (the first
- * length) or "snooze ten" (any length 1–120 minutes), "later", or a bare number one to four that picks that choice.
- * Anything else, however short, is the answer.
+ * The person's whole utterance as a round command: "approve", "next" or "skip", "open", "done", "snooze" or "later"
+ * (the card's next length) or "snooze ten" (any length 1–120 minutes), or a bare number one to four that picks that
+ * choice. Anything else, however short, is the answer.
  */
-export function parseCommand(text: string, lengths: number[]): RoundCommand | null {
+export function parseCommand(text: string): RoundCommand | null {
   const w = words(text).trim().replace(/^(ok|okay|um|uh) /, '').replace(/ (please|thanks|thank you)$/, '');
   if (/^(approve|approved|approve it|yes approve|send it)$/.test(w)) return { type: 'approve' };
   if (/^(next|skip|skip it|next one|pass)$/.test(w)) return { type: 'skip' };
   if (/^(open|open it|open the tab)$/.test(w)) return { type: 'open' };
   if (/^(done|stop|end|end round|that s all|that s it)$/.test(w)) return { type: 'end' };
-  if (/^(later|not now)$/.test(w)) return { type: 'snooze', minutes: lengths[0] ?? 5 };
+  if (/^(later|not now)$/.test(w)) return { type: 'snooze' };
   const snooze = w.match(/^snooze(?: it)?(?: for)?(?: (.+?))?(?: (?:minutes?|mins?|m))?$/);
   if (snooze) {
-    if (!snooze[1]) return { type: 'snooze', minutes: lengths[0] ?? 5 };
+    if (!snooze[1]) return { type: 'snooze' };
     const m = number(snooze[1]);
     return m && m >= 1 && m <= 120 ? { type: 'snooze', minutes: m } : null;
   }
@@ -60,10 +60,9 @@ export function parseCommand(text: string, lengths: number[]): RoundCommand | nu
   return null;
 }
 
-/** The snooze shortcut pressed again while its toast shows: the next length, staying on the last. */
-export function nextLength(lengths: number[], current: number): number {
-  const i = lengths.indexOf(current);
-  return i >= 0 && i < lengths.length - 1 ? lengths[i + 1] : (lengths[lengths.length - 1] ?? current);
+/** How long a card's next snooze is: the first length the first time, then each next one, staying on the last. */
+export function snoozeLength(lengths: number[], snoozes: number): number {
+  return lengths[Math.min(snoozes, lengths.length - 1)] ?? 5;
 }
 
 export class Round {

@@ -118,8 +118,11 @@ function setup(host: FeatureHost): void {
       const r = await waiting;
       return { ...r, card_id, ...(args.truncated ? { truncated: true } : {}) };
     } finally {
-      closeSheet(id);
-      open.delete(id);
+      // A card that outlived the call still takes an answer; it is cleaned up when it ends.
+      if (!hub.queue.get(id)) {
+        closeSheet(id);
+        open.delete(id);
+      }
     }
   });
 

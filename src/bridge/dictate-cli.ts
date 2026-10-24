@@ -18,7 +18,7 @@ const help = `Dictate ${DICTATE_VERSION} (${DICTATE_BUILD})
   dictate status|doctor|schema [request|KIND] --json
   dictate --help | --version
 Creation never waits for a human. Only request wait observes (default 45s, max 600s, 0 polls).
-Requests survive command exits, held cards and snoozes. APP RESTART LOSES ALL REQUESTS AND RESULTS.
+Requests survive command exits, held cards, snoozes and app restarts. Questions wait until answered or cancelled.
 For safe retries save status.instance_id, then reuse that --instance and --retry-key.
 Unkeyed creates are unsafe to blindly retry after ambiguous transport loss.
 All commands use this destination's cwd for assets. --origin-file is display metadata, never routing.

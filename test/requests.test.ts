@@ -105,7 +105,7 @@ it('reserves a concurrent retry before preparation and rejects changed context o
   expect((await a).request_id).toBe((await b).request_id);
   await expect(book.create({ ...input, cwd: 'two' }, start)).rejects.toMatchObject({ code: 'retry_conflict' });
   await expect(book.create({ ...input, instance: 'old' }, start)).rejects.toMatchObject({ code: 'instance_changed' });
-  expect(() => book.get('old.id')).toThrow(/another app instance/);
+  expect(() => book.get('old.id')).toThrow(/another Dictate profile/);
 });
 
 it('keeps retry tombstones after result expiry and rejects admission instead of evicting', async () => {
@@ -153,4 +153,42 @@ it('answer wins over cancel even before the final enriched return microtask', as
     state: 'answered',
     result: { approved: true, raw: 'yes' },
   });
+});
+
+it('survives a restart: same instance, ids and retry keys, results kept, pending requests raised again', async () => {
+  let now = Date.parse('2026-10-23T20:00:00Z');
+  const book = new RequestBook(() => now);
+  const ask = { kind: 'ask' as const, args: { question: 'Deploy?' }, cwd: 'C:/work', instance: book.instance, retry_key: 'deploy' };
+  let answer!: (r: unknown) => void;
+  const pending = await book.create(ask, async (owner) => {
+    owner.accepted('k1', { state: 'shown' });
+    return new Promise((r) => (answer = r));
+  }, undefined, { session: 'one' });
+  const done = await book.create({ kind: 'notify', args: { title: 'Built' }, cwd: 'C:/work' }, async () => ({ status: 'shown' }));
+  const old = await book.create({ kind: 'ask', args: { question: 'Old?' }, cwd: 'C:/work' }, async (owner) => {
+    owner.accepted('k2');
+    return new Promise(() => undefined);
+  });
+  const saved = JSON.parse(JSON.stringify(book.save()));
+  answer({ answered: true, text: 'too late' });
+
+  now += REQUEST_LIMITS.lifetime - 1000;
+  const after = new RequestBook(() => now);
+  const raised: unknown[] = [];
+  let reanswer!: (r: unknown) => void;
+  saved.records.find((r: { snapshot: { request_id: string } }) => r.snapshot.request_id === old.request_id).snapshot.hard_expires_at = new Date(now - 1).toISOString();
+  after.restore(saved, (owner, context) => {
+    raised.push([owner.requestId, context]);
+    owner.accepted('k7', { state: 'held' });
+    return new Promise((r) => (reanswer = r));
+  });
+  expect(after.instance).toBe(book.instance);
+  expect(raised).toEqual([[pending.request_id, { session: 'one' }]]);
+  expect(after.get(pending.request_id)).toMatchObject({ state: 'held', card_id: 'k7', created_at: pending.created_at, hard_expires_at: pending.hard_expires_at });
+  expect(after.get(done.request_id)).toMatchObject({ terminal: true, state: 'completed', result: { status: 'shown' } });
+  expect(after.get(old.request_id)).toMatchObject({ terminal: true, state: 'expired' });
+  // The saved retry key still names the same request.
+  expect((await after.create(ask, async () => ({}))).request_id).toBe(pending.request_id);
+  reanswer({ answered: true, text: 'Yes' });
+  expect(await after.wait(pending.request_id, 1000)).toMatchObject({ state: 'answered', result: { text: 'Yes' } });
 });

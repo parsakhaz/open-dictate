@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { AgentHub, type ConsentAnswer } from '../core/agenthub';
+import { AgentHub, type ConsentAnswer, type SavedHub } from '../core/agenthub';
 import { BRIDGE_FILE, channelPath } from '../core/agentwire';
 import { type Card, takesReply } from '../core/cards';
 import type { HistoryStore } from '../core/history';
@@ -14,14 +14,14 @@ import { actionFor } from '../core/panewatch';
 import { type Snippet, serverEntry, setupSnippets } from '../core/registration';
 import type { Settings } from '../core/types';
 import { approveTerm, rejectTerm } from '../core/vocabproposals';
-import { AgentRequests } from './agentrequests';
+import { AgentRequests, type SavedRequests } from './agentrequests';
 import { type AgentHandlers, AgentServer } from './agentserver';
 import { installCli } from './cliinstall';
 import { type InstructionsFile, instructionsStatus, syncInstructions } from './instructions';
 import type { Logger } from './log';
 import { PaneLink } from './panelink';
 import { type AgentState, agentStatus, registerAgents, unregisterAgents } from './registration';
-import { debouncedWriter, loadJson } from './store';
+import { debouncedWriter, loadJson, readJson } from './store';
 
 export const agentsDir = (userData: string) => path.join(userData, 'agents');
 declare const DICTATE_BUILD: string;
@@ -77,6 +77,8 @@ export interface AgentsHost {
   /** Cards for the pill: the top one, how many more, and the list behind "+N". */
   showCards(view: CardsView): void;
   chime(): void;
+  /** One pulse of the pill: a card an agent waits on arrived. */
+  pulse(): void;
   openSettings(page: string): void;
   openExternal(url: string): void;
   copy(text: string): Promise<void>;
@@ -104,6 +106,8 @@ export interface CardDto {
   linkHost: string | null;
   canOpen: boolean;
   canReply: boolean;
+  /** How many times it was snoozed: the next snooze takes the next length. */
+  snoozes: number;
   /** A surface card's own data, for its body (src/renderer/cards/<kind>.ts). */
   data?: unknown;
 }
@@ -139,6 +143,7 @@ const dto = (c: Card): CardDto => ({
   linkHost: c.link?.host ?? null,
   canOpen: !!c.target,
   canReply: takesReply(c),
+  snoozes: c.snoozes ?? 0,
   ...(c.data !== undefined ? { data: c.data } : {}),
 });
 
@@ -152,8 +157,14 @@ export class Agents {
   instructionsState: InstructionsFile[] = [];
   /** A card whose "Hold to reply" was clicked: the next dictation answers it, and only that one. */
   armed: string | null = null;
+  /** Esc over a card: the inbox dismisses it with Undo. */
+  escape: ((cardId: string) => void) | null = null;
   private sheetShows: ((top: Card | null) => boolean)[] = [];
   private saveLog: ReturnType<typeof debouncedWriter>;
+  /** Waiting cards, CLI requests and card_status, kept across a restart (agents/cards.json). */
+  private saveCards: ReturnType<typeof debouncedWriter>;
+  private saving = true;
+  private saved: { hub?: SavedHub; requests?: SavedRequests } | undefined;
   private dueTimer: ReturnType<typeof setTimeout> | undefined;
   private resumeTimer: ReturnType<typeof setTimeout> | undefined;
   private registering: Promise<unknown> = Promise.resolve();
@@ -162,6 +173,9 @@ export class Agents {
     const logFile = path.join(agentsDir(host.userData), 'access-log.json');
     this.accessLog = parseAccessLog(loadJson(logFile, host.log));
     this.saveLog = debouncedWriter(logFile, () => this.accessLog);
+    const cardsFile = path.join(agentsDir(host.userData), 'cards.json');
+    this.saved = readJson(cardsFile) as typeof this.saved;
+    this.saveCards = debouncedWriter(cardsFile, () => ({ hub: this.hub.saved(), requests: this.requests.save() }));
     this.hub = new AgentHub({
       now: () => Date.now(),
       setTimer: (fn, ms) => setTimeout(fn, ms),
@@ -170,6 +184,7 @@ export class Agents {
       chime: () => {
         if (host.settings().agentChime) host.chime();
       },
+      pulse: () => host.pulse(),
       log: host.log,
       status: host.status,
       pane: {
@@ -193,7 +208,17 @@ export class Agents {
         add: (terms) => host.update({ vocabularyPending: [...host.settings().vocabularyPending, ...terms] }),
       },
     });
-    this.requests = new AgentRequests(this.hub, { profile: host.userData, executable: host.registration.executable, build: typeof DICTATE_BUILD === 'undefined' ? 'development' : DICTATE_BUILD, version: typeof DICTATE_VERSION === 'undefined' ? 'development' : DICTATE_VERSION });
+    try {
+      if (this.saved?.hub) this.hub.load(this.saved.hub);
+    } catch (err) {
+      host.log('warn', `agents: saved cards could not be read (${(err as Error).message})`);
+    }
+    this.requests = new AgentRequests(
+      this.hub,
+      { profile: host.userData, executable: host.registration.executable, build: typeof DICTATE_BUILD === 'undefined' ? 'development' : DICTATE_BUILD, version: typeof DICTATE_VERSION === 'undefined' ? 'development' : DICTATE_VERSION },
+      this.saved?.requests,
+      () => this.persist(),
+    );
     const paneDir = process.env.PANE_DIR || path.join(os.homedir(), '.pane');
     this.pane = new PaneLink({
       paneDir,
@@ -220,6 +245,7 @@ export class Agents {
       },
       this.host.log,
     );
+    this.restore();
     this.applyPaneWatch();
     void this.applyRegistration();
   }
@@ -236,7 +262,32 @@ export class Agents {
     }
   }
 
+  /** The cards and requests saved before the last quit come back, once the features have registered their tools. */
+  private restore(): void {
+    const calls = this.saved?.hub?.calls ?? [];
+    this.saved = undefined;
+    try {
+      for (const c of calls) this.hub.resumeCall(c);
+      this.requests.restore();
+    } catch (err) {
+      this.host.log('warn', `agents: saved cards could not come back (${(err as Error).message})`);
+    }
+    const n = this.hub.queue.view(Date.now()).all.length;
+    if (n) this.host.log('info', `agents: ${n} card${n === 1 ? '' : 's'} back from before the restart`);
+  }
+
+  private persist(): void {
+    if (this.saving) this.saveCards.save();
+  }
+
   stop(): void {
+    // Saved before the channel closes, which withdraws every MCP question.
+    try {
+      this.saveCards.now();
+    } catch (err) {
+      this.host.log('warn', `agents: cards could not be saved (${(err as Error).message})`);
+    }
+    this.saving = false;
     clearTimeout(this.dueTimer);
     this.pane.stop();
     this.server?.stop();
@@ -256,7 +307,10 @@ export class Agents {
     // A sheet showing the top card takes the pill's place: one surface, never the card and its sheet together.
     const covered = this.sheetShows.map((fn) => fn(v.top)).includes(true);
     const top = v.top && !covered ? v.top : null;
-    this.host.showCards({ top: top ? dto(top) : null, more: top ? v.more : 0, list: v.all.map(dto), replying: !!top && top.id === this.hub.queue.replyingTo, ...(this.armed ? { armed: this.armed } : {}), ...(v.extra ? { extra: v.extra } : {}) });
+    // Under a sheet, the other cards still count as waiting.
+    const extra = covered ? { ...v.extra, waiting: v.more } : v.extra;
+    this.host.showCards({ top: top ? dto(top) : null, more: top ? v.more : 0, list: v.all.map(dto), replying: !!top && top.id === this.hub.queue.replyingTo, ...(this.armed ? { armed: this.armed } : {}), ...(extra ? { extra } : {}) });
+    this.persist();
     clearTimeout(this.dueTimer);
     const due = this.hub.queue.nextDue(now);
     if (due !== null) this.dueTimer = setTimeout(() => this.render(), Math.max(50, due - now));
@@ -281,10 +335,12 @@ export class Agents {
     return { cardId: card.id, to: card.source.split(' · ').pop() || 'the agent' };
   }
 
-  /** Esc with the pointer over the card: it goes (an ask returns dismissed; consent counts as deny). */
+  /** Esc with the pointer over the card: it goes after an Undo toast (an ask returns dismissed; consent counts as deny). */
   dismissTop(): void {
     const top = this.hub.queue.view(Date.now()).top;
-    if (top) this.hub.dismiss(top.id);
+    if (!top) return;
+    if (this.escape) this.escape(top.id);
+    else this.hub.dismiss(top.id);
   }
 
   /** `replyTo`: the card this dictation answers; it stays on the pill until the dictation is over. */
@@ -331,7 +387,8 @@ export class Agents {
         if (!card.target) return undefined;
         this.host.allowForeground();
         const ok = await this.pane.open(card.target.paneId, card.target.panelId);
-        if (ok && card.kind !== 'ask') this.hub.dismiss(a.id);
+        // Opening the tab ends only a Pane status card or an info note; a card an agent waits on stays.
+        if (ok && (card.kind === 'pane-blocked' || card.kind === 'pane-ready' || (card.kind === 'notify' && card.urgency === 'info'))) this.hub.dismiss(a.id);
         return ok ? undefined : { ok: false, message: "Couldn't open Pane" };
       }
       case 'link':
