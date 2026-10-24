@@ -62,6 +62,12 @@ describe('parseSettings', () => {
     expect(parseSettings({ agentPaneAlerts: true }, d).agentPaneAlerts).toBe(true);
   });
 
+  it('puts the pill at the bottom centre by default, keeps a chosen corner, and ignores an unknown spot', () => {
+    expect(d.pillPosition).toBe('bottom-center');
+    expect(parseSettings({ pillPosition: 'top-right' }, d).pillPosition).toBe('top-right');
+    expect(parseSettings({ pillPosition: 'middle' }, d).pillPosition).toBe('bottom-center');
+  });
+
   it('loads a file from before agents, and keeps a valid review queue while dropping a bad item', () => {
     const s = parseSettings({ agentHistory: 'yes', vocabularyPending: [{ term: 'Supabase', aliases: ['super base'], reason: 'db', source: 'repo · Codex', at: '2026-10-19T20:00:00Z' }, { term: 'a => b', aliases: [] }] }, d);
     expect(s.agentHistory).toBe(false);

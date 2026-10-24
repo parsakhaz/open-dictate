@@ -47,6 +47,9 @@ export interface Binding {
 
 export type CleanupChain = 'off' | 'emberon' | 'gemma' | 'gemma-emberon';
 export type OutputMode = 'paste' | 'clipboard' | 'both';
+export const PILL_POSITIONS = ['bottom-center', 'bottom-left', 'bottom-right', 'top-left', 'top-center', 'top-right'] as const;
+/** Where on the screen the pill sits; its cards, the "N waiting" count, toasts and the sheet open from it. */
+export type PillPosition = (typeof PILL_POSITIONS)[number];
 
 export interface HardwareResult {
   /** One plain sentence: the PC, and how fast cleanup ran on it. */
@@ -89,6 +92,7 @@ export interface Settings {
   pressEnter: boolean;
   /** Show the live words in the pill; off leaves just the waveform. */
   pillText: boolean;
+  pillPosition: PillPosition;
   /** How long the mic stays open after a dictation, so a follow-up starts instantly. */
   micWarm: 'off' | '30s' | 'always';
   /** The person chose micWarm themselves; otherwise it follows the default (Always while plugged in since 2026-10-23; it was Off). */

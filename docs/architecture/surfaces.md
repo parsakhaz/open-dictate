@@ -72,7 +72,7 @@ bound only while their feature claims them: `host.shortcut('snooze', { claimed: 
 `host.bindingsChanged()` when the claim changes. Claimed, the key is swallowed; unclaimed, other apps get it.
 `host.onKeyDown(t => …)` sees every key-down's time, never the key.
 
-**The sheet.** One focusable, frameless window right above the pill: `host.sheet.open(kind, payload, { focus })`,
+**The sheet.** One focusable, frameless window next to the pill (above it, or below it when the pill is at the top): `host.sheet.open(kind, payload, { focus })`,
 `update(payload)`, `close()`, `onClosed((kind, why) => …)`, and `window()` for peek's view. The page is
 `src/renderer/sheet/<kind>.ts` (`show(root, payload)`, `hide()`, `key(e)`); Esc closes it unless the page uses Esc.
 Sizes are in `src/core/sheetkinds.ts`. A sheet that shows the pill's top card takes the card's place:
