@@ -46,7 +46,7 @@ describe('parseSettings', () => {
     expect(d.cleanup).toBe('gemma-emberon');
     expect(d.output).toBe('paste');
     expect(d.sttThreads).toBe(4);
-    expect(d.micWarm).toBe('off');
+    expect(d.micWarm).toBe('always');
     expect(d.pillText).toBe(true);
     expect(d.pressEnter).toBe(false);
   });
@@ -108,6 +108,20 @@ describe('parseSettings', () => {
     expect(off.liveCleanup).toBe(false);
     expect(parseSettings(JSON.parse(JSON.stringify(off)), d).liveCleanup).toBe(false);
     expect(parseSettings({ liveCleanup: true, liveCleanupSet: true }, d).liveCleanup).toBe(true);
+  });
+
+  it('keeps the mic ready while plugged in by default, and a saved Off that was only the old default follows it', () => {
+    expect(d.micWarmSet).toBe(false);
+    expect(parseSettings({ version: 2, micWarm: 'off' }, d).micWarm).toBe('always');
+  });
+
+  it('keeps a mic setting the person chose, including Off', () => {
+    const off = parseSettings({ version: 2, micWarm: 'off', micWarmSet: true }, d);
+    expect(off.micWarm).toBe('off');
+    expect(parseSettings(JSON.parse(JSON.stringify(off)), d).micWarm).toBe('off');
+    // A profile from before micWarmSet: the default was Off, so 30 s was a choice.
+    const thirty = parseSettings({ version: 2, micWarm: '30s' }, d);
+    expect([thirty.micWarm, thirty.micWarmSet]).toEqual(['30s', true]);
   });
 
   it('accepts a binding written as a plain key list, as people write it by hand', () => {

@@ -218,6 +218,14 @@ describe('registerAgents', () => {
     expect(fs.readdirSync(home)).toEqual([]);
   });
 
+  it("registers with the home folder's .codex when CODEX_HOME is under a .cache folder", async () => {
+    const codexHome = path.join(home, '.cache', 'agent-farm', 'codex');
+    fs.mkdirSync(codexHome, { recursive: true });
+    await registerAgents(opts({ env: { HOME: home, USERPROFILE: home, PATH: '', CODEX_HOME: codexHome } }));
+    expect(fs.existsSync(path.join(codexHome, 'config.toml'))).toBe(false);
+    expect(fs.existsSync(codexToml())).toBe(true);
+  });
+
   it('uses CODEX_HOME and CLAUDE_CONFIG_DIR when set', async () => {
     const codexHome = path.join(home, 'ch');
     const claudeDir = path.join(home, 'cc');

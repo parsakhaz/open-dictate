@@ -755,7 +755,8 @@ function microphone(): Node[] {
         'span',
         {},
         'A follow-up dictation then starts with no delay, and the system shows the mic as in use for that time. A Bluetooth headset stays in call mode while its mic is open, which lowers music and call quality: leave this Off if you use one.',
-        st.settings.micWarm !== 'off' && st.micBluetooth ? h('div.warnline', {}, 'Your mic is a Bluetooth headset: it stays in call mode while the mic is kept ready.') : null,
+        st.micBluetooth && !st.settings.micWarmSet ? h('div.warnline', {}, 'Your mic is a Bluetooth headset, so it closes after each dictation until you choose here.') : null,
+        st.micBluetooth && st.settings.micWarmSet && st.settings.micWarm !== 'off' ? h('div.warnline', {}, 'Your mic is a Bluetooth headset: it stays in call mode while the mic is kept ready.') : null,
       ),
       select<Settings['micWarm']>(st.settings.micWarm, [
         ['off', 'Off'],

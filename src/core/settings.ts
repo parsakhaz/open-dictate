@@ -46,7 +46,8 @@ export function defaultSettings(vocabulary: VocabTerm[] = []): Settings {
     sounds: true,
     pressEnter: false,
     pillText: true,
-    micWarm: 'off',
+    micWarm: 'always',
+    micWarmSet: false,
     liveCleanup: true,
     liveCleanupSet: false,
     livePauseMs: 700,
@@ -110,6 +111,9 @@ function dbMap(x: unknown): Record<string, number> {
   return out;
 }
 
+/** A profile from before micWarmSet had Off as its default, so any other value there was a choice. */
+const micWarmChosen = (d: Record<string, unknown>) => d.micWarmSet === true || (d.micWarmSet === undefined && (d.micWarm === '30s' || d.micWarm === 'always'));
+
 const msOrNull = (x: unknown) => (x === null || (typeof x === 'number' && Number.isFinite(x) && x >= 0));
 
 function hardwareResult(x: unknown): HardwareResult | null {
@@ -143,8 +147,9 @@ export function parseSettings(data: unknown, defaults: Settings): Settings {
     sounds: bool(d.sounds, defaults.sounds),
     pressEnter: bool(d.pressEnter, defaults.pressEnter),
     pillText: bool(d.pillText, defaults.pillText),
-    micWarm: (['off', '30s', 'always'] as const).find((w) => w === d.micWarm) ?? defaults.micWarm,
     // A saved value the person never chose was just the default of its day: it follows today's default.
+    micWarm: micWarmChosen(d) ? ((['off', '30s', 'always'] as const).find((w) => w === d.micWarm) ?? defaults.micWarm) : defaults.micWarm,
+    micWarmSet: micWarmChosen(d),
     liveCleanup: d.liveCleanupSet === true ? bool(d.liveCleanup, defaults.liveCleanup) : defaults.liveCleanup,
     liveCleanupSet: d.liveCleanupSet === true,
     livePauseMs: Math.round(num(d.livePauseMs, defaults.livePauseMs, 300, 3000)),

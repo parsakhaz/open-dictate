@@ -14,6 +14,7 @@ function setup(over: { inFront?: boolean; historyOn?: boolean; sendOk?: boolean 
   const access: AccessRecord[] = [];
   let pending: PendingTerm[] = [];
   let chimes = 0;
+  const logs: string[] = [];
   let historyOn = !!over.historyOn;
   const history = new HistoryStore([
     { id: 'a', at: '2026-10-19T19:30:00.000Z', raw: 'deploy the migration with key sk-abcdefghijklmnopqrstuvwx', text: 'Deploy the migration with key sk-abcdefghijklmnopqrstuvwx.' },
@@ -32,7 +33,7 @@ function setup(over: { inFront?: boolean; historyOn?: boolean; sendOk?: boolean 
     },
     changed: () => undefined,
     chime: () => chimes++,
-    log: () => undefined,
+    log: (_level, msg) => logs.push(msg),
     status: () => ({ modelsReady: true, dictating: false }),
     pane: {
       tab: async (paneId, panelId) => (paneId === 'P' ? { paneName: 'dictate-mcp', panelTitle: panelId === 'X' ? 'Codex' : 'Claude Code', agentType: 'codex' } : null),
@@ -56,7 +57,7 @@ function setup(over: { inFront?: boolean; historyOn?: boolean; sendOk?: boolean 
     await new Promise((r) => setTimeout(r, 0));
   };
   const setHistory = (on: boolean) => (historyOn = on);
-  return { hub, sent, access, advance, setHistory, chimes: () => chimes, pending: () => pending };
+  return { hub, sent, access, advance, setHistory, logs, chimes: () => chimes, pending: () => pending };
 }
 
 const inTab = (panelId = 'X'): HubSession => ({ id: `s-${panelId}`, client: { name: 'codex-mcp-client', title: 'Codex' }, pane: { sessionId: 'P', panelId }, cwd: 'C:\\repos\\dictate' });
@@ -183,6 +184,24 @@ describe('ask', () => {
     await settle();
     hub.dismiss(hub.queue.view(Date.now()).top!.id);
     expect(await q).toEqual({ answered: false, reason: 'dismissed', card_id: expect.any(String) });
+  });
+
+  it('logs each card raised and how it ended, with its id, kind and source but never its words', async () => {
+    const { hub, advance, logs } = setup();
+    const p = hub.call(inTab(), 'ask', { question: 'Staging or prod?', choices: ['Staging', 'Prod'] }, sig());
+    await settle();
+    await hub.reply(hub.queue.view(Date.now()).top!.id, 'Staging, please.', 'staging please');
+    await p;
+    const q = hub.call(inTab(), 'ask', { question: 'q?', timeout_s: 30 }, sig());
+    await settle();
+    await advance(30_000);
+    await q;
+    expect(logs).toEqual([
+      'card k1 raised (ask from dictate-mcp · Codex): shown',
+      'card k1 answered (ask from dictate-mcp · Codex)',
+      'card k2 raised (ask from dictate-mcp · Codex): shown',
+      'card k2 expired (ask from dictate-mcp · Codex)',
+    ]);
   });
 
   it('is withdrawn when the agent cancels or its connection closes', async () => {

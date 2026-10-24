@@ -48,6 +48,7 @@ Honest limit: other processes running as the same user can read the token. The r
 - Ranking: consent first, then "needs you", then info; oldest first within each, with "+N" for the rest.
 - "Finished" never replaces a card that needs the person, or an agent's own note.
 - An agent's `notify` followed by its tab becoming blocked stays one card. It keeps the agent's title and offers Reply.
+- The log has one line per card raised, answered, dismissed, snoozed, expired or cancelled, with its id, kind and source, and never its words. A round's line says what started it: a click, the shortcut or the summary. Agent connections are logged only when a call fails.
 - Nothing new appears while the person is busy (see [the inbox](#the-inbox-held-snoozed-and-the-round)). The card being answered by voice is the exception: it stays up through the whole reply, marked "Replying by voice…".
 - Paused alerts hold everything. `notify` returns `dnd`, and unpausing drops the info cards.
 - Info cards fade after about 4.5 s on screen. The timer waits while the pointer is over the cards, and when it leaves the card stays at least 2 s more. The vocabulary review is info, but it stays until it is reviewed or dismissed, also after the agent disconnects.
@@ -178,7 +179,7 @@ Dictate's entries carry `DICTATE_MCP=1`. A `dictate` entry without that marker i
 
 ### Instructions
 
-[src/main/instructions.ts](../../src/main/instructions.ts) also keeps a short note in each found agent's user-level instruction file, never a project's: `$CLAUDE_CONFIG_DIR/CLAUDE.md` (else `~/.claude/CLAUDE.md`) and `$CODEX_HOME/AGENTS.md` (else `~/.codex/AGENTS.md`). [src/core/instructions.ts](../../src/core/instructions.ts) holds the text. It says when to use `notify` (`needs_you`), `ask` and `info`, and when `decide`, `approve`, `lineup` or `peek` fits better. It says that `held` or `snoozed` isn't an answer, and `card_status` follows up. Last comes the plain-words rule. The full examples stay in the MCP tool descriptions.
+[src/main/instructions.ts](../../src/main/instructions.ts) also keeps a short note in each found agent's user-level instruction file, never a project's: `$CLAUDE_CONFIG_DIR/CLAUDE.md` (else `~/.claude/CLAUDE.md`) and `$CODEX_HOME/AGENTS.md` (else `~/.codex/AGENTS.md`). A `CODEX_HOME` inside a `.cache` folder or the `TEMP`, `TMP` or `TMPDIR` folder is a temporary one that an agent's shell passed down when it launched Dictate, so the note and the Codex registration go to `~/.codex` instead. [src/core/instructions.ts](../../src/core/instructions.ts) holds the text. It says when to use `notify` (`needs_you`), `ask` and `info`, and when `decide`, `approve`, `lineup` or `peek` fits better. It says that `held` or `snoozed` isn't an answer, and `card_status` follows up. Last comes the plain-words rule. The full examples stay in the MCP tool descriptions.
 
 - The note sits between `<!-- dictate:begin (managed by Dictate; edits are replaced) -->` and `<!-- dictate:end -->`. It is appended to the end of the file, which is created when missing, and replaced in place afterwards. Nothing outside the markers changes: line endings (LF or CRLF) and an existing byte order mark are kept, and none is added.
 - A launch writes only when the note changed. Writes go to a temporary file that is renamed over the original.

@@ -184,6 +184,16 @@ describe('syncInstructions (temporary HOME, CLAUDE_CONFIG_DIR and CODEX_HOME)', 
     expect(fs.existsSync(agentsMd())).toBe(false);
   });
 
+  it("writes to the home folder's .codex when CODEX_HOME is a temporary one inherited from an agent's shell", () => {
+    const temp = path.join(home, 'Temp');
+    for (const codexDir of [path.join(home, '.cache', 'agent-farm', 'run1', 'codex'), path.join(temp, 'codex-x')]) {
+      fs.mkdirSync(codexDir, { recursive: true });
+      syncInstructions(opts({ CODEX_HOME: codexDir, TEMP: temp }), true);
+      expect(fs.existsSync(path.join(codexDir, 'AGENTS.md'))).toBe(false);
+    }
+    expect(instructionsState(fs.readFileSync(agentsMd(), 'utf8'))).toBe('current');
+  });
+
   it('leaves an agent that is not installed alone', () => {
     fs.rmSync(path.join(home, '.codex'), { recursive: true });
     const out = syncInstructions(opts(), true);
