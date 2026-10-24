@@ -6,6 +6,7 @@ import type { GainSpec } from '../core/agc';
 import { dbfs } from '../core/audio';
 import { plainTitle } from '../core/cardtext';
 import { hintVisible } from '../core/pillhint';
+import type { PillPosition } from '../core/types';
 import { dictate, h } from './bridge';
 import * as capture from './capture';
 import { mountCards } from './cards';
@@ -34,6 +35,8 @@ export interface PillConfig {
   variant: 'a' | 'b' | 'c';
   /** Show the live words; off leaves just the waveform. */
   showText: boolean;
+  /** Where on the screen it sits: pill.css lays out the cards and extras from that edge. */
+  position: PillPosition;
 }
 
 const BARS = 9;
@@ -60,7 +63,7 @@ root.append(status);
 mountCards(root, status);
 watchPillVisibility(root);
 
-let config: PillConfig = { variant: 'a', showText: true };
+let config: PillConfig = { variant: 'a', showText: true, position: 'bottom-center' };
 let state: PillState = { kind: 'hidden' };
 let partial = '';
 let silent = false;
@@ -103,6 +106,7 @@ function words(): string {
 function render(): void {
   const s = state;
   root.dataset.variant = config.variant;
+  root.dataset.position = config.position;
   pill.dataset.kind = s.kind;
   // A surface styles its own recording (the agent key's accent dot) in its stylesheet, by this.
   if (s.kind === 'listening' && s.route) pill.dataset.route = s.route;

@@ -2,6 +2,7 @@
 // appear without activation; clicking their controls may focus them. Sheets focus on request.
 import path from 'node:path';
 import { app, BrowserWindow, screen } from 'electron';
+import type { PillPosition } from '../core/types';
 import { appIcon } from './icons';
 
 const renderer = (file: string) => path.join(app.getAppPath(), 'out', 'renderer', file);
@@ -36,13 +37,31 @@ export function createPill(): BrowserWindow {
   return w;
 }
 
-/** Bottom-centre of the display the mouse is on, above the taskbar. */
+/** The cards' and pill's distance from the window's side edges (pill.css #root padding). */
+const PILL_SIDE = 24;
+/** The window overhangs the work area's edge by this much, so the pill sits 20 px in from it. */
+const PILL_OVERHANG = 12;
+
+let position: PillPosition = 'bottom-center';
+/** Where the pill, and the sheet that opens from it, are placed from now on. */
+export function setPillPosition(p: PillPosition): void {
+  position = p;
+}
+
+/** The left edge of a window `width` wide, at the chosen side of the work area: its content in line with the pill's. */
+function sideX(a: Electron.Rectangle, width: number, inset: number): number {
+  if (position.endsWith('left')) return a.x + inset;
+  if (position.endsWith('right')) return a.x + a.width - width - inset;
+  return Math.round(a.x + (a.width - width) / 2);
+}
+
+/** At the chosen spot of the display the mouse is on, inside its work area (clear of the taskbar or dock). */
 export function placePill(w: BrowserWindow): void {
-  const d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
-  const a = d.workArea;
+  const a = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
   // QA screenshots of the pill are taken off-screen, out of the person's way.
   const away = process.env.DICTATE_PILL_SHOTS ? -10_000 : 0;
-  w.setBounds({ x: Math.round(a.x + (a.width - PILL_W) / 2) + away, y: Math.round(a.y + a.height - PILL_H + 12), width: PILL_W, height: PILL_H });
+  const y = position.startsWith('top') ? a.y - PILL_OVERHANG : a.y + a.height - PILL_H + PILL_OVERHANG;
+  w.setBounds({ x: sideX(a, PILL_W, 0) + away, y, width: PILL_W, height: PILL_H });
 }
 
 export function showPill(w: BrowserWindow): void {
@@ -53,7 +72,7 @@ export function showPill(w: BrowserWindow): void {
   w.setAlwaysOnTop(true, 'screen-saver');
 }
 
-/** The pill itself and its hint line, at the bottom of the pill window: the sheet sits right above them. */
+/** The pill itself and its hint line, at the pill window's screen edge: the sheet opens right beside them. */
 export const PILL_STATUS_H = 76;
 
 /**
@@ -86,16 +105,17 @@ export function createSheet(): BrowserWindow {
 /** The sheet's transparent margin, for its shadow: the surface inside is the size asked for. */
 export const SHEET_MARGIN = 12;
 
-/** Centred on the display the pointer is on, its bottom right above the pill. `size` is the surface's own size. */
+/** On the display the pointer is on, in line with the pill and opening from it: up from the bottom, down from the top. */
 export function placeSheet(w: BrowserWindow, size: { width: number; height: number }): void {
-  const d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
-  const a = d.workArea;
+  const a = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
   // QA screenshots are taken off-screen, out of the person's way, as the pill's are.
   const away = process.env.DICTATE_PILL_SHOTS ? -10_000 : 0;
   const width = size.width + 2 * SHEET_MARGIN;
   const height = size.height + 2 * SHEET_MARGIN;
-  const pillBottom = a.y + a.height + 12;
-  w.setBounds({ x: Math.round(a.x + (a.width - width) / 2) + away, y: Math.round(pillBottom - PILL_STATUS_H - height + SHEET_MARGIN), width, height });
+  const y = position.startsWith('top')
+    ? a.y - PILL_OVERHANG + PILL_STATUS_H - SHEET_MARGIN
+    : a.y + a.height + PILL_OVERHANG - PILL_STATUS_H - height + SHEET_MARGIN;
+  w.setBounds({ x: sideX(a, width, PILL_SIDE - SHEET_MARGIN) + away, y: Math.round(y), width, height });
 }
 
 export const PICKER_W = 380;

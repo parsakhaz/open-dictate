@@ -6,7 +6,7 @@ import { bindingLabel, dictationKeyProblem } from '../core/hotkeys';
 import { micKey, micName } from '../core/mics';
 import { canGoBack, canSkip, nextStep, previousStep, resumeStep, STEPS, type Step, stepNumber, tryReady, tryWait } from '../core/onboarding';
 import { displaySize, THIRD_PARTY } from '../core/thirdparty';
-import type { Binding, CleanupChain, OutputMode, Settings, VocabTerm } from '../core/types';
+import type { Binding, CleanupChain, OutputMode, PillPosition, Settings, VocabTerm } from '../core/types';
 import { relativeTime } from '../core/history';
 import { dictate, h } from './bridge';
 
@@ -689,6 +689,18 @@ function general(): Node[] {
       toggle(s.pressEnter, (v) => set({ pressEnter: v })),
     ),
     card('Show what you say', 'The live words in the pill while you speak. Off leaves just the waveform.', toggle(s.pillText, (v) => set({ pillText: v }))),
+    card(
+      'Pill position',
+      'Where the pill sits on your screen. Agent cards open from it.',
+      select<PillPosition>(s.pillPosition, [
+        ['bottom-center', 'Bottom center'],
+        ['bottom-left', 'Bottom left'],
+        ['bottom-right', 'Bottom right'],
+        ['top-left', 'Top left'],
+        ['top-center', 'Top center'],
+        ['top-right', 'Top right'],
+      ], (v) => set({ pillPosition: v })),
+    ),
     card('Sounds', 'A soft cue when dictation starts, stops or is cancelled.', toggle(s.sounds, (v) => set({ sounds: v }))),
     card('Start at login', st.startupError || `Start dictate in the tray when you sign in to ${osName()}.`, toggle(s.startAtLogin, (v) => set({ startAtLogin: v }))),
   ];

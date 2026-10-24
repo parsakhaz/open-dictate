@@ -43,7 +43,7 @@ import { PickerController, type PickerWindow } from './picker';
 import { type Delivery, finishDictation, newId, type OutputSink } from './pipeline';
 import { debouncedWriter, loadJson, readJson, writeJson } from './store';
 import { SttLink } from './sttlink';
-import { createPicker, createPill, createSettings, placePicker, showPill } from './windows';
+import { createPicker, createPill, createSettings, placePicker, placePill, setPillPosition, showPill } from './windows';
 import { Agents, type AgentsHost, type CardAction } from './agents';
 import { syncInstructions } from './instructions';
 import { unregisterAgents } from './registration';
@@ -352,10 +352,10 @@ function pillSend(channel: string, ...args: unknown[]): void {
   if (channel === 'dictate:pill') pillShot(args[0] as { kind: string; mode?: string });
 }
 
-/** The pill's look: the comparison variant (QA), and whether it shows the live words. */
+/** The pill's look: the comparison variant (QA), whether it shows the live words, and where it sits. */
 function pillConfig(): void {
   const v = process.env.DICTATE_PILL_VARIANT;
-  pillSend('dictate:pill-config', { variant: v === 'b' || v === 'c' ? v : 'a', showText: settings.pillText });
+  pillSend('dictate:pill-config', { variant: v === 'b' || v === 'c' ? v : 'a', showText: settings.pillText, position: settings.pillPosition });
 }
 
 /** QA (DICTATE_PILL_SHOTS=<dir>): a PNG of the real pill window on each state change, and on request. */
@@ -1290,7 +1290,11 @@ function updateSettings(patch: Partial<Settings>): void {
   if (['hotkeys', 'toggle', 'picker', 'tapMs', 'doubleTapMs', 'inbox', 'snooze', 'voice', 'point'].some((k) => k in patch)) applyBindings();
   if (patch.historyLimit !== undefined) history.setLimit(settings.historyLimit);
   if (patch.micWarm !== undefined) warm?.settingChanged();
-  if (patch.pillText !== undefined) pillConfig();
+  if (patch.pillText !== undefined || patch.pillPosition !== undefined) pillConfig();
+  if (patch.pillPosition !== undefined) {
+    setPillPosition(settings.pillPosition);
+    if (pill.isVisible()) placePill(pill);
+  }
   if (patch.startAtLogin !== undefined) applyLoginItem();
   if (patch.autoUpdate !== undefined) updater?.setEnabled(settings.autoUpdate);
   if (patch.agentsEnabled !== undefined && patch.agentsEnabled !== before.agentsEnabled) void agents?.applyRegistration().then(() => pushState());
@@ -1532,6 +1536,7 @@ async function main(): Promise<void> {
     callback(own && permission === 'media' && 'mediaTypes' in details && (details.mediaTypes?.every((t) => t === 'audio') ?? false));
   });
   settings = loadSettings();
+  setPillPosition(settings.pillPosition);
   // Frequent byte counts must not rebuild settings controls or reopen microphone meters.
   setup.onChange = () => {
     if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('dictate:setup-progress', setup.state);

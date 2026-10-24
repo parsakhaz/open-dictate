@@ -4,14 +4,14 @@ import { DEFAULT_HISTORY_LIMIT } from './history';
 import { DEFAULT_TIMING, VK } from './hotkeys';
 import { parseMicPrefs } from './mics';
 import { isStep } from './onboarding';
-import { binding, bool, num, str } from './sections/fields';
+import { binding, bool, num, oneOf, str } from './sections/fields';
 import { DEFAULT_DECIDE, parseDecideSettings } from './sections/decide';
 import { DEFAULT_INBOX, parseInbox } from './sections/inbox';
 import { DEFAULT_PEEK, parsePeek } from './sections/peek';
 import { DEFAULT_POINT, parsePoint } from './sections/point';
 import { DEFAULT_SNOOZE, parseSnooze } from './sections/snooze';
 import { DEFAULT_VOICE, parseVoice } from './sections/voice';
-import type { Binding, CleanupChain, HardwareResult, OutputMode, Settings, VocabTerm } from './types';
+import { type Binding, type CleanupChain, type HardwareResult, type OutputMode, PILL_POSITIONS, type Settings, type VocabTerm } from './types';
 import { normalizeVocabulary } from './vocabulary';
 import { parsePending } from './vocabproposals';
 
@@ -46,6 +46,7 @@ export function defaultSettings(vocabulary: VocabTerm[] = []): Settings {
     sounds: true,
     pressEnter: false,
     pillText: true,
+    pillPosition: 'bottom-center',
     micWarm: 'always',
     micWarmSet: false,
     liveCleanup: true,
@@ -147,6 +148,7 @@ export function parseSettings(data: unknown, defaults: Settings): Settings {
     sounds: bool(d.sounds, defaults.sounds),
     pressEnter: bool(d.pressEnter, defaults.pressEnter),
     pillText: bool(d.pillText, defaults.pillText),
+    pillPosition: oneOf(d.pillPosition, PILL_POSITIONS, defaults.pillPosition),
     // A saved value the person never chose was just the default of its day: it follows today's default.
     micWarm: micWarmChosen(d) ? ((['off', '30s', 'always'] as const).find((w) => w === d.micWarm) ?? defaults.micWarm) : defaults.micWarm,
     micWarmSet: micWarmChosen(d),

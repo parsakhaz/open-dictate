@@ -216,6 +216,6 @@
 @keyframes card-in {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(var(--rise, 6px));
   }
 }
