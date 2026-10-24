@@ -67,7 +67,7 @@ open-dictate runs the whole thing on your computer: a streaming speech model wri
 | **Mouse buttons** | Map a mouse button to F13–F24 in Logitech Options+ or G HUB, and dictate with your thumb. |
 | **Mics that come and go** | Your favourite mic is used when it's plugged in, with a fallback, and an Undo when it switches. |
 | **Coding agents reach you on the pill** | <img src="docs/media/agent-cards.png" width="560" alt="Agent cards on the pill: collapsed, expanded with Open, choices and Hold to reply, history consent, and the list of three"><br>When Claude Code, Codex or Cursor calls Dictate's `notify` or `ask`, the pill shows a card naming the tab or folder it came from. Pane's own blocked and finished alerts can show there too; that's off by default. Click it to open that tab, or hold your key over it and answer by voice. Agents can also ask several things in one card, get a plan approved, line up mockups for you to pick from, or show you a local page you point at and talk about. Settings → **Agents**. |
-| **Cards wait while you work** | A card that arrives while you type, dictate or present waits quietly ("3 waiting"). Ctrl+Alt+Space clears the pile in one round right above the pill, by keys or by holding your dictation key and saying "approve", "next" or your answer. Ctrl+Alt+Z snoozes a card for a few minutes, and it comes back by itself. |
+| **Cards wait while you work** | A card that arrives while you type, dictate or present waits quietly ("3 waiting"). Ctrl+Alt+Space clears the pile in one round right above the pill, by keys or by holding your dictation key and saying "approve", "next" or your answer. Ctrl+Alt+Z snoozes a card for a few minutes, and it comes back by itself. Ctrl+Alt+P or the tray pauses all cards for 30 minutes, an hour or until you resume; agents keep waiting. |
 | **Talk to your agents** | Hold Ctrl+Win and say what you want: it goes to a "Voice" orchestrator in Pane (the app that runs your coding agents in tabs; this needs it installed), which hands it to the right agent and answers on the pill. On Windows, pick a point key and hold it over anything on screen, an error or a button, and say "fix this": you see exactly what will go before it's sent. |
 | **Updates itself, politely** | Checks GitHub Releases daily, and installs only when you quit or haven't dictated for 10 minutes. You can turn it off. |
 
@@ -178,6 +178,7 @@ Use Dictate on CHOSEN-HOST through `runpane workspace CHOSEN-HOST exec`; its Win
 On that host verify `doctor --json` and `schema KIND --json`; use MCP aliases notify, ask, decide, approve, lineup, peek with `--from-json FILE --json`.
 Creation returns immediately: save request_id, then collect `request get ID` or `request wait ID --timeout 45s`. Held/snoozed is not an answer. A notify can come back answered, with the person's spoken reply in result.text. Never blindly replay after app restart.
 Stage input/assets on the host; provide originating machine/task context with `--origin-file`. Paths and localhost resolve there. The local CLI does not route remotely.
+Ask only what you can't find out yourself. Put related questions in one decide card. Use notify only for what the person must know now. Keep titles short and choices to a few words.
 ```
 
 For example, save this UTF-8 file as `request.json` on the originating machine:
