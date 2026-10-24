@@ -109,6 +109,15 @@ it('CLI info completes on fade and coalesced requests retain distinct replacemen
   expect(await book.wait(second.request_id, 1000)).toMatchObject({ state: 'completed', result: { reason: 'faded' } });
 });
 
+it("names each card's session for the round's chips: the Pane tab, the session a remote agent named, or the agent", async () => {
+  const { hub } = setup();
+  await hub.call(inTab(), 'notify', { title: 'In a tab' }, sig());
+  await hub.call(outside, 'notify', { title: 'Outside' }, sig());
+  await hub.call({ ...outside, id: 's-remote', origin: { id: 'round-decide', machine: 'Mac', agent: 'Codex', workspace: 'open-dictate' } }, 'notify', { title: 'Remote' }, sig());
+  const name = (title: string) => hub.queue.view(Date.now()).all.find((c) => c.title === title)?.sourceName;
+  expect([name('In a tab'), name('Outside'), name('Remote')]).toEqual(['Codex', 'Cursor', 'round-decide']);
+});
+
 describe('notify', () => {
   it('labels the card with its real tab, whatever the agent claims (J3, J4)', async () => {
     const { hub } = setup();

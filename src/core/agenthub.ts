@@ -1,7 +1,7 @@
 // What happens when an agent calls one of Dictate's tools, when Pane reports a tab, and when the person clicks a
 // card: the rules between the tools, the card queue, consent and Pane. Everything outside (the pill, runpane,
 // history, settings, time) comes in through HubDeps. Pure.
-import { cleanMessage } from './agenttext';
+import { cleanMessage, cleanText } from './agenttext';
 import { CAPS, parseAsk, parseHistoryRequest, parseNotify, ToolInputError } from './agenttools';
 import type { ClientInfo, PaneIds } from './agentwire';
 import { type AddResult, type Card, type CardKind, CardQueue, type CardTarget } from './cards';
@@ -24,6 +24,8 @@ export interface HubSession {
 
 export interface Source {
   line: string;
+  /** Short enough for a round's chip: the Pane tab, the session a remote agent named, or the agent. */
+  name: string;
   detail?: string;
   /** The Pane tab to open and reply to, when the session is inside one Dictate could find. */
   target: CardTarget | null;
@@ -283,16 +285,20 @@ export class AgentHub {
 
   /** Where a session really is: its Pane tab when Pane knows it, else its client and folder. */
   async source(session: HubSession): Promise<Source> {
+    const agent = clientSourceLine(session.client, '');
     if (session.origin) {
       const o = session.origin;
-      return { line: [o.machine, o.agent, o.workspace].filter(Boolean).join(' · ') || o.id, detail: 'Claimed remote origin', target: null };
+      return { line: [o.machine, o.agent, o.workspace].filter(Boolean).join(' · ') || o.id, name: cleanText(o.id, 40).text || agent, detail: 'Claimed remote origin', target: null };
     }
     if (session.pane) {
       const tab = await this.deps.pane.tab(session.pane.sessionId, session.pane.panelId).catch(() => null);
-      if (tab) return { line: paneSourceLine(tab.paneName, tab.panelTitle, tab.agentType), target: { paneId: session.pane.sessionId, panelId: session.pane.panelId } };
-      return { line: `Pane tab · ${clientSourceLine(session.client, '')}`, target: null };
+      if (tab) {
+        const line = paneSourceLine(tab.paneName, tab.panelTitle, tab.agentType);
+        return { line, name: line.split(' · ').pop() ?? agent, target: { paneId: session.pane.sessionId, panelId: session.pane.panelId } };
+      }
+      return { line: `Pane tab · ${agent}`, name: agent, target: null };
     }
-    return { line: clientSourceLine(session.client, session.cwd), target: null };
+    return { line: clientSourceLine(session.client, session.cwd), name: agent, target: null };
   }
 
   private add(card: Card): AddResult {
@@ -321,7 +327,7 @@ export class AgentHub {
       const old = this.queue.byKey(key);
       if (old) this.settle(old.id, { reason: 'replaced', replaced_by: owner.requestId, card_id: old.id });
       const answer = this.wait(id, { session: session.id, kind: 'notify', timeoutMs: 24 * 3600_000, signal: owner.signal });
-      const status = this.add({ id, key, origin: 'agent', kind: 'notify', urgency: a.urgency, source: src.line, sourceDetail: src.detail, title: a.title, message: a.message, action: a.action, choices: a.choices, link: a.link, target: src.target, createdAt: this.deps.now() });
+      const status = this.add({ id, key, origin: 'agent', kind: 'notify', urgency: a.urgency, source: src.line, sourceName: src.name, sourceDetail: src.detail, title: a.title, message: a.message, action: a.action, choices: a.choices, link: a.link, target: src.target, createdAt: this.deps.now() });
       const result = await answer as Record<string, unknown>;
       return { ...result, status, card_id: id, ...(a.truncated ? { truncated: true } : {}) };
     }
@@ -332,6 +338,7 @@ export class AgentHub {
       kind: 'notify',
       urgency: a.urgency,
       source: src.line,
+      sourceName: src.name,
       sourceDetail: src.detail,
       title: a.title,
       message: a.message,
@@ -361,6 +368,7 @@ export class AgentHub {
       kind: 'ask',
       urgency: 'needs_you',
       source: src.line,
+      sourceName: src.name,
       sourceDetail: src.detail,
       title: a.question,
       message: a.message,

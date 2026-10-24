@@ -105,6 +105,7 @@ function setup(host: FeatureHost): void {
       kind: 'lineup',
       urgency: 'needs_you',
       source: src.line,
+      sourceName: src.name,
       sourceDetail: src.detail,
       title: args.title,
       message: args.message,

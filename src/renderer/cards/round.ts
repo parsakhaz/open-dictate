@@ -1,5 +1,6 @@
-// The round summary: what the round did, one row per card, with Done, Undo for the last action, and Open inbox while
-// cards still wait (L2). Its buttons go to the inbox's handler as { action: 'kind', name }.
+// The round summary: what the round did, one row per card with its question and the answer sent, with Done, Undo for
+// the last action while it can be taken back, and Open inbox while cards still wait (L2). Its buttons go to the
+// inbox's handler as { action: 'kind', name }.
 import { plainTitle } from '../../core/cardtext';
 import { h } from '../bridge';
 import type { CardBody } from './types';
@@ -27,7 +28,7 @@ export const roundSummary: CardBody = {
         'div.rrow',
         { 'data-action': r.action },
         h('span.rtag', {}, LABEL[r.action] ?? r.action),
-        h('span.rwhat', {}, r.action === 'answered' && r.text ? `“${r.text}”` : r.action === 'snoozed' && r.back ? `${plainTitle(r.title)} · back at ${r.back}` : plainTitle(r.title)),
+        h('span.rwhat', {}, r.action === 'snoozed' && r.back ? `${plainTitle(r.title)} · back at ${r.back}` : plainTitle(r.title), r.text ? h('span.rans', {}, r.text) : null),
         h('span.rtab', {}, r.tab),
       ),
     );

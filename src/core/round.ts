@@ -147,6 +147,21 @@ export function summaryLine(results: RoundResult[], clock: (t: number) => string
   return parts.length ? `Round done: ${parts.join(', ')}` : 'Round done: nothing changed';
 }
 
+/**
+ * The answer a card sent, as one line for the summary: the choice or words, "Approved", the changes asked for, or a
+ * decision's picks ("Target: Staging · Notify: Charged twice, Charge failed"; one question needs no header).
+ */
+export function sentAnswer(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const v = value as { choice?: unknown; text?: unknown; approved?: unknown; changes?: unknown; answers?: unknown };
+  if (Array.isArray(v.answers)) {
+    const parts = (v.answers as { header?: string; picked?: string[]; other?: string }[]).map((a) => ({ header: a.header ?? '', said: [...(a.picked ?? []), ...(a.other ? [a.other] : [])].join(', ') }));
+    return parts.length === 1 ? parts[0].said : parts.map((p) => `${p.header}: ${p.said}`).join(' · ');
+  }
+  for (const x of [v.choice, v.text, v.changes]) if (typeof x === 'string' && x) return x;
+  return v.approved === true ? 'Approved' : undefined;
+}
+
 /** The local time as the pill shows it, "14:37". */
 export function clockTime(t: number): string {
   const d = new Date(t);

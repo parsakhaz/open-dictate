@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nextLength, parseCommand, Round, type RoundResult, summaryLine } from '../src/core/round';
+import { nextLength, parseCommand, Round, type RoundResult, sentAnswer, summaryLine } from '../src/core/round';
 
 const L = [3, 5, 10];
 
@@ -81,5 +81,20 @@ describe('the round summary', () => {
     const line = summaryLine([r('a', 'approved'), r('b', 'approved'), r('c', 'approved'), r('d', 'answered'), r('e', 'snoozed', { until: 1 })], () => '14:45');
     expect(line).toBe('Round done: 3 approved, 1 answered, 1 snoozed until 14:45');
     expect(summaryLine([], () => '')).toBe('Round done: nothing changed');
+  });
+
+  it('writes the answer each card sent: a choice, words, an approval or every question of a decision', () => {
+    expect(sentAnswer({ choice: 'Run it' })).toBe('Run it');
+    expect(sentAnswer({ text: 'Under the summary' })).toBe('Under the summary');
+    expect(sentAnswer({ approved: true })).toBe('Approved');
+    expect(sentAnswer({ approved: false, changes: 'Only on staging' })).toBe('Only on staging');
+    const answers = [
+      { id: 'env', header: 'Target', picked: ['Staging'] },
+      { id: 'q2', header: 'Notify', picked: ['Charged twice', 'Charge failed'] },
+      { id: 'q3', header: 'Policy', picked: [], other: 'Retry twice' },
+    ];
+    expect(sentAnswer({ answers })).toBe('Target: Staging · Notify: Charged twice, Charge failed · Policy: Retry twice');
+    expect(sentAnswer({ answers: [answers[0]] })).toBe('Staging');
+    expect(sentAnswer(undefined)).toBeUndefined();
   });
 });

@@ -5,22 +5,25 @@
 
 import { type CardEnd, cardLabel } from '../../core/agenthub';
 import { ToolInputError } from '../../core/agenttools';
-import { type Card, MAX_WAIT_MS } from '../../core/cards';
+import { type Card, HOVER_GRACE_MS, MAX_WAIT_MS } from '../../core/cards';
+import { answersOut, complete, type DecideData, isAnswered } from '../../core/decidecard';
+import { isApproval } from '../../core/decidematch';
 import { BUSY_POLL_MS, isBusyState } from '../../core/flowguard';
-import { clockTime, nextLength, parseCommand, Round, type RoundCommand, type RoundResult, summaryLine } from '../../core/round';
+import { clockTime, nextLength, parseCommand, Round, type RoundCommand, type RoundResult, sentAnswer, summaryLine } from '../../core/round';
 import { foregroundWindow, setForeground } from '../../native/platform';
 import type { Feature, FeatureHost } from './host';
 
 /** The snooze toast stays this long; pressing the shortcut again meanwhile steps to the next length. */
 const TOAST_MS = 5000;
-/** The round's summary stays this long, then the last action is sent and the summary goes. */
+/** The round's summary stays this long (and while the pointer is on it), then the last action is sent and the summary goes. */
 const SUMMARY_MS = 8000;
 /** A question told it was snoozed still takes a late answer for this long. */
 const LATE_ANSWER_MS = 8 * 60 * 60_000;
 /** How often the shortcuts' claims are checked against what is on screen. */
 const CLAIM_POLL_MS = 250;
 
-const tabOf = (c: Card) => c.source.split(' · ').pop() || 'the agent';
+const tabOf = (c: Card) => c.sourceName || c.source.split(' · ').pop() || 'the agent';
+const decideData = (c: Card) => (c.kind === 'decide' ? (c.data as DecideData | undefined) : undefined);
 const iso = (t: number) => new Date(t).toISOString();
 
 /** What an answer was, as card_status gives it back: the words and picks, never anything else the wait carried. */
@@ -47,6 +50,8 @@ class Inbox {
   /** The dictation key is held for the round's current card. */
   private listening = false;
   private heard = '';
+  /** Why the last key or command on this card did nothing ("Pick 1–4"). */
+  private note = '';
   /** The round's cards' titles and tabs, for its summary after a card has left the queue. */
   private titles = new Map<string, { title: string; tab: string }>();
   private config = '';
@@ -110,8 +115,10 @@ class Inbox {
     // ---------- the round ----------
     hub.cardKind('round-summary', { action: async (_card, name) => this.summaryAction(name) });
     host.ipc.handle('key', (key) => typeof key === 'string' && this.roundKey(key));
+    host.ipc.handle('pick', (q, label) => typeof q === 'number' && typeof label === 'string' && this.pickDecide(q, label));
     host.ipc.handle('jump', (id) => {
       if (typeof id !== 'string' || !this.round) return;
+      this.note = '';
       this.round.jump(id);
       this.showRound();
     });
@@ -189,8 +196,9 @@ class Inbox {
     // A card in the round answered some other way (its agent, a click on the pill): the round moves on.
     if (this.round && this.round.current() === id) {
       const seen = this.titles.get(id) ?? { title: '', tab: '' };
-      const text = answerOf(value)?.text;
-      this.round.act({ id, action: how === 'answered' ? 'answered' : 'skipped', ...seen, ...(typeof text === 'string' ? { text } : {}) });
+      const text = how === 'answered' ? sentAnswer(answerOf(value)) : undefined;
+      const action = how !== 'answered' ? 'skipped' : (value as { approved?: unknown })?.approved === true ? 'approved' : 'answered';
+      this.round.act({ id, action, ...seen, ...(text ? { text } : {}) });
       this.advance();
     } else this.round?.drop(id);
     if (this.toast?.id === id) this.setToast(null);
@@ -206,7 +214,7 @@ class Inbox {
 
   private snoozePressed(): void {
     const s = this.host.settings().snooze;
-    if (this.round) return void this.roundCommand({ type: 'snooze', minutes: s.minutes[0] });
+    if (this.round) return void this.roundKeyCommand({ type: 'snooze', minutes: s.minutes[0] });
     if (this.toast && this.now() - this.toast.at < TOAST_MS) {
       this.snooze(this.toast.id, nextLength(s.minutes, this.toast.minutes));
       return;
@@ -302,16 +310,30 @@ class Inbox {
     const c = id ? this.q.get(id) : undefined;
     if (!c) return void this.endRound('done');
     this.q.markShown(c.id, this.now());
+    const data = decideData(c);
+    const plan = c.kind === 'approve' ? (c.data as { summary?: string[]; risk?: string | null } | undefined) : undefined;
     const payload = {
       position: r.position(),
       chips: r.chips().map((x) => {
         const card = this.q.get(x.id);
         return { id: x.id, state: x.state, label: card ? tabOf(card) : '' };
       }),
-      card: { id: c.id, kind: c.kind, source: c.source, age: Math.max(0, Math.round((this.now() - c.createdAt) / 60_000)), title: c.title, message: c.message, choices: c.choices.slice(0, 4), canOpen: !!c.target },
+      card: {
+        id: c.id,
+        kind: c.kind,
+        source: c.source,
+        age: Math.max(0, Math.round((this.now() - c.createdAt) / 60_000)),
+        title: c.title,
+        message: c.message,
+        choices: c.choices.slice(0, 4),
+        questions: data?.questions.map((q, i) => ({ header: q.header, question: q.question, multi: q.multi, options: q.options.map((o) => o.label), picked: data.answers[i].picked, other: data.answers[i].other ?? '' })),
+        plan: plan ? { summary: plan.summary ?? [], risk: plan.risk ?? null } : undefined,
+        enter: this.enterLabel(c),
+      },
       lengths: this.host.settings().snooze.minutes,
       listening: this.listening,
       heard: this.heard,
+      note: this.note,
     };
     if (open) this.host.sheet.open('round', payload, { focus: true });
     else this.host.sheet.update(payload);
@@ -319,39 +341,82 @@ class Inbox {
 
   private roundKey(key: string): void {
     const s = this.host.settings().snooze;
-    if (/^[1-4]$/.test(key)) this.roundCommand({ type: 'choose', n: Number(key) });
-    else if (key === 'Enter') this.roundCommand({ type: 'approve' });
-    else if (key === 's' || key === 'S') this.roundCommand({ type: 'snooze', minutes: s.minutes[0] });
-    else if (key === 'ArrowRight') this.roundCommand({ type: 'skip' });
-    else if (key === 'o' || key === 'O') this.roundCommand({ type: 'open' });
+    if (/^[1-4]$/.test(key)) this.roundKeyCommand({ type: 'choose', n: Number(key) });
+    else if (key === 'Enter') this.roundKeyCommand({ type: 'approve' });
+    else if (key === 's' || key === 'S') this.roundKeyCommand({ type: 'snooze', minutes: s.minutes[0] });
+    else if (key === 'ArrowRight') this.roundKeyCommand({ type: 'skip' });
+    else if (key === 'o' || key === 'O') this.roundKeyCommand({ type: 'open' });
     else if (key === 'Escape') this.endRound('esc');
   }
 
-  /** One action on the round's current card; true when it did something. */
-  private roundCommand(cmd: RoundCommand): boolean {
+  /** A key or button: when it does nothing, the round says why. */
+  private roundKeyCommand(cmd: RoundCommand): void {
+    const r = this.roundCommand(cmd);
+    if (r === true) return;
+    this.note = r;
+    this.showRound();
+  }
+
+  /**
+   * What Enter (and "approve") does on a card, as its button reads; null when it needs a pick first. It never picks
+   * a choice the person didn't see named: a decision sends once every question has a pick, an approval approves, and
+   * a question sends its choice only when it has just one.
+   */
+  private enterLabel(c: Card): string | null {
+    if (c.kind === 'decide') return 'Send';
+    if (c.kind === 'approve') return 'Approve';
+    if (c.choices.length === 1) return c.choices[0];
+    return !c.choices.length && c.target ? 'Open' : null;
+  }
+
+  /** One action on the round's current card: true when it did something, else why not. */
+  private roundCommand(cmd: RoundCommand, spoken = false): true | string {
     const r = this.round;
     const id = r?.current();
     const c = id ? this.q.get(id) : undefined;
-    if (!r || !c) return false;
+    if (!r || !c) return 'Nothing to answer';
     const base = { id: c.id, title: c.title, tab: tabOf(c) };
+    const data = decideData(c);
     switch (cmd.type) {
-      case 'choose':
-      case 'approve': {
-        const choice = c.choices[cmd.type === 'choose' ? cmd.n - 1 : 0];
-        if (choice) {
-          this.act({ ...base, action: cmd.type === 'approve' ? 'approved' : 'answered', text: choice }, () => this.host.agents.action({ id: c.id, action: 'choose', value: choice }));
+      case 'choose': {
+        if (data) {
+          const q = data.answers.findIndex((a) => !isAnswered(a));
+          const label = data.questions[q]?.options[cmd.n - 1]?.label;
+          if (!label) return q < 0 ? 'Every question has a pick · click to change one' : `Pick 1–${data.questions[q].options.length}`;
+          this.pickDecide(q, label);
           return true;
         }
-        if (cmd.type === 'approve' && c.target) return this.roundCommand({ type: 'open' });
-        return false;
+        const choice = c.choices[cmd.n - 1];
+        if (!choice) return c.choices.length ? `Pick 1–${c.choices.length}` : 'This card has no choices';
+        this.act({ ...base, action: 'answered', text: choice }, () => this.host.agents.action({ id: c.id, action: 'choose', value: choice }));
+        return true;
+      }
+      case 'approve': {
+        if (data) {
+          if (!complete(data)) return 'Pick an answer for every question';
+          this.act({ ...base, action: 'answered', text: sentAnswer({ answers: answersOut(data) }) }, () => this.host.agents.action({ id: c.id, action: 'kind', name: 'send' }));
+          return true;
+        }
+        if (c.kind === 'approve') {
+          if (spoken && (c.data as { risk?: unknown } | undefined)?.risk === 'high') return 'High risk · press Enter to approve';
+          this.act({ ...base, action: 'approved', text: 'Approved' }, () => this.host.agents.action({ id: c.id, action: 'kind', name: 'approve' }));
+          return true;
+        }
+        if (c.choices.length === 1) {
+          const choice = c.choices[0];
+          this.act({ ...base, action: 'approved', text: choice }, () => this.host.agents.action({ id: c.id, action: 'choose', value: choice }));
+          return true;
+        }
+        if (c.choices.length) return `Pick 1–${c.choices.length}`;
+        return c.target ? this.roundCommand({ type: 'open' }) : 'This card takes no answer · → for the next';
       }
       case 'open':
-        if (!c.target) return false;
+        if (!c.target) return 'This card has no tab to open';
         this.act({ ...base, action: 'opened' });
         void this.host.agents.action({ id: c.id, action: 'open' });
         return true;
       case 'snooze':
-        if (!this.snooze(c.id, cmd.minutes, false)) return false;
+        if (!this.snooze(c.id, cmd.minutes, false)) return 'This card can’t be snoozed';
         this.act({ ...base, action: 'snoozed', until: this.q.get(c.id)?.snoozedUntil });
         return true;
       case 'skip':
@@ -361,6 +426,14 @@ class Inbox {
         this.endRound('done');
         return true;
     }
+  }
+
+  /** A pick on the round's decision card; the round stays on it until it is sent. */
+  private pickDecide(q: number, label: string): void {
+    const id = this.round?.current();
+    if (!id) return;
+    this.note = '';
+    void this.host.agents.action({ id, action: 'kind', name: 'pick', value: { q, label } }).then(() => this.showRound());
   }
 
   /** Records the action and moves on; an answer waits out of sight until the next action, so Undo can take it back. */
@@ -376,6 +449,8 @@ class Inbox {
 
   private advance(): void {
     if (!this.round) return;
+    this.note = '';
+    this.heard = '';
     this.round.add(this.q.roundCards().map((c) => c.id));
     if (this.round.done()) this.endRound('done');
     else this.showRound();
@@ -424,15 +499,23 @@ class Inbox {
       createdAt: this.now(),
       data: {
         results: r.results.map((x) => ({ action: x.action, title: x.title, tab: x.tab, ...(x.text ? { text: x.text } : {}), ...(x.until !== undefined ? { back: clockTime(x.until) } : {}) })),
-        undo: last && last.action !== 'opened' && last.action !== 'skipped' ? last.action : null,
+        // Undo takes back an answer not yet sent, or a snooze.
+        undo: last && (this.pending?.id === last.id || last.action === 'snoozed') ? last.action : null,
         waiting: this.q.roundCards().length,
       },
     });
-    this.summary = { id, timer: setTimeout(() => this.dropSummary(), SUMMARY_MS) };
+    this.summary = { id, timer: setTimeout(() => this.summaryDue(), SUMMARY_MS) };
     this.undoable = r;
   }
 
   private undoable: Round | null = null;
+
+  /** The summary's time is up: it goes, unless the pointer is on it. */
+  private summaryDue(): void {
+    if (!this.summary) return;
+    if (this.q.hovered) this.summary.timer = setTimeout(() => this.summaryDue(), HOVER_GRACE_MS);
+    else this.dropSummary();
+  }
 
   private dropSummary(): void {
     const s = this.summary;
@@ -482,15 +565,25 @@ class Inbox {
   private async utterance(text: string, raw: string): Promise<{ ok: boolean; message: string }> {
     const said = text.trim();
     this.heard = said;
-    const cmd = parseCommand(said, this.host.settings().snooze.minutes) ?? parseCommand(raw, this.host.settings().snooze.minutes);
-    if (cmd) {
-      const ok = this.roundCommand(cmd);
-      return { ok, message: ok ? `“${said}”` : `Can’t ${cmd.type} this card` };
-    }
     const r = this.round;
     const id = r?.current();
     const c = id ? this.q.get(id) : undefined;
+    const lengths = this.host.settings().snooze.minutes;
+    // On an approval card, "yes, go ahead" approves as "approve" does; other words are the changes asked for.
+    const cmd = parseCommand(said, lengths) ?? parseCommand(raw, lengths) ?? (c?.kind === 'approve' && (isApproval(said) || isApproval(raw)) ? { type: 'approve' as const } : null);
+    if (cmd) {
+      const done = this.roundCommand(cmd, true);
+      if (done !== true) this.note = done;
+      this.showRound();
+      return done === true ? { ok: true, message: `“${said}”` } : { ok: false, message: done };
+    }
     if (!c || !said) return { ok: false, message: 'Nothing to answer' };
+    // A decision: the words fill what they match, and it sends once every question has a pick.
+    if (c.kind === 'decide') {
+      const res = await this.host.agents.reply(c.id, said, raw);
+      this.showRound();
+      return res;
+    }
     if (!c.target && c.kind !== 'ask' && !this.host.hub.waiting(c.id)) return { ok: false, message: 'This card takes no answer · Enter or →' };
     this.act({ id: c.id, action: 'answered', title: c.title, tab: tabOf(c), text: said }, () => this.host.agents.reply(c.id, said, raw));
     return { ok: true, message: `Answer for ${tabOf(c)}` };
