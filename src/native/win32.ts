@@ -36,6 +36,8 @@ const PostThreadMessageW = user32.func('__stdcall', 'PostThreadMessageW', 'bool'
 const GetLastError = kernel32.func('__stdcall', 'GetLastError', 'uint32', []);
 const QueryFullProcessImageNameW = kernel32.func('__stdcall', 'QueryFullProcessImageNameW', 'bool', ['intptr', 'uint32', 'void *', koffi.inout(koffi.pointer('uint32'))]);
 const AllowSetForegroundWindow = user32.func('__stdcall', 'AllowSetForegroundWindow', 'bool', ['uint32']);
+const GetWindowLongPtrW = user32.func('__stdcall', 'GetWindowLongPtrW', 'intptr', ['intptr', 'int32']);
+const SetWindowLongPtrW = user32.func('__stdcall', 'SetWindowLongPtrW', 'intptr', ['intptr', 'int32', 'intptr']);
 
 const INPUT_KEYBOARD = 1;
 const KEYEVENTF_KEYUP = 0x2;
@@ -103,6 +105,14 @@ export function isWindow(hwnd: number): boolean {
 
 export function setForeground(hwnd: number): boolean {
   return SetForegroundWindow(hwnd);
+}
+
+const GWL_EXSTYLE = -20;
+const WS_EX_NOACTIVATE = 0x08000000;
+
+/** A click on the window no longer activates it, so the foreground app keeps the keyboard. */
+export function setNoActivate(hwnd: number): void {
+  SetWindowLongPtrW(hwnd, GWL_EXSTYLE, Number(GetWindowLongPtrW(hwnd, GWL_EXSTYLE)) | WS_EX_NOACTIVATE);
 }
 
 export function windowClass(hwnd: number): string {

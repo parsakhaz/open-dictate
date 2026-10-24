@@ -77,11 +77,11 @@ async function main() {
   let hwnd;
   enumerate(h => { const pid = [0]; pidOf(h, pid); if (pid[0] !== proc.pid) return true; const title = Buffer.alloc(1024); text(h, title, 512); if (title.toString('utf16le').split('\0')[0] === 'dictate') hwnd = h; return true; }, 0);
   check('single original pill HWND exists', !!hwnd);
-  check('real pill has neither transparent-input nor nonactivation style', !(style(hwnd, -20) & (0x20 | 0x8000000)));
   const snapshot = async name => { const shot = await cdp('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync(path.join(DATA, name + '.png'), Buffer.from(shot.result.data, 'base64')); };
   await sleep(1200);
   let card = await call('notify', { title: 'Original compact card', message: 'Original floating surface; native input enabled.', urgency: 'needs_you' });
   await until(() => evaluate("!!document.querySelector('.card')"));
+  check('shown pill never activates and is click-through', (style(hwnd, -20) & (0x20 | 0x8000000)) === (0x20 | 0x8000000));
   check('original hover disclosure restored', await evaluate("!document.querySelector('.snz')"));
   check('no container header or added Close chrome', await evaluate("!document.querySelector('.window-head,.window-close')&&getComputedStyle(document.body).backgroundColor==='rgba(0, 0, 0, 0)'"));
   fs.appendFileSync(CONTROL, 'cards-hover on\n');

@@ -2,6 +2,9 @@ Dictate input repair / original UX restoration audit - 2026-10-21
 Baseline: 73c93989e8c3ddb7fe5ba78bac3c882726602ab8 (pre-fix origin/main).
 Latest user acceptance overrides the earlier opaque-window redesign.
 
+Superseded for the pill (2026-10-23): it never activates (WS_EX_NOACTIVATE on Windows) and is
+click-through except over a card, an inbox control or mic Undo, applied from main's pointer poll.
+
 Native policy
 - Original transparent pill hosts original cards, inbox and mic Undo together.
   It is focusable, shown with showInactive, and never uses ignore-mouse gating,

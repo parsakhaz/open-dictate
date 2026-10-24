@@ -246,7 +246,8 @@ async function qaCardClick(label: string, click: boolean): Promise<void> {
 type Rect = { x: number; y: number; width: number; height: number };
 /** The pill's extras' clickable areas (the inbox badge, its shelf), from the renderer, in the same CSS pixels. */
 let extraRects: Rect[] = [];
-let extraHover = false;
+/** The mic toast's Undo button while it shows, from the renderer, in the same CSS pixels. */
+let undoRect: Rect | null = null;
 
 /** QA: a pointer in the pill page's CSS pixels, standing in for the OS pointer (which QA never moves). */
 let qaPointer: { x: number; y: number } | null = null;
@@ -272,9 +273,9 @@ function pointerOverCard(): boolean {
 let cardPointer: CardPointer = { over: false, openFor: null };
 
 /**
- * The pill is click-through except over a card (and an Undo toast). Main watches the pointer itself while cards are
- * up: on Windows a click-through window gets no forwarded pointer moves, so the page never learns it is hovered and
- * the window would never start taking clicks (issue #9).
+ * The pill is click-through except over a card, an inbox control or the mic toast's Undo. Main watches the pointer
+ * itself while any of them is up: on Windows a click-through window gets no forwarded pointer moves, so the page
+ * never learns it is hovered and the window would never start taking clicks (issue #9).
  */
 let cardHover = false;
 /** The top card is open under the pointer, showing its buttons. */
@@ -282,16 +283,19 @@ let cardOpen = false;
 /** QA: hovered without a mouse. */
 let qaCardHover = false;
 let hoverPoll: ReturnType<typeof setInterval> | undefined;
+/** The pill window takes clicks; otherwise they pass through to the window underneath. */
+let takesClicks = false;
 
 function pollCardHover(): void {
-  const overExtra = extraRects.some(pointerIn);
-  if (overExtra !== extraHover) {
-    extraHover = overExtra;
-  }
   cardPointer = nextCardPointer(cardPointer, cardsShown ? topCardId : null, cardRect, pointerAt(), qaCardHover);
   if (cardPointer.over !== cardHover) {
     cardHover = cardPointer.over;
     agents?.setHovered(cardHover);
+  }
+  const take = cardHover || extraRects.some(pointerIn) || (!!undoRect && pointerIn(undoRect));
+  if (take !== takesClicks && !pill.isDestroyed()) {
+    takesClicks = take;
+    pill.setIgnoreMouseEvents(!take, { forward: true });
   }
   const open = cardPointer.openFor !== null;
   if (open === cardOpen) return;
@@ -299,7 +303,8 @@ function pollCardHover(): void {
   pillSend('dictate:card-hover', open);
 }
 
-function watchCardHover(on: boolean): void {
+function watchCardHover(): void {
+  const on = cardsShown || extraRects.length > 0 || !!undoRect;
   if (on && !hoverPoll) hoverPoll = setInterval(pollCardHover, 40);
   if (!on && hoverPoll) {
     clearInterval(hoverPoll);
@@ -1475,7 +1480,11 @@ function registerIpc(): void {
   ipcMain.on('dictate:extra-rects', (_e, rs: unknown) => {
     extraRects = Array.isArray(rs) ? rs.filter((r): r is Rect => !!r && [r.x, r.y, r.width, r.height].every(Number.isFinite)) : [];
     if (extraRects.length) showPill(pill);
-    watchCardHover(cardsShown || extraRects.length > 0);
+    watchCardHover();
+  });
+  ipcMain.on('dictate:undo-rect', (_e, r: Rect | null) => {
+    undoRect = r && [r.x, r.y, r.width, r.height].every(Number.isFinite) ? { x: r.x, y: r.y, width: r.width, height: r.height } : null;
+    watchCardHover();
   });
   ipcMain.handle('dictate:card-action', (_e, a: CardAction) => agents?.action(a));
   ipcMain.on('dictate:card-rect', (_e, r: typeof cardRect) => {
@@ -1807,7 +1816,7 @@ function startAgents(): void {
       pollCardHover();
       pillSend('dictate:cards', view);
       if (cardsShown) showPill(pill);
-      watchCardHover(cardsShown || extraRects.length > 0);
+      watchCardHover();
     },
     chime: () => pillSend('dictate:sound', 'chime'),
     pulse: () => {
