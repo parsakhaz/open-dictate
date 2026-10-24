@@ -6,7 +6,7 @@ import { app, globalShortcut, ipcMain, Menu, MessageChannelMain, powerMonitor, s
 import { gainSpec, type GainSpec } from '../core/agc';
 import { dbfs } from '../core/audio';
 import { CaptureController, type CaptureEvents } from '../core/capture';
-import { runChain } from '../core/chain';
+import { RELEASE_STEP_MS, runChain } from '../core/chain';
 import { HistoryStore } from '../core/history';
 import { type Bindings, bindingFromKeys, bindingLabel, type HotkeyAction, HotkeyMachine, isModifier, menuMaskCombos, menuMaskKeys, type RecordMode, swallowBindings, VK } from '../core/hotkeys';
 import { type CardBox, type CardPointer, inRect, nextCardPointer } from '../core/cardpointer';
@@ -550,7 +550,7 @@ async function stopRecording(): Promise<void> {
         } catch (err) {
           if (s.abort.signal.aborted) return { text: heard, steps: [] };
           log('warn', `live cleanup ${s.id} failed (${(err as Error).message}); cleaning the whole dictation`);
-          return runChain(heard, cleanup.steps(), cleanup.deps(), { signal: s.abort.signal });
+          return runChain(heard, cleanup.steps(), cleanup.deps(), { signal: s.abort.signal, capMs: RELEASE_STEP_MS });
         }
       }
     : undefined;
@@ -696,7 +696,7 @@ function startLiveCleanup(s: Session): void {
   const steps = cleanup.steps();
   if (!settings.liveCleanup || !steps.length) return;
   s.segmenter = new Segmenter({ ...DEFAULT_SEGMENTER, pauseMs: settings.livePauseMs });
-  s.cleaner = new LiveCleanup((raw, context, signal) => runChain(raw, steps, cleanup.deps(), { context, signal }));
+  s.cleaner = new LiveCleanup((raw, context, signal, capMs) => runChain(raw, steps, cleanup.deps(), { context, signal, capMs }));
   silentSince = null;
   clearInterval(liveTimer);
   liveTimer = setInterval(() => {

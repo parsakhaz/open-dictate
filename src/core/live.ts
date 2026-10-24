@@ -2,7 +2,7 @@
 // the last one is left. The Segmenter decides when a sentence of the streaming transcript is finished and will
 // not change; LiveCleanup runs them one at a time, in order, each with the earlier ones as context, and at
 // release cleans the remainder and joins the pieces. Pure apart from the injected chain runner.
-import type { Turn } from './chain';
+import { RELEASE_STEP_MS, type Turn } from './chain';
 import type { StepResult } from './types';
 
 export interface SentenceSpan {
@@ -113,8 +113,8 @@ export interface PieceResult {
   turns: Turn[];
 }
 
-/** Runs the cleanup chain on one piece, with the earlier pieces' turns as context. */
-export type PieceRunner = (raw: string, context: Turn[], signal: AbortSignal) => Promise<PieceResult>;
+/** Runs the cleanup chain on one piece, with the earlier pieces' turns as context; `capMs` after release. */
+export type PieceRunner = (raw: string, context: Turn[], signal: AbortSignal, capMs?: number) => Promise<PieceResult>;
 
 interface Job {
   span: SentenceSpan;
@@ -199,7 +199,7 @@ export class LiveCleanup {
     const rest = final.slice(keptEnd).trim();
     if (rest) {
       const ctrl = new AbortController();
-      const r = await this.run(rest, this.contextBefore(null), ctrl.signal);
+      const r = await this.run(rest, this.contextBefore(null), ctrl.signal, RELEASE_STEP_MS);
       if (this.cancelled) throw new Error('cancelled');
       pieces.push(r.text.trim());
       steps.push(...r.steps);
