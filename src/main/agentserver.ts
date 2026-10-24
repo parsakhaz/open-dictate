@@ -111,7 +111,6 @@ export class AgentServer {
             connectedAt: Date.now(),
           };
           this.sessions.set(session.id, session);
-          this.handlers.log?.('info', `agent session ${session.id}: ${session.client.name}${session.pane ? ' in a Pane tab' : ''}`);
           write({ t: 'hello', ok: true, session: session.id, ...(this.handlers.request ? { requests: 1 as const } : {}) });
           return;
         }
@@ -124,7 +123,12 @@ export class AgentServer {
           task
             .then(
               (result) => write({ t: 'result', id: m.id, result }),
-              (err) => write({ t: 'result', id: m.id, error: err instanceof Error ? err.message : String(err) }),
+              (err) => {
+                const error = err instanceof Error ? err.message : String(err);
+                // Routine connections aren't logged (one per CLI command); a failed one is.
+                this.handlers.log?.('warn', `agent session ${s.id} (${s.client.name}): ${m.t === 'call' ? m.tool : m.operation} failed (${error})`);
+                write({ t: 'result', id: m.id, error });
+              },
             )
             .finally(() => calls.delete(m.id));
         }

@@ -48,6 +48,7 @@ Honest limit: other processes running as the same user can read the token. The r
 - Ranking: consent first, then "needs you", then info; oldest first within each, with "+N" for the rest.
 - "Finished" never replaces a card that needs the person, or an agent's own note.
 - An agent's `notify` followed by its tab becoming blocked stays one card. It keeps the agent's title and offers Reply.
+- The log has one line per card raised, answered, dismissed, snoozed, expired or cancelled, with its id, kind and source, and never its words. A round's line says what started it: a click, the shortcut or the summary. Agent connections are logged only when a call fails.
 - Nothing new appears while the person is busy (see [the inbox](#the-inbox-held-snoozed-and-the-round)). The card being answered by voice is the exception: it stays up through the whole reply, marked "Replying by voice…".
 - Paused alerts hold everything. `notify` returns `dnd`, and unpausing drops the info cards.
 - Info cards fade after about 4.5 s on screen. The timer waits while the pointer is over the cards, and when it leaves the card stays at least 2 s more. The vocabulary review is info, but it stays until it is reviewed or dismissed, also after the agent disconnects.

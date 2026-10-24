@@ -112,6 +112,9 @@ export function matchChoice(text: string, choices: string[]): string | undefined
   return hits.length === 1 ? hits[0] : undefined;
 }
 
+/** A card in the log: its kind and where it came from, never its words. */
+export const cardLabel = (card: Card) => `${card.kind} from ${card.source}`;
+
 export class AgentHub {
   readonly queue = new CardQueue();
   readonly grants = new GrantBook();
@@ -181,7 +184,8 @@ export class AgentHub {
     this.enders.push(cb);
   }
 
-  private ended(cardId: string, how: CardEnd, value: unknown): void {
+  private ended(cardId: string, how: CardEnd, value: unknown, card: Card | undefined): void {
+    this.deps.log('info', `card ${cardId} ${how}${card ? ` (${cardLabel(card)})` : ''}`);
     for (const cb of this.enders) cb(cardId, how, value);
   }
 
@@ -235,10 +239,11 @@ export class AgentHub {
       this.cardOwners.get(cardId)?.ending(w.kind === 'notify' && how === 'answered' && result?.answered !== true ? 'completed' : how);
       this.cardOwners.delete(cardId);
     }
-    if (!keepCard && this.queue.remove(cardId)) this.deps.changed();
+    const card = keepCard ? undefined : this.queue.remove(cardId);
+    if (card) this.deps.changed();
     w.resolve(value);
     // A wait settled with keepCard (a snoozed question) hasn't ended: its card is still in Dictate.
-    if (!keepCard) this.ended(cardId, value === w.ends.timeout ? 'expired' : value === w.ends.cancelled ? 'cancelled' : value === w.ends.dismissed ? 'dismissed' : 'answered', value);
+    if (!keepCard) this.ended(cardId, how, value, card);
     return true;
   }
 
@@ -293,6 +298,7 @@ export class AgentHub {
   private add(card: Card): AddResult {
     if (this.cardOwners.has(card.id)) card.requestOwned = true;
     const r = this.queue.add(card, this.deps.now());
+    this.deps.log('info', `card ${card.id} raised (${cardLabel(card)}): ${r}`);
     this.cardOwners.get(card.id)?.accepted(card.id, { state: r }, { source: card.source, ...(card.target ? { local_pane: card.target } : {}) });
     this.queue.tick(this.deps.now());
     if (card.urgency !== 'info' && this.queue.view(this.deps.now()).top?.id === card.id) this.deps.chime();
@@ -462,9 +468,11 @@ export class AgentHub {
   dismiss(cardId: string): void {
     const w = this.waits.get(cardId);
     if (w) this.settle(cardId, w.ends.dismissed);
-    else if (this.queue.remove(cardId)) {
+    else {
+      const card = this.queue.remove(cardId);
+      if (!card) return;
       this.deps.changed();
-      this.ended(cardId, 'dismissed', undefined);
+      this.ended(cardId, 'dismissed', undefined, card);
     }
   }
 
@@ -516,7 +524,7 @@ export class AgentHub {
     }
     if (this.queue.remove(card.id)) {
       this.deps.changed();
-      this.ended(card.id, 'answered', { text });
+      this.ended(card.id, 'answered', { text }, card);
     }
     return { ok: true, message: `Sent to ${tab}` };
   }

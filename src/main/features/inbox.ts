@@ -3,7 +3,7 @@
 // or a round, and the round works through the waiting cards in the sheet right above the pill, by keys or by holding
 // the dictation key. card_status reports where a card is, also an answer given after the agent's call returned.
 
-import type { CardEnd } from '../../core/agenthub';
+import { type CardEnd, cardLabel } from '../../core/agenthub';
 import { ToolInputError } from '../../core/agenttools';
 import { type Card, MAX_WAIT_MS } from '../../core/cards';
 import { BUSY_POLL_MS, isBusyState } from '../../core/flowguard';
@@ -98,13 +98,13 @@ class Inbox {
     host.ipc.handle('undo-snooze', () => this.undoSnooze());
     host.ipc.handle('now', (id) => typeof id === 'string' && this.bringBack(id));
     host.ipc.handle('drop', (id) => typeof id === 'string' && hub.dismiss(id));
-    host.ipc.handle('round', () => this.startRound());
+    host.ipc.handle('round', () => this.startRound('click'));
     // The pill asks when it loads; changes are pushed after that.
     host.ipc.handle('config', () => JSON.parse(this.configJson()));
 
     // ---------- the shortcuts ----------
     host.shortcut('snooze', { claimed: () => this.snoozeClaimed(), pressed: () => this.snoozePressed() });
-    host.shortcut('round', { claimed: () => this.roundClaimed(), pressed: () => (this.round ? this.endRound('key') : this.startRound()) });
+    host.shortcut('round', { claimed: () => this.roundClaimed(), pressed: () => (this.round ? this.endRound('key') : this.startRound('shortcut')) });
     this.timers.push(setInterval(() => this.poll(), CLAIM_POLL_MS));
 
     // ---------- the round ----------
@@ -225,7 +225,7 @@ class Inbox {
       this.host.hub.settle(id, { answered: false, reason: 'snoozed', until: iso(until), card_id: id }, true);
       this.lateAnswer(c);
     }
-    this.host.log('info', `inbox: card ${id} snoozed for ${minutes} min`);
+    this.host.log('info', `card ${id} snoozed for ${minutes} min (${cardLabel(c)})`);
     if (toast) this.setToast({ id, minutes, until, at: now });
     this.render();
     return true;
@@ -275,7 +275,7 @@ class Inbox {
     return !!this.round || this.q.roundCards().length > 0;
   }
 
-  startRound(): void {
+  startRound(by: 'click' | 'shortcut' | 'summary'): void {
     if (this.round) return;
     const cards = this.q.roundCards();
     if (!cards.length) return;
@@ -288,7 +288,7 @@ class Inbox {
     );
     this.q.setRound(true);
     this.heard = '';
-    this.host.log('info', `inbox: round started over ${cards.length} card${cards.length === 1 ? '' : 's'}`);
+    this.host.log('info', `inbox: round started by ${by} over ${cards.length} card${cards.length === 1 ? '' : 's'}`);
     this.showRound(true);
     this.render();
   }
@@ -448,7 +448,7 @@ class Inbox {
     if (name === 'done') this.dropSummary();
     else if (name === 'round') {
       this.dropSummary();
-      this.startRound();
+      this.startRound('summary');
     } else if (name === 'undo') {
       const r = this.undoable;
       const last = r?.undo();
@@ -515,7 +515,7 @@ class Inbox {
       if (top) this.snooze(top.id, Number(arg) || this.host.settings().snooze.minutes[0]);
     } else if (cmd === 'shortcut') {
       if (arg === 'snooze' && this.snoozeClaimed()) this.snoozePressed();
-      else if (arg === 'round' && this.roundClaimed()) (this.round ? this.endRound('key') : this.startRound());
+      else if (arg === 'round' && this.roundClaimed()) (this.round ? this.endRound('key') : this.startRound('shortcut'));
       this.host.log('info', `QA inbox shortcut ${arg} claimed=${arg === 'snooze' ? this.snoozeClaimed() : this.roundClaimed()}`);
     } else if (cmd === 'key') this.roundKey(arg);
     else if (cmd === 'say') void this.utterance(arg, arg).then((r) => this.host.log('info', `QA inbox said ${JSON.stringify(r)}`));
