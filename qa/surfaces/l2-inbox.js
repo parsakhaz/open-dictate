@@ -1,8 +1,12 @@
-// L2 · Inbox, flow guard, round and snooze: J5 flow guard, J6 decision round, J7 snooze, J8 snoozed ask.
+// L2 · Inbox, flow guard, round and snooze: J5 flow guard, J6 decision round, J7 snooze, J8 snoozed ask, J10 notify replies.
 // J9 (snooze settings across a restart) is covered by the settings tests; this harness runs one launch.
 // Typing is simulated with `inbox keydown` (a key-down's time, as the hook reports it); time for snoozes moves with
 // `inbox clock <s>`; round keys and spoken commands go through `inbox key` and `inbox say` (no speech model needed); with the speech model
 // the round is also answered by holding the dictation key while the fake mic plays.
+
+const path = require('node:path');
+const { execFileSync } = require('node:child_process');
+const { ELECTRON } = require('../agent-bridge');
 
 const INBOX = /QA inbox (\{.*\})\r?\n/;
 const PILL = /QA inbox pill (\{.*\})\r?\n/;
@@ -150,6 +154,73 @@ module.exports = {
         check('the late answer is in card_status', late.result?.state === 'answered' && late.result.answer?.choice === 'EU', late.result);
         const d = await qa('inbox dump', INBOX);
         check('the card is gone', d && !d.top, d);
+      },
+    },
+    {
+      id: 'J10',
+      name: 'a notify outside Pane takes a spoken reply, on the pill and in a round, and card_status returns it',
+      async run(ctx) {
+        const { session, cmd, qa, cards, shot, sheetShot, sleep, check, log, untilLog, MODELS } = ctx;
+        await clear(ctx);
+        const agent = session({ client: 'claude-code', title: 'Claude Code' });
+        const note = { title: 'Tests are red on main. Should I revert?', message: 'The checkout change broke 3 tests. Revert it, or I keep fixing.', urgency: 'needs_you' };
+        const n = await agent.call('notify', note);
+        await waitFor(cards, (c) => c?.top?.title === note.title, sleep);
+        cmd('cards-hover on');
+        await sleep(600);
+        await shot('l2-j10-notify-hovered');
+        const l = await qa('card-layout', /QA card-layout (.+)\n/);
+        check('hovered, the notify offers Hold to reply', l?.buttons.includes('Hold to reply'), l);
+        cmd('cards-hover off');
+        if (MODELS) {
+          cmd('card arm-reply');
+          await sleep(200);
+          const mark = log().length;
+          cmd('down');
+          await sleep(1500);
+          await shot('l2-j10-notify-replying');
+          const d = await cards();
+          check('while the key is held, the notify stays up, being answered', d?.top?.title === note.title && !!d.replying, d);
+          await sleep(2000);
+          cmd('up');
+          await untilLog(/reply-preview|dictation \d+: final/, 30_000, mark);
+          await sleep(400);
+          await shot('l2-j10-notify-preview');
+          await waitFor(cards, (c) => c?.top?.title !== note.title, sleep, 40);
+          const s = await agent.call('card_status', { card_id: n.result?.card_id });
+          check('card_status says answered, with the spoken words', s.result?.state === 'answered' && typeof s.result.answer?.text === 'string' && s.result.answer.text.length > 0, s.result);
+        } else cmd('card dismiss');
+
+        // In a round, a notify takes a spoken answer the same way.
+        cmd('inbox keydown');
+        const m = await agent.call('notify', { ...note, title: 'Ship the checkout fix tonight?' });
+        await waitFor(() => qa('inbox dump', INBOX), (x) => x?.extra.waiting === 1, sleep, 25);
+        cmd('inbox shortcut round');
+        await sleep(1000);
+        await sheetShot('l2-j10-round-notify');
+        const said = await qa('inbox say Yes, ship it tonight', /QA inbox said (\{.*\})\r?\n/);
+        check('the round takes the spoken answer for the notify', said?.ok === true, said);
+        const d = await qa('inbox dump', INBOX);
+        check('the round records it as answered', d?.round === null || d?.round?.results[0] === 'answered', d);
+        const summary = await cards();
+        check('the summary counts 1 answered', summary?.top?.kind === 'round-summary' && /1 answered/.test(summary.top.title), summary);
+        await shot('l2-j10-round-summary');
+        // The answer is sent when the summary goes, so Undo could still take it back until then.
+        await sleep(9000);
+        const s = await agent.call('card_status', { card_id: m.result?.card_id });
+        check('card_status says answered, with the words from the round', s.result?.state === 'answered' && s.result.answer?.text === 'Yes, ship it tonight', s.result);
+
+        // The CLI's notify gets the same answer in its request result.
+        const cli = (...args) => JSON.parse(execFileSync(ELECTRON, [path.join(ctx.DATA, 'agents', 'dictate-cli.js'), ...args, '--json'], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', PANE_SESSION_ID: '', PANE_PANEL_ID: '' }, input: JSON.stringify({ ...note, title: 'Roll the fix out to 10%?' }) }).toString());
+        cmd('inbox keydown');
+        const req = cli('notify', '--from-json', '-');
+        await waitFor(() => qa('inbox dump', INBOX), (x) => x?.extra.waiting === 1, sleep, 25);
+        cmd('inbox shortcut round');
+        await sleep(1000);
+        await qa('inbox say Yes, roll it out', /QA inbox said (\{.*\})\r?\n/);
+        await sleep(9000);
+        const got = cli('request', 'get', req.request_id);
+        check('the CLI request result says answered, with the words', got.state === 'answered' && got.result?.text === 'Yes, roll it out', got);
       },
     },
     {

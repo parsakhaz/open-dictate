@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { AgentHub, type ConsentAnswer } from '../core/agenthub';
 import { BRIDGE_FILE, channelPath } from '../core/agentwire';
-import type { Card } from '../core/cards';
+import { type Card, takesReply } from '../core/cards';
 import type { HistoryStore } from '../core/history';
 import { type AccessRecord, addRecord, logLine, parseAccessLog } from '../core/historyaccess';
 import { actionFor } from '../core/panewatch';
@@ -138,7 +138,7 @@ const dto = (c: Card): CardDto => ({
   choices: c.choices,
   linkHost: c.link?.host ?? null,
   canOpen: !!c.target,
-  canReply: !!c.target || c.kind === 'ask' || !!c.requestOwned,
+  canReply: takesReply(c),
   ...(c.data !== undefined ? { data: c.data } : {}),
 });
 
@@ -277,7 +277,7 @@ export class Agents {
     this.armed = null;
     const v = this.hub.queue.view(Date.now());
     const card = (armed && this.hub.queue.get(armed)) || (pointerOverCard ? v.top : null);
-    if (!card || !(card.target || card.kind === 'ask')) return null;
+    if (!card || !takesReply(card)) return null;
     return { cardId: card.id, to: card.source.split(' · ').pop() || 'the agent' };
   }
 

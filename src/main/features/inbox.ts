@@ -5,7 +5,7 @@
 
 import { type CardEnd, cardLabel } from '../../core/agenthub';
 import { ToolInputError } from '../../core/agenttools';
-import { type Card, HOVER_GRACE_MS, MAX_WAIT_MS } from '../../core/cards';
+import { type Card, HOVER_GRACE_MS, MAX_WAIT_MS, takesReply } from '../../core/cards';
 import { answersOut, complete, type DecideData, isAnswered } from '../../core/decidecard';
 import { isApproval } from '../../core/decidematch';
 import { BUSY_POLL_MS, isBusyState } from '../../core/flowguard';
@@ -584,7 +584,7 @@ class Inbox {
       this.showRound();
       return res;
     }
-    if (!c.target && c.kind !== 'ask' && !this.host.hub.waiting(c.id)) return { ok: false, message: 'This card takes no answer · Enter or →' };
+    if (!takesReply(c) && !this.host.hub.waiting(c.id)) return { ok: false, message: 'This card takes no answer · Enter or →' };
     this.act({ id: c.id, action: 'answered', title: c.title, tab: tabOf(c), text: said }, () => this.host.agents.reply(c.id, said, raw));
     return { ok: true, message: `Answer for ${tabOf(c)}` };
   }

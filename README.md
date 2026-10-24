@@ -176,7 +176,7 @@ setup step; Dictate does not add these remote instructions for you.
 ```text
 Use Dictate on CHOSEN-HOST through `runpane workspace CHOSEN-HOST exec`; its Windows launcher is `%APPDATA%\dictate\agents\dictate.cmd`. Workspaces must be authorized and that app running.
 On that host verify `doctor --json` and `schema KIND --json`; use MCP aliases notify, ask, decide, approve, lineup, peek with `--from-json FILE --json`.
-Creation returns immediately: save request_id, then collect `request get ID` or `request wait ID --timeout 45s`. Held/snoozed is not an answer. Never blindly replay after app restart.
+Creation returns immediately: save request_id, then collect `request get ID` or `request wait ID --timeout 45s`. Held/snoozed is not an answer. A notify can come back answered, with the person's spoken reply in result.text. Never blindly replay after app restart.
 Stage input/assets on the host; provide originating machine/task context with `--origin-file`. Paths and localhost resolve there. The local CLI does not route remotely.
 ```
 

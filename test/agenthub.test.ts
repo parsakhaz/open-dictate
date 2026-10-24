@@ -147,6 +147,17 @@ describe('notify', () => {
     expect(r).toMatchObject({ note: expect.stringMatching(/Choices need a Pane tab/) });
   });
 
+  it('outside Pane, a spoken reply ends the card answered with the words, for card_status', async () => {
+    const { hub, sent } = setup();
+    const ended: unknown[] = [];
+    hub.onEnded((id, how, value) => ended.push({ id, how, value }));
+    const r = (await hub.call(outside, 'notify', { title: 'Tests are red on main. Should I revert?', urgency: 'needs_you' }, sig())) as { card_id: string };
+    expect(await hub.reply(r.card_id, 'Yes, revert it.', 'yes revert it')).toEqual({ ok: true, message: 'Answered open-dictate' });
+    expect(ended).toEqual([{ id: r.card_id, how: 'answered', value: { answered: true, text: 'Yes, revert it.', raw: 'yes revert it' } }]);
+    expect(hub.queue.get(r.card_id)).toBeUndefined();
+    expect(sent).toEqual([]);
+  });
+
   it('chimes only for a card that needs the person', async () => {
     const { hub, chimes } = setup();
     await hub.call(inTab(), 'notify', { title: 'fyi' }, sig());
