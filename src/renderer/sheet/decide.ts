@@ -6,6 +6,8 @@
 // goes to it, and it sends the sheet back. Every word, preview included, is a text node; never HTML.
 import type { DecideData } from '../../core/decidecard';
 import { answeredCount, complete, isAnswered } from '../../core/decidecard';
+import { CAPS } from '../../core/agenttools';
+import { fitPlain } from '../../core/cardtext';
 import type { Preview } from '../../core/tools/decide';
 import { dictate, h } from '../bridge';
 import type { SheetPage } from './types';
@@ -172,7 +174,7 @@ function drawStacked(d: Payload): void {
       {},
       h('span.ttl', {}, d.title),
       n > 1 ? h(`span.dtag${n - left ? '.acc' : ''}`, {}, `${n - left} of ${n} answered`) : null,
-      d.message ? h('span.msg', {}, d.message) : null,
+      d.message ? h('span.msg', {}, fitPlain(d.message, CAPS.message).text) : null,
     ),
     list,
     h(
@@ -236,7 +238,7 @@ function draw(): void {
   const left = d.questions.length - answeredCount(d);
   root.replaceChildren(
     head(d),
-    h('div.dtitle', {}, h('span.ttl', {}, d.title), d.message ? h('span.msg', {}, d.message) : null),
+    h('div.dtitle', {}, h('span.ttl', {}, d.title), d.message ? h('span.msg', {}, fitPlain(d.message, CAPS.message).text) : null),
     h('div.dtabs', {}, ...tabs),
     h(
       `div.dbody${anyPreview ? '' : '.narrow'}`,

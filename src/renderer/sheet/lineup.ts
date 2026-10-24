@@ -2,6 +2,8 @@
 // data and are shown only as <img> (an SVG's scripts never run there); every word is a text node.
 // Keys: 1–6 star (the order starred is the order sent), Space or Open full size for the lightbox, H and the arrows in
 // it, Enter sends, Esc steps out of the lightbox and then closes the sheet back to the card.
+import { CAPS } from '../../core/agenttools';
+import { fitPlain } from '../../core/cardtext';
 import { dictate, h } from '../bridge';
 import type { SheetPage } from './types';
 
@@ -194,7 +196,7 @@ function draw(): void {
       h('span.lu-src', {}, p.source),
       h('button.x', { 'aria-label': 'Close', title: 'Back to the card (Esc)', onclick: () => dictate.send('dictate:sheet-esc') }, '✕'),
     ),
-    p.message && mode === 'grid' ? h('div.lu-msg', {}, p.message) : null,
+    p.message && mode === 'grid' ? h('div.lu-msg', {}, fitPlain(p.message, CAPS.message).text) : null,
     ...(mode === 'grid' ? grid() : box()),
   );
   root.replaceChildren(el);

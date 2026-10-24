@@ -1,13 +1,15 @@
 // The six MCP tools Dictate offers coding agents: their definitions (the bridge lists them even when Dictate isn't
 // running) and the checks that turn an agent's arguments into something the pill may show. Pure.
-import { cleanMessage, cleanText, safeLink } from './agenttext';
+import { type Clean, cleanMessage, cleanText, safeLink } from './agenttext';
+import { fitMessage, fitPlain } from './cardtext';
 
 export const TOOL_NAMES = ['notify', 'ask', 'status', 'propose_vocabulary', 'list_vocabulary', 'read_history'] as const;
 /** The surfaces' tools, one module each in src/core/tools/, listed only once their lane turns them on. */
 export const SURFACE_TOOL_NAMES = ['decide', 'approve', 'card_status', 'lineup', 'peek'] as const;
 export type ToolName = (typeof TOOL_NAMES)[number] | (typeof SURFACE_TOOL_NAMES)[number];
 
-export const CAPS = { title: 60, message: 280, question: 120, choice: 24, choices: 4, reason: 120 } as const;
+/** What a card shows. A message is kept up to `kept` characters and cut to `message` once its Markdown is read. */
+export const CAPS = { title: 60, message: 280, kept: 2000, question: 120, choice: 40, choices: 4, reason: 120 } as const;
 export const ASK_TIMEOUT = { defaultS: 120, maxS: 600 } as const;
 export const HISTORY_LIMITS = { defaultLimit: 5, maxLimit: 20, defaultHours: 24, maxHours: 7 * 24 } as const;
 export const VOCAB_LIMITS = { terms: 20, chars: 40, aliases: 8 } as const;
@@ -76,7 +78,7 @@ export interface ToolDef {
   annotations: { readOnlyHint?: boolean; destructiveHint?: boolean; idempotentHint?: boolean; openWorldHint?: boolean };
 }
 
-const choices = { type: 'array', maxItems: CAPS.choices, items: { type: 'string', maxLength: 40 }, description: 'Up to 4 short answer labels.' };
+const choices = { type: 'array', maxItems: CAPS.choices, items: { type: 'string', maxLength: CAPS.choice }, description: 'Up to 4 short answer labels.' };
 
 export const TOOLS: ToolDef[] = [
   {
@@ -228,23 +230,30 @@ function checkArgs(tool: ToolName, a: Record<string, unknown>): void {
   }
 }
 
+/** The agent's own choice strings, whole: a click returns one exactly. The card shows CAPS.choice characters. */
 function choiceList(x: unknown): string[] {
   if (!Array.isArray(x)) return [];
   const out: string[] = [];
   for (const c of x) {
-    const t = cleanText(c, CAPS.choice).text;
+    const t = cleanText(c, CAPS.kept).text;
     if (t && !out.some((o) => o.toLowerCase() === t.toLowerCase())) out.push(t);
     if (out.length === CAPS.choices) break;
   }
   return out;
 }
 
+/** An agent's message for a card, kept whole up to CAPS.kept; truncated if the card shows less of it. */
+export function cardMessage(input: unknown): Clean {
+  const m = cleanMessage(input, CAPS.kept);
+  return { text: m.text, truncated: m.truncated || fitMessage(m.text, CAPS.message).truncated };
+}
+
 export function parseNotify(input: unknown): NotifyArgs {
   const a = obj(input);
   checkArgs('notify', a);
-  const title = cleanText(a.title, CAPS.title);
+  const title = fitPlain(a.title, CAPS.title);
   if (!title.text) throw new ToolInputError('notify needs a title');
-  const message = cleanMessage(a.message, CAPS.message);
+  const message = cardMessage(a.message);
   if (a.link !== undefined && a.link !== null && a.link !== '' && !safeLink(a.link)) throw new ToolInputError('link must be an https URL');
   const action = (['reply', 'approve', 'review', 'choose', 'fyi'] as const).find((x) => x === a.action) ?? null;
   return {
@@ -261,9 +270,9 @@ export function parseNotify(input: unknown): NotifyArgs {
 export function parseAsk(input: unknown): AskArgs {
   const a = obj(input);
   checkArgs('ask', a);
-  const question = cleanText(a.question, CAPS.question);
+  const question = fitPlain(a.question, CAPS.question);
   if (!question.text) throw new ToolInputError('ask needs a question');
-  const message = cleanMessage(a.message, CAPS.message);
+  const message = cardMessage(a.message);
   const t = typeof a.timeout_s === 'number' && Number.isFinite(a.timeout_s) ? a.timeout_s : ASK_TIMEOUT.defaultS;
   return {
     question: question.text,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { messageLines, plainTitle } from '../src/core/cardtext';
+import { fitMessage, fitPlain, messageLines, plainTitle } from '../src/core/cardtext';
 
 describe('card titles', () => {
   it('drop every Markdown mark and keep the words', () => {
@@ -43,5 +43,24 @@ describe('card messages', () => {
     const lines = messageLines('<img src=x onerror=alert(1)> **<b>hi</b>**');
     expect(lines).toEqual([[{ text: '<img src=x onerror=alert(1)> ' }, { text: '<b>hi</b>', style: 'b' }]]);
     expect(plainTitle('<img src=x onerror=alert(1)>')).toBe('<img src=x onerror=alert(1)>');
+  });
+});
+
+describe('cutting a card to fit', () => {
+  it('cuts a title after its marks are gone, at a word boundary', () => {
+    expect(fitPlain('**Production** deploy is blocked by a failing migration', 30)).toEqual({ text: 'Production deploy is blocked…', truncated: true });
+    expect(fitPlain('**Ship** it', 30)).toEqual({ text: 'Ship it', truncated: false });
+  });
+
+  it('cuts one word longer than the cap where the cap falls', () => {
+    expect(fitPlain('x'.repeat(100), 10)).toEqual({ text: `${'x'.repeat(9)}…`, truncated: true });
+  });
+
+  it('cuts a message after its marks become styles, at a word boundary, keeping the styles', () => {
+    expect(fitMessage('Run **all the tests** with `pnpm test` before\nmerging', 20)).toEqual({
+      lines: [[{ text: 'Run ' }, { text: 'all the tests', style: 'b' }, { text: '…' }]],
+      truncated: true,
+    });
+    expect(fitMessage('Short **one**', 20)).toEqual({ lines: [[{ text: 'Short ' }, { text: 'one', style: 'b' }]], truncated: false });
   });
 });

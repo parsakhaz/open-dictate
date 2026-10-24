@@ -9,6 +9,8 @@ import type { Logger } from './log';
 export interface TabNames {
   paneId: string;
   paneName: string;
+  /** From `panes list` only: watch events don't carry it, so a tab first seen there is looked up once. */
+  repoName?: string;
   panelTitle?: string;
   agentType?: string;
 }
@@ -102,7 +104,10 @@ export class PaneLink {
           this.opts.log('info', 'pane: watching agent states');
         }
         if (!e) return;
-        if (e.panelId) this.names.set(e.panelId, { paneId: e.paneId, paneName: e.paneName, panelTitle: e.panelTitle, agentType: e.agentType });
+        if (e.panelId) {
+          const had = this.names.get(e.panelId);
+          this.names.set(e.panelId, { paneId: e.paneId, paneName: e.paneName, repoName: had?.paneId === e.paneId ? had.repoName : undefined, panelTitle: e.panelTitle, agentType: e.agentType });
+        }
         this.opts.onEvent(e);
       }),
     );
@@ -151,14 +156,14 @@ export class PaneLink {
   async tabNames(paneId: string, panelId: string): Promise<TabNames | null> {
     // Names are kept current only by a running watch's events; without one, ask runpane each time.
     const known = this.watch ? this.names.get(panelId) : undefined;
-    if (known && known.paneId === paneId) return known;
+    if (known && known.paneId === paneId && known.repoName) return known;
     const watch = this.watch;
     try {
-      const panes = await this.run<{ panes: { id: string; name: string }[] }>(['panes', 'list']);
+      const panes = await this.run<{ panes: { id: string; name: string; repoName?: string }[] }>(['panes', 'list']);
       const pane = panes.panes.find((p) => p.id === paneId);
       if (!pane) return await this.sessionTab(paneId, panelId);
       const panels = await this.run<{ panels: { id: string; title: string; agentType?: string }[] }>(['panels', 'list', '--pane', paneId]);
-      const found = panels.panels.map((p): [string, TabNames] => [p.id, { paneId, paneName: pane.name, panelTitle: p.title, agentType: p.agentType }]);
+      const found = panels.panels.map((p): [string, TabNames] => [p.id, { paneId, paneName: pane.name, repoName: pane.repoName, panelTitle: p.title, agentType: p.agentType }]);
       // Kept only while the watch that was running when the lookup began still runs to keep them current.
       if (watch && this.watch === watch) for (const [id, names] of found) this.names.set(id, names);
       return found.find(([id]) => id === panelId)?.[1] ?? null;
@@ -167,10 +172,10 @@ export class PaneLink {
     }
   }
 
-  /** A Session's own chat: "Session · <its name>", e.g. the Voice orchestrator's cards read "Session · Voice". */
+  /** A Session's own chat, named "Session / <its name>": the Voice orchestrator's cards read "Claude · Session / Voice". */
   private async sessionTab(paneId: string, panelId: string): Promise<TabNames | null> {
     const s = (await this.sessions()).find((x) => x.internalSessionId === paneId || Object.values(x.panelIds).includes(panelId));
-    return s ? { paneId, paneName: 'Session', panelTitle: s.name } : null;
+    return s ? { paneId, paneName: s.name, repoName: 'Session', panelTitle: s.name } : null;
   }
 
   /** What the agent in a tab last said, from its transcript; null when Pane can't tell. */

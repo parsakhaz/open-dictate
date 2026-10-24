@@ -59,14 +59,16 @@ describe('the watch', () => {
 });
 
 describe('source lines', () => {
-  it('name the Pane and the tab, falling back to the agent', () => {
-    expect(paneSourceLine('dictate-mcp', 'Codex', 'codex')).toBe('dictate-mcp · Codex');
-    expect(paneSourceLine('dictate-mcp', '', 'claude')).toBe('dictate-mcp · Claude Code');
-    expect(paneSourceLine('x', undefined, undefined)).toBe('x · Pane tab');
+  it('name the agent, then the repo and the Pane', () => {
+    expect(paneSourceLine({ paneName: 'P0 No-reply mode', repoName: 'bloom-mono', agentType: 'claude' })).toBe('Claude · bloom-mono / P0 No-reply mode');
+    expect(paneSourceLine({ paneName: 'open-dictate', repoName: 'open-dictate', agentType: 'codex' })).toBe('Codex · open-dictate');
+    expect(paneSourceLine({ paneName: 'dictate-mcp' }, { name: 'cursor-vscode' })).toBe('Cursor · dictate-mcp');
+    expect(paneSourceLine({ paneName: '' })).toBe('Agent · Pane tab');
   });
 
-  it('name the client and its folder outside Pane', () => {
+  it('name the agent and its folder outside Pane, with the repo for a worktree', () => {
     expect(clientSourceLine({ name: 'cursor-vscode' }, 'C:\\repos\\open-dictate')).toBe('Cursor · open-dictate');
+    expect(clientSourceLine({ name: 'claude-code', title: 'Claude Code' }, '/Users/me/repos/open-dictate/worktrees/card-readability')).toBe('Claude · open-dictate / card-readability');
     expect(clientSourceLine({ name: 'gemini-cli', title: 'Gemini CLI' }, '/home/me/app/')).toBe('Gemini CLI · app');
   });
 });

@@ -3,6 +3,7 @@
 import path from 'node:path';
 import { cleanMessage, cleanText } from './agenttext';
 import { CAPS } from './agenttools';
+import { fitPlain } from './cardtext';
 
 export interface Launch {
   file: string;
@@ -115,8 +116,8 @@ export function actionFor(e: WatchEvent): PaneAction {
       return { type: 'clear', ...at };
     case 'agent.report': {
       const r = e.report ?? {};
-      const summary = cleanMessage(r.summary, CAPS.message).text || undefined;
-      if (r.state === 'blocked') return { type: 'blocked', ...at, title: cleanText(r.question, CAPS.title).text || WORDS.blocked, message: summary };
+      const summary = cleanMessage(r.summary, CAPS.kept).text || undefined;
+      if (r.state === 'blocked') return { type: 'blocked', ...at, title: fitPlain(r.question, CAPS.title).text || WORDS.blocked, message: summary };
       if (r.state === 'failed') return { type: 'blocked', ...at, title: WORDS.failed, message: summary };
       if (r.state === 'done' || r.state === 'ready') return { type: 'finished', ...at, title: WORDS.finished, message: summary };
       return null;
@@ -126,19 +127,32 @@ export function actionFor(e: WatchEvent): PaneAction {
   }
 }
 
-/** "<Pane name> · <tab>": the tab's title, or its agent's name when the title is just a terminal's. */
-export function paneSourceLine(paneName: string, panelTitle: string | undefined, agentType: string | undefined): string {
-  const agent = agentType ? ({ claude: 'Claude Code', codex: 'Codex', cursor: 'Cursor' } as Record<string, string>)[agentType] ?? agentType : undefined;
-  const tab = cleanText(panelTitle, 40).text || agent || 'Pane tab';
-  return `${cleanText(paneName, 40).text || 'Pane'} · ${tab}`;
+const AGENTS: Record<string, string> = { claude: 'Claude', 'claude-code': 'Claude', codex: 'Codex', 'codex-mcp-client': 'Codex', cursor: 'Cursor', 'cursor-vscode': 'Cursor' };
+
+/** The agent's short name: Pane's agent type, else the MCP client's title or name ("Claude Code" and claude-code read Claude). */
+function agentName(agentType: string | undefined, client: { name: string; title?: string } | undefined): string {
+  const known = (s: string | undefined) => (s ? AGENTS[s.toLowerCase().replace(/\s+/g, '-')] : undefined);
+  const name = known(agentType) || (client && (known(client.title) || client.title || known(client.name) || client.name)) || agentType;
+  return cleanText(name, 20).text || 'Agent';
 }
 
-/** Outside Pane: "<client> · <folder>". */
+/** "<repo> / <name>", either one alone when the other is missing or the same. */
+function project(repo: string | undefined, name: string | undefined): string {
+  const parts = [cleanText(repo, 30).text, cleanText(name, 40).text].filter(Boolean);
+  return [...new Set(parts)].join(' / ');
+}
+
+/** In Pane: "<agent> · <repo> / <Pane name>", e.g. "Claude · bloom-mono / P0 No-reply mode". */
+export function paneSourceLine(tab: { paneName: string; repoName?: string; agentType?: string }, client?: { name: string; title?: string }): string {
+  return `${agentName(tab.agentType, client)} · ${project(tab.repoName, tab.paneName) || 'Pane tab'}`;
+}
+
+/** Outside Pane: "<agent> · <folder>", or "<agent> · <repo> / <worktree>" for a folder under a repo's worktrees. */
 export function clientSourceLine(client: { name: string; title?: string }, cwd: string): string {
-  const known: Record<string, string> = { 'claude-code': 'Claude Code', 'codex-mcp-client': 'Codex', 'cursor-vscode': 'Cursor' };
-  const name = cleanText(client.title || known[client.name] || client.name, 30).text || 'Agent';
-  const folder = cleanText(cwd.split(/[\\/]/).filter(Boolean).pop() ?? '', 30).text;
-  return folder ? `${name} · ${folder}` : name;
+  const dirs = cwd.split(/[\\/]/).filter(Boolean);
+  const name = dirs.at(-1);
+  const where = dirs.at(-2) === 'worktrees' ? project(dirs.at(-3), name) : project(undefined, name);
+  return where ? `${agentName(undefined, client)} · ${where}` : agentName(undefined, client);
 }
 
 /** A Pane Session, as `runpane sessions list|get|create --json` gives it: its chat panel is `panelIds[agent]`. */

@@ -10,7 +10,7 @@ module.exports = {
   journeys: [
     {
       id: 'J10',
-      name: 'the agent key creates the Voice Session, resumes it, sends "[Dictate · voice] …", and its cards read "Session · Voice"',
+      name: 'the agent key creates the Voice Session, resumes it, sends "[Dictate · voice] …", and its cards read "<agent> · Session / Voice"',
       async run({ PANE_DIR, MODELS, cmd, sleep, qa, log, untilLog, session, cards, shot, check }) {
         fakePane.install(PANE_DIR, { node: ELECTRON, state: { panes: [{ id: 'P1', name: 'Dictate', panels: [{ id: 'T1', title: 'mic-gain', agentType: 'claude' }] }] } });
         cmd('voice recheck');
@@ -47,7 +47,7 @@ module.exports = {
           top = (await cards())?.top;
           await sleep(200);
         }
-        check('its card names the source "Session · Voice"', top?.source === 'Session · Voice', top);
+        check('its card names the source "<agent> · Session / Voice"', / · Session \/ Voice$/.test(top?.source ?? ''), top);
         cmd('cards-hover on');
         await sleep(700);
         await shot('l3-orchestrator-card');
@@ -70,7 +70,7 @@ module.exports = {
           draft = (await cards())?.top;
           await sleep(200);
         }
-        check('a "Voice has a draft" card shows, from "Session · Voice", with Open', draft?.kind === 'voice-draft' && draft.title === 'Voice has a draft' && draft.source === 'Session · Voice' && draft.target === true, draft);
+        check('a "Voice has a draft" card shows, from "<agent> · Session / Voice", with Open', draft?.kind === 'voice-draft' && draft.title === 'Voice has a draft' && / · Session \/ Voice$/.test(draft.source) && draft.target === true, draft);
         cmd('cards-hover on');
         await sleep(700);
         const layout = await qa('card-layout', /QA card-layout (.+)\n/);

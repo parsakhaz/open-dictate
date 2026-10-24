@@ -1,7 +1,8 @@
 // lineup: two to six candidates (images or short texts) side by side; the person picks one, several or an order.
 // The definition and its arguments' rules; main checks the image files (src/main/features/lineup.ts). Pure.
 import { cleanMessage, cleanText } from '../agenttext';
-import { ASK_TIMEOUT, CARD_RULE, CAPS, ToolInputError } from '../agenttools';
+import { ASK_TIMEOUT, CARD_RULE, CAPS, cardMessage, ToolInputError } from '../agenttools';
+import { fitPlain } from '../cardtext';
 import type { ToolModule } from './types';
 
 export const LINEUP = { min: 2, max: 6, id: 40, label: 24, caption: 80, text: 600, imageBytes: 10 * 1024 * 1024, defaultTimeoutS: 600 } as const;
@@ -76,9 +77,9 @@ export function looksLikeUrl(s: string): boolean {
 
 export function parseLineup(input: unknown): LineupArgs {
   const a = obj(input);
-  const title = cleanText(a.title, CAPS.title);
+  const title = fitPlain(a.title, CAPS.title);
   if (!title.text) throw new ToolInputError('lineup needs a title');
-  const message = cleanMessage(a.message, CAPS.message);
+  const message = cardMessage(a.message);
   if (!Array.isArray(a.candidates) || a.candidates.length < LINEUP.min || a.candidates.length > LINEUP.max) {
     throw new ToolInputError(`lineup needs ${LINEUP.min} to ${LINEUP.max} candidates`);
   }

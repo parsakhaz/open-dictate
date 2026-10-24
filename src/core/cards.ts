@@ -34,9 +34,9 @@ export interface Card {
   /** pane-ready is Pane's "Finished": it never replaces a card that needs the person. */
   kind: CardKind;
   urgency: CardUrgency;
-  /** Always Dictate's own words: "<Pane name> · <tab>", or "<client> · <folder>". */
+  /** Always Dictate's own words: "<agent> · <repo> / <Pane name>", or "<agent> · <folder>". */
   source: string;
-  /** The round's chip: the Pane tab, the session a remote agent named, or the agent. */
+  /** The round's chip: the same line as `source`. */
   sourceName?: string;
   /** Shown when the card is expanded, e.g. the Session name. */
   sourceDetail?: string;
