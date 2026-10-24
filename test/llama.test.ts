@@ -1,4 +1,7 @@
 import { EventEmitter } from 'node:events';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LlamaServer } from '../src/engine/llama';
 
@@ -121,5 +124,85 @@ describe('LlamaServer', () => {
     s.stop();
     await expect(p).rejects.toThrow(/stopped/);
     expect(procs[0].killed).toBe(true);
+  });
+});
+
+describe('LlamaServer heals itself', () => {
+  /** A ready server whose chat requests answer with `status` (after the warm-up) and whose health answers `healthy`. */
+  async function ready(status: () => number, healthy: () => boolean, files?: { exe: string; gguf: string }) {
+    const procs: FakeProc[] = [];
+    let warmed = false;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (String(url).endsWith('/health')) return new Response('{}', { status: healthy() || !warmed ? 200 : 503 });
+        if (!warmed) {
+          warmed = true;
+          return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }));
+        }
+        const code = status();
+        return new Response(code === 200 ? JSON.stringify({ choices: [{ message: { content: 'ok' } }] }) : 'nope', { status: code });
+      }),
+    );
+    const s = new LlamaServer('gemma', {
+      exe: files?.exe ?? 'x',
+      gguf: files?.gguf ?? 'm',
+      log: () => undefined,
+      warmup: () => ({ messages: [] }),
+      freePort: async () => 1234,
+      spawn: (() => {
+        const p = new FakeProc();
+        procs.push(p);
+        warmed = procs.length > 1 ? false : warmed;
+        return p;
+      }) as never,
+    });
+    await s.start();
+    return { s, procs };
+  }
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+
+  it('restarts after three server errors in a row', async () => {
+    const { s, procs } = await ready(() => 500, () => true);
+    for (let i = 0; i < 3; i++) await expect(s.complete({ messages: [] })).rejects.toThrow(/HTTP 500/);
+    await settle();
+    expect(procs).toHaveLength(2);
+    expect(procs[0].killed).toBe(true);
+    s.stop();
+  });
+
+  it('keeps a server that only gets bad requests, such as a context overflow', async () => {
+    const { s, procs } = await ready(() => 400, () => true);
+    for (let i = 0; i < 5; i++) await expect(s.complete({ messages: [] })).rejects.toThrow(/HTTP 400/);
+    await settle();
+    expect(procs).toHaveLength(1);
+    s.stop();
+  });
+
+  it('restarts a server that stops answering its health check after a request fails', async () => {
+    let healthy = true;
+    const { s, procs } = await ready(() => 500, () => healthy);
+    healthy = false;
+    await expect(s.complete({ messages: [] })).rejects.toThrow();
+    await settle();
+    expect(procs).toHaveLength(2);
+    s.stop();
+  });
+
+  it('notices when its binary or model changes on disk', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dictate-llama-'));
+    const exe = path.join(dir, 'llama-server');
+    const gguf = path.join(dir, 'm.gguf');
+    fs.writeFileSync(exe, 'cpu build');
+    fs.writeFileSync(gguf, 'weights');
+    const { s } = await ready(() => 200, () => true, { exe, gguf });
+    expect(s.changed()).toBe(false);
+    fs.writeFileSync(exe, 'vulkan build!');
+    expect(s.changed()).toBe(true);
+    // Mid-swap, with the binary gone, there is nothing to restart from.
+    fs.rmSync(exe);
+    expect(s.changed()).toBe(false);
+    s.stop();
+    fs.rmSync(dir, { recursive: true });
   });
 });
